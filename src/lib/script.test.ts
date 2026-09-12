@@ -7,10 +7,11 @@ const pack = loadPack("mstudio");
 const idea = "fixed-price websites that ship in two weeks";
 
 describe("script", () => {
-  it("fills hook, 3 beats, cta with the idea present", () => {
+  it("names the idea once: hook contains it verbatim, beats/cta do not", () => {
     const s = buildScript(idea, MSTUDIO_PROFILE, pack);
     expect(s.beats.length).toBe(3);
-    for (const t of [s.hook, ...s.beats, s.cta]) expect(t).toMatch(/fixed-price/i);
+    expect(s.hook).toContain(idea);
+    for (const t of [...s.beats, s.cta]) expect(t).not.toContain(idea);
   });
 
   it("cues cover 0-45s without gaps", () => {

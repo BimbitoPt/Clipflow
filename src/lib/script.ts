@@ -26,11 +26,11 @@ export function buildScript(idea: string, profile: Profile, pack: NichePack): Vi
   clean = clean.length <= 140 ? clean : clean.slice(0, 140).replace(/\s+\S*$/, "");
   const hook = `${pick(pack.hooks, clean)} ${clean}.`;
   const beats: [string, string, string] = [
-    `Problem: ${profile.audience} struggle because ${clean} is missing.`,
-    `Proof for ${clean}: ${profile.proof}.`,
-    `Offer: ${profile.offer} — ${profile.tone}.`,
+    `${profile.audience} keep losing to competitors who look finished.`,
+    `Proof: ${profile.proof}.`,
+    `You get ${profile.offer} — ${profile.tone}.`,
   ];
-  const cta = `${pick(pack.ctas, clean + "\n" + profile.niche)} ${clean}.`;
+  const cta = `${pick(pack.ctas, clean + "\n" + profile.niche)}`;
   const cues: TimedCue[] = [
     { start: 0, end: 4, kind: "hook", text: hook },
     { start: 4, end: 16, kind: "beat", text: beats[0]! },
@@ -40,8 +40,8 @@ export function buildScript(idea: string, profile: Profile, pack: NichePack): Vi
   ];
   const variants: [string, string, string] = [
     `${hook}`,
-    `Unpopular opinion for ${profile.audience}: ${clean}.`,
-    `We build ${profile.niche} that ship. ${profile.offer}.`,
+    `Stop looking unfinished: ${profile.offer}.`,
+    `${profile.niche} for ${profile.audience} — ${profile.tone}.`,
   ];
   return {
     hook, beats, cta, cues,
