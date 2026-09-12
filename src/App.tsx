@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { loadPack, type Theme } from "./lib/packs";
 import { MSTUDIO_PROFILE, loadProfile, saveProfile } from "./lib/profile";
 import { buildScript } from "./lib/script";
-import { planFrames, planWords, type PlannedFrame } from "./lib/planner";
+import { planFrames, planWords, VIDEO_SECS, type PlannedFrame } from "./lib/planner";
 import { drawFrame, type BrollImage, type DrawCtx, type RenderExtra } from "./lib/render";
 import { previewSpeak } from "./lib/tts";
 import { createSpeechT5Loader } from "./lib/tts-local";
@@ -52,8 +52,20 @@ export function App() {
   const [broll, setBroll] = useState<ImageBitmap | null>(null);
   const [voiceOn, setVoiceOn] = useState(true);
   const [exportMsg, setExportMsg] = useState("");
+  const [voiceWarn, setVoiceWarn] = useState("");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const busyRef = useRef(false);
+  const brollRef = useRef<ImageBitmap | null>(null);
+
+  useEffect(() => {
+    return () => {
+      try {
+        brollRef.current?.close();
+      } catch {
+        // close on unmount is best-effort; never throw.
+      }
+    };
+  }, []);
 
   const profile = useMemo(() => ({ niche, audience, offer, tone, proof }), [niche, audience, offer, tone, proof]);
   const { script, err: scriptErr } = useMemo(() => {
@@ -75,7 +87,16 @@ export function App() {
     if (!file) return;
     try {
       const bmp = await createImageBitmap(file);
+      const prev = brollRef.current;
+      brollRef.current = bmp;
       setBroll(bmp);
+      if (prev) {
+        try {
+          prev.close();
+        } catch {
+          // close on closed bitmap throws; never propagate.
+        }
+      }
       setErr("");
     } catch {
       setErr("Could not load that image — try another file.");
@@ -83,12 +104,16 @@ export function App() {
   }
 
   function onRemoveBroll() {
-    try {
-      broll?.close();
-    } catch {
-      // close is best-effort; never throw.
-    }
+    const cur = brollRef.current;
+    brollRef.current = null;
     setBroll(null);
+    if (cur) {
+      try {
+        cur.close();
+      } catch {
+        // close is best-effort; never throw.
+      }
+    }
   }
 
   useEffect(() => {
@@ -139,6 +164,7 @@ export function App() {
       setStatus("working");
       setErr("");
       setExportMsg("");
+      setVoiceWarn("");
       try {
         let pcm: Float32Array | null = null;
         if (voiceOn) {
@@ -146,7 +172,19 @@ export function App() {
           const fullText = [script.hook, ...script.beats, script.cta].join(". ");
           setExportMsg("Rendering voice…");
           try {
-            pcm = await loader(fullText);
+            const raw = await loader(fullText);
+            const target = VIDEO_SECS * 16000;
+            if (raw.length > target) {
+              const secs = (raw.length / 16000).toFixed(1);
+              setVoiceWarn(`Voice ran ${secs}s — trimmed to ${VIDEO_SECS}s video. Shorten the idea for a perfect fit.`);
+              pcm = raw.slice(0, target);
+            } else if (raw.length < target) {
+              const fitted = new Float32Array(target);
+              fitted.set(raw, 0);
+              pcm = fitted;
+            } else {
+              pcm = raw;
+            }
           } catch (e) {
             setStatus("error");
             setErr(e instanceof Error ? e.message : String(e));
@@ -379,6 +417,7 @@ export function App() {
               </button>
             </div>
             {exportMsg ? <p className="text-sm text-gray-300">{exportMsg}</p> : null}
+            {voiceWarn ? <p className="text-sm text-gray-300">{voiceWarn}</p> : null}
             {status === "exported" ? <p className="text-sm text-gray-300">Exported clipflow-916.mp4.</p> : null}
             <details className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
               <summary className="cursor-pointer font-mono text-xs uppercase tracking-widest text-gray-400">
