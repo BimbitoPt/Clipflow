@@ -23,3 +23,28 @@ export function planFrames(script: VideoScript, fps: 30 | 60 = 30): PlannedFrame
   }
   return out;
 }
+
+export interface WordCue {
+  word: string;
+  start: number;
+  end: number;
+  cueKind: "hook" | "beat" | "cta";
+}
+
+export function planWords(script: VideoScript): WordCue[] {
+  const out: WordCue[] = [];
+  for (const cue of script.cues) {
+    const tokens = cue.text.split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) continue;
+    const span = cue.end - cue.start;
+    tokens.forEach((word, i) => {
+      out.push({
+        word,
+        start: cue.start + (span * i) / tokens.length,
+        end: cue.start + (span * (i + 1)) / tokens.length,
+        cueKind: cue.kind,
+      });
+    });
+  }
+  return out;
+}
