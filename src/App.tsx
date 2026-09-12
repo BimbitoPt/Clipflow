@@ -5,12 +5,11 @@ import { buildScript } from "./lib/script";
 import { planFrames, type PlannedFrame } from "./lib/planner";
 import { drawFrame, type DrawCtx } from "./lib/render";
 import { previewSpeak } from "./lib/tts";
-import { exportClip } from "./lib/export";
-
-void exportClip;
 
 const pack = loadPack("mstudio");
 const theme: Theme = pack.themes[0]!;
+
+const OUT_W = 720, OUT_H = 1280, OUT_BITRATE = 5_000_000, OUT_NAME = "clipflow-916.mp4";
 
 function store() {
   return { getItem: (k: string) => localStorage.getItem(k), setItem: (k: string, v: string) => localStorage.setItem(k, v) };
@@ -50,39 +49,38 @@ export function App() {
   const [err, setErr] = useState("");
   const [status, setStatus] = useState<"idle" | "working" | "exported" | "error">("idle");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const busyRef = useRef(false);
 
   const profile = useMemo(() => ({ niche, audience, offer, tone, proof }), [niche, audience, offer, tone, proof]);
-  const script = useMemo(() => {
+  const { script, err: scriptErr } = useMemo(() => {
     try {
-      return buildScript(idea, profile, pack);
-    } catch {
-      return null;
+      return { script: buildScript(idea, profile, pack), err: "" };
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      return { script: null, err: m.includes("E_EMPTY_IDEA") ? "E_EMPTY_IDEA: enter your idea above." : m };
     }
   }, [idea, profile]);
 
   useEffect(() => {
-    if (script) {
-      setErr("");
-      return;
-    }
-    try {
-      buildScript(idea, profile, pack);
-      setErr("");
-    } catch (e) {
-      const m = e instanceof Error ? e.message : String(e);
-      setErr(m.includes("E_EMPTY_IDEA") ? "E_EMPTY_IDEA: enter your idea above." : m);
-    }
-  }, [script, idea, profile]);
+    setErr(scriptErr);
+  }, [script]);
 
   useEffect(() => {
-    if (!script) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const frame = planFrames(script, 30)[0];
-    if (!frame) return;
-    drawFrame(ctx as DrawCtx, frame, theme, 360, 640);
+    if (!script) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    try {
+      const frame = planFrames(script, 30)[0];
+      if (!frame) return;
+      drawFrame(ctx as DrawCtx, frame, theme, 360, 640);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
   }, [script]);
 
   function onSave() {
@@ -96,47 +94,63 @@ export function App() {
 
   async function onExport() {
     if (!script) return;
-    if (typeof VideoEncoder === "undefined") {
-      setStatus("error");
-      setErr("This browser can't hardware-encode — open in Chrome/Edge.");
-      return;
-    }
-    setStatus("working");
-    setErr("");
+    if (busyRef.current) return;
+    busyRef.current = true;
     try {
-      const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
-      const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: "avc", width: 720, height: 1280 }, fastStart: "in-memory" });
-      const canvas = document.createElement("canvas");
-      canvas.width = 720;
-      canvas.height = 1280;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
-      const frames: PlannedFrame[] = planFrames(script, 30);
-      const encoder = new VideoEncoder({
-        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-        error: (e) => {
-          throw e;
-        },
-      });
-      encoder.configure({ codec: "avc1.42001f", width: 720, height: 1280, bitrate: 5_000_000 });
-      for (const f of frames) {
-        drawFrame(ctx as DrawCtx, f, theme, 720, 1280);
-        encoder.encode(new VideoFrame(canvas, { timestamp: Math.round(f.t * 1e6) }), { keyFrame: f.t < 1 });
+      if (typeof VideoEncoder === "undefined") {
+        setStatus("error");
+        setErr("This browser can't hardware-encode — open in Chrome/Edge.");
+        return;
       }
-      await encoder.flush();
-      encoder.close();
-      muxer.finalize();
-      const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "clipflow-916.mp4";
-      a.click();
-      URL.revokeObjectURL(url);
-      setStatus("exported");
-    } catch (e) {
-      setStatus("error");
-      setErr(e instanceof Error ? e.message : String(e));
+      setStatus("working");
+      setErr("");
+      try {
+        const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
+        const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: "avc", width: OUT_W, height: OUT_H }, fastStart: "in-memory" });
+        const canvas = document.createElement("canvas");
+        canvas.width = OUT_W;
+        canvas.height = OUT_H;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
+        const frames: PlannedFrame[] = planFrames(script, 30);
+        let encErr: unknown = null;
+        const encoder = new VideoEncoder({
+          output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+          error: (e) => {
+            encErr = e;
+          },
+        });
+        encoder.configure({ codec: "avc1.42001f", width: OUT_W, height: OUT_H, bitrate: OUT_BITRATE });
+        try {
+          for (const f of frames) {
+            drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H);
+            const vf = new VideoFrame(canvas, { timestamp: Math.round(f.t * 1e6) });
+            try {
+              encoder.encode(vf, { keyFrame: f.t < 1 });
+            } finally {
+              vf.close();
+            }
+          }
+          await encoder.flush();
+          if (encErr) throw encErr;
+          muxer.finalize();
+        } finally {
+          if (encoder.state !== "closed") encoder.close();
+        }
+        const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = OUT_NAME;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        setStatus("exported");
+      } catch (e) {
+        setStatus("error");
+        setErr(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      busyRef.current = false;
     }
   }
 
