@@ -57,22 +57,7 @@ Date: 2026-09-12. Sources: official sites/pricing/docs + App Store/Play + G2/Cap
 | Mobile skews positive (VEED 4.8★ app) | app shell | NOTE: PWA must feel native on phones; test export on mobile Chrome early (WebCodecs Android = MediaCodec, fine) |
 | Dual meters (minutes + credits) confuse buyers | pricing | AVOID: single simple rule if paid tier ever lands |
 
-## 3. Free-trial checklist (owner runs, pastes back)
+## 3. Free-trial testing — SKIPPED (owner decision 2026-09-12)
 
-For EACH app (OpusClip, Captions, Descript, VEED, Framedrop — free tier only, no paid trials):
-1. Signup friction: fields required? CC asked? Time to first video (minutes)?
-2. First-run: templates offered? Which caption style is DEFAULT? Can you change it before export?
-3. Export wall: exact click that triggers paywall (quote the screen text); free export spec (ratio/resolution/watermark/length)?
-4. Caption quality: one 30s talking-head clip — accuracy issues? Word timing drift? Languages offered?
-5. Annoyance log: anything that felt hostile (expiry, credits, upsell popups)? Quote it.
-6. One steal for Clipflow (concrete) + one thing to never copy.
-
-Paste results under §4; I fold them into §2 actions.
-
-## 4. Trial results (OPEN — fill after trials)
-
-- OpusClip: _
-- Captions: _
-- Descript: _
-- VEED: _
-- Framedrop: _
+Trials dropped; teardown stands on public research (§1) → actions (§2) only.
+Revisit only if a §2 action is ever blocked on first-hand data.
