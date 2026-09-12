@@ -4,7 +4,7 @@ import { VitePWA } from "vite-plugin-pwa";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
-  // NOTE: `as any` works around TS2769 from Vite 8 (rolldown, vite@8.3.0) vs vitest 3 (bundled Vite 7, vitest@3.2.7) Plugin type divergence; runtime unaffected.
+  // NOTE: `as any` works around TS2769 from dual Vite 7 copies (vite@7.3.6 top-level vs vitest@3.2.7 bundled vite@7.3.6): Plugin types carry private members so the two copies are never mutually assignable; runtime unaffected.
   plugins: [
     react(),
     tailwindcss(),
