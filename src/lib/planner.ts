@@ -31,6 +31,12 @@ export interface WordCue {
   cueKind: "hook" | "beat" | "cta";
 }
 
+/**
+ * Even-split word timing: each cue's [start, end) span is divided evenly
+ * across its whitespace-separated tokens, so word windows are float seconds.
+ * Consumers must compare with `start <= t < end` plus a last-word-of-cue
+ * fallback (same rule as planFrames) — never integer frame indices.
+ */
 export function planWords(script: VideoScript): WordCue[] {
   const out: WordCue[] = [];
   for (const cue of script.cues) {
