@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { drawFrame, type DrawCtx } from "./render";
+import { drawFrame, drawScene, type DrawCtx } from "./render";
+import { planFrames, type SceneVariant } from "./planner";
+import type { VideoScript } from "./script";
 import type { Theme } from "./packs";
 
 type Rect = [number, number, number, number];
@@ -266,5 +268,87 @@ describe("render", () => {
       const w = ctx.measureText!.call(ctx, t).width;
       expect(x + w).toBeLessThanOrEqual(720 - 48 + 1);
     });
+  });
+
+  it("paints each scene variant without throw (full stub)", () => {
+    const variants: SceneVariant[] = ["rays", "blobs", "grid", "waves", "pulse"];
+    for (const variant of variants) {
+      const ctx = stubCtx();
+      expect(() => drawScene(ctx, variant, 5, 720, 1280, theme.accent)).not.toThrow();
+      expect(() =>
+        drawFrame(ctx, { t: 5, variant, cue: { start: 0, end: 4, kind: "hook", text: "Hi" } }, theme),
+      ).not.toThrow();
+    }
+  });
+
+  it("paints each scene variant without throw (bare stub)", () => {
+    const variants: SceneVariant[] = ["rays", "blobs", "grid", "waves", "pulse"];
+    for (const variant of variants) {
+      const bare = {
+        fillStyle: "",
+        font: "",
+        fillRect(_x: number, _y: number, _w: number, _h: number) {},
+        fillText(_t: string, _x: number, _y: number) {},
+      } as unknown as DrawCtx;
+      expect(() => drawScene(bare, variant, 5, 720, 1280, theme.accent)).not.toThrow();
+    }
+  });
+
+  it("renders different call counts for rays vs blobs", () => {
+    const raysCtx = stubCtx();
+    drawScene(raysCtx, "rays", 5, 720, 1280, theme.accent);
+    const blobsCtx = stubCtx();
+    drawScene(blobsCtx, "blobs", 5, 720, 1280, theme.accent);
+    const raysArcs = raysCtx.calls.filter((c) => c === "arc").length;
+    const blobsArcs = blobsCtx.calls.filter((c) => c === "arc").length;
+    expect(raysArcs).toBeGreaterThan(0);
+    expect(blobsArcs).toBeGreaterThan(0);
+    expect(raysCtx.calls.length).not.toBe(blobsCtx.calls.length);
+    expect(raysArcs).not.toBe(blobsArcs);
+  });
+
+  it("assigns scene variants by cue order (rays→hook, blobs/grid/waves→beats, pulse→cta)", () => {
+    const script: VideoScript = {
+      hook: "hook",
+      beats: ["b1", "b2", "b3"],
+      cta: "cta",
+      cues: [
+        { start: 0, end: 4, kind: "hook", text: "hook" },
+        { start: 4, end: 16, kind: "beat", text: "b1" },
+        { start: 16, end: 28, kind: "beat", text: "b2" },
+        { start: 28, end: 40, kind: "beat", text: "b3" },
+        { start: 40, end: 45, kind: "cta", text: "cta" },
+      ],
+      linkedin: { variants: ["hook", "b", "c"] as [string, string, string], body: "", hashtags: [] },
+    };
+    const frames = planFrames(script, 30);
+    expect(frames[0]!.variant).toBe("rays");
+    expect(frames[4 * 30]!.variant).toBe("blobs");
+    expect(frames[16 * 30]!.variant).toBe("grid");
+    expect(frames[28 * 30]!.variant).toBe("waves");
+    expect(frames[40 * 30]!.variant).toBe("pulse");
+  });
+
+  it("wraps 4th+ beat back to blobs", () => {
+    const script: VideoScript = {
+      hook: "hook",
+      beats: ["b1", "b2", "b3"],
+      cta: "cta",
+      cues: [
+        { start: 0, end: 4, kind: "hook", text: "hook" },
+        { start: 4, end: 12, kind: "beat", text: "b1" },
+        { start: 12, end: 20, kind: "beat", text: "b2" },
+        { start: 20, end: 28, kind: "beat", text: "b3" },
+        { start: 28, end: 36, kind: "beat", text: "b4" },
+        { start: 36, end: 45, kind: "cta", text: "cta" },
+      ],
+      linkedin: { variants: ["hook", "b", "c"] as [string, string, string], body: "", hashtags: [] },
+    };
+    const frames = planFrames(script, 30);
+    expect(frames[4 * 30]!.variant).toBe("blobs");
+    expect(frames[12 * 30]!.variant).toBe("grid");
+    expect(frames[20 * 30]!.variant).toBe("waves");
+    expect(frames[28 * 30]!.variant).toBe("blobs");
+    expect(frames[36 * 30]!.variant).toBe("pulse");
   });
 });

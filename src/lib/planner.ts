@@ -1,6 +1,8 @@
 import type { TimedCue, VideoScript } from "./script";
 
-export interface PlannedFrame { t: number; cue: TimedCue; }
+export type SceneVariant = "rays" | "blobs" | "grid" | "waves" | "pulse";
+
+export interface PlannedFrame { t: number; cue: TimedCue; variant?: SceneVariant; }
 
 export const VIDEO_SECS = 45;
 
@@ -9,6 +11,19 @@ export function planFrames(script: VideoScript, fps: 30 | 60 = 30): PlannedFrame
   const n = total * fps;
   const out: PlannedFrame[] = [];
   const sb = (c: { start: number; end: number }) => [Math.round(c.start * fps), Math.round(c.end * fps)] as const;
+  const BEAT_VARIANTS: SceneVariant[] = ["blobs", "grid", "waves"];
+  const variantByCue = new Map<TimedCue, SceneVariant>();
+  let beatIdx = 0;
+  for (const c of script.cues) {
+    if (c.kind === "hook") variantByCue.set(c, "rays");
+    else if (c.kind === "cta") variantByCue.set(c, "pulse");
+    else {
+      variantByCue.set(c, BEAT_VARIANTS[beatIdx % BEAT_VARIANTS.length]!);
+      beatIdx++;
+    }
+  }
+  const fallbackFor = (kind: TimedCue["kind"]): SceneVariant =>
+    kind === "hook" ? "rays" : kind === "cta" ? "pulse" : "blobs";
   let prev = script.cues[0]!;
   for (let i = 0; i < n; i++) {
     const t = i / fps;
@@ -19,7 +34,7 @@ export function planFrames(script: VideoScript, fps: 30 | 60 = 30): PlannedFrame
     });
     const cue = found ?? prev;
     prev = cue;
-    out.push({ t, cue });
+    out.push({ t, cue, variant: variantByCue.get(cue) ?? fallbackFor(cue.kind) });
   }
   return out;
 }

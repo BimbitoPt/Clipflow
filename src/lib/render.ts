@@ -1,5 +1,5 @@
 import type { Theme } from "./packs";
-import { VIDEO_SECS, type PlannedFrame, type WordCue } from "./planner";
+import { VIDEO_SECS, type PlannedFrame, type SceneVariant, type WordCue } from "./planner";
 
 export interface BrollImage {
   width: number;
@@ -163,6 +163,220 @@ function drawPopLine(
   });
 }
 
+export function variantForKind(kind: PlannedFrame["cue"]["kind"]): SceneVariant {
+  return kind === "hook" ? "rays" : kind === "cta" ? "pulse" : "blobs";
+}
+
+function setSceneFill(ctx: DrawCtx, color: string): void {
+  try {
+    ctx.fillStyle = color;
+  } catch {
+    // Scene fill must never throw.
+  }
+}
+
+function setSceneAlpha(ctx: DrawCtx, alpha: number): void {
+  try {
+    ctx.globalAlpha = alpha;
+  } catch {
+    // Alpha must never throw.
+  }
+}
+
+function resetSceneAlpha(ctx: DrawCtx): void {
+  try {
+    ctx.globalAlpha = 1;
+  } catch {
+    // Never throw while restoring alpha.
+  }
+}
+
+function paintRays(ctx: DrawCtx, t: number, W: number, H: number, accent: string): void {
+  if (typeof ctx.beginPath !== "function" || typeof ctx.arc !== "function" || typeof ctx.fill !== "function") return;
+  setSceneFill(ctx, accent);
+  setSceneAlpha(ctx, 0.06);
+  try {
+    const cx = W / 2;
+    const cy = H;
+    const R = Math.max(W, H);
+    const off = t * 0.1;
+    for (let i = 0; i < 12; i++) {
+      const a0 = off + (i * Math.PI * 2) / 12;
+      const a1 = a0 + Math.PI / 24;
+      try {
+        ctx.beginPath!();
+        ctx.arc!(cx, cy, R, a0, a1);
+        ctx.fill!();
+      } catch {
+        // Skip wedge, never throw.
+      }
+    }
+  } finally {
+    resetSceneAlpha(ctx);
+  }
+}
+
+function paintBlobs(ctx: DrawCtx, t: number, W: number, H: number, accent: string): void {
+  if (typeof ctx.beginPath !== "function" || typeof ctx.arc !== "function" || typeof ctx.fill !== "function") return;
+  setSceneFill(ctx, accent);
+  setSceneAlpha(ctx, 0.1);
+  try {
+    const r = W * 0.45;
+    const ph = t * 0.2;
+    const x1 = W / 2 + Math.sin(ph) * W * 0.15;
+    const y1 = H * 0.3 + Math.cos(ph) * H * 0.05;
+    const x2 = W / 2 + Math.cos(ph) * W * 0.15;
+    const y2 = H * 0.7 + Math.sin(ph) * H * 0.05;
+    const spots: Array<[number, number]> = [
+      [x1, y1],
+      [x2, y2],
+    ];
+    for (const [x, y] of spots) {
+      try {
+        ctx.beginPath!();
+        ctx.arc!(x, y, r, 0, Math.PI * 2);
+        ctx.fill!();
+      } catch {
+        // Skip blob, never throw.
+      }
+    }
+  } finally {
+    resetSceneAlpha(ctx);
+  }
+}
+
+function paintGrid(ctx: DrawCtx, t: number, W: number, H: number, accent: string): void {
+  if (typeof ctx.fillRect !== "function") return;
+  setSceneFill(ctx, accent);
+  setSceneAlpha(ctx, 0.07);
+  try {
+    for (let x = 0; x <= W; x += 64) {
+      try {
+        ctx.fillRect(x, 0, 2, H);
+      } catch {
+        // Skip line, never throw.
+      }
+    }
+    for (let y = 0; y <= H; y += 64) {
+      try {
+        ctx.fillRect(0, y, W, 2);
+      } catch {
+        // Skip line, never throw.
+      }
+    }
+    const sx = ((t * 40) % (W + 200)) - 100;
+    setSceneAlpha(ctx, 0.25);
+    setSceneFill(ctx, accent);
+    try {
+      ctx.fillRect(sx, 0, 3, H);
+    } catch {
+      // Skip highlight, never throw.
+    }
+  } finally {
+    resetSceneAlpha(ctx);
+  }
+}
+
+function paintWaves(ctx: DrawCtx, t: number, W: number, H: number, accent: string): void {
+  try {
+    for (let i = 0; i < 3; i++) {
+      if (
+        typeof ctx.beginPath !== "function" ||
+        typeof ctx.fill !== "function" ||
+        typeof ctx.fillRect !== "function"
+      ) {
+        continue;
+      }
+      const baseY = H * (0.3 + 0.2 * i);
+      const phase = t * 0.8 + i;
+      setSceneFill(ctx, accent);
+      setSceneAlpha(ctx, 0.08);
+      try {
+        ctx.beginPath!();
+        for (let x = 0; x < W; x += 16) {
+          const y = baseY + Math.sin(x * 0.02 + phase) * 30;
+          try {
+            ctx.fillRect(x, y, 16, 4);
+          } catch {
+            // Skip strip, never throw.
+          }
+        }
+        try {
+          ctx.fill!();
+        } catch {
+          // Skip fill, never throw.
+        }
+      } catch {
+        // Skip band, never throw.
+      } finally {
+        resetSceneAlpha(ctx);
+      }
+    }
+  } catch {
+    // Waves must never throw.
+  } finally {
+    resetSceneAlpha(ctx);
+  }
+}
+
+function paintPulse(ctx: DrawCtx, t: number, W: number, H: number, accent: string): void {
+  if (typeof ctx.beginPath !== "function" || typeof ctx.arc !== "function" || typeof ctx.fill !== "function") return;
+  const r = (t * 60) % 400;
+  if (!(r > 0.5)) {
+    return;
+  }
+  const alpha = 0.15 * (1 - r / 400);
+  setSceneFill(ctx, accent);
+  setSceneAlpha(ctx, alpha);
+  try {
+    try {
+      ctx.beginPath!();
+      ctx.arc!(W / 2, H / 2, r, 0, Math.PI * 2);
+      ctx.fill!();
+    } catch {
+      // Skip ring, never throw.
+    }
+  } finally {
+    resetSceneAlpha(ctx);
+  }
+}
+
+export function drawScene(
+  ctx: DrawCtx,
+  variant: SceneVariant,
+  t: number,
+  W: number,
+  H: number,
+  accent: string,
+): void {
+  try {
+    switch (variant) {
+      case "rays":
+        paintRays(ctx, t, W, H, accent);
+        break;
+      case "blobs":
+        paintBlobs(ctx, t, W, H, accent);
+        break;
+      case "grid":
+        paintGrid(ctx, t, W, H, accent);
+        break;
+      case "waves":
+        paintWaves(ctx, t, W, H, accent);
+        break;
+      case "pulse":
+        paintPulse(ctx, t, W, H, accent);
+        break;
+    }
+  } catch {
+    // Scene must never throw.
+    try {
+      resetSceneAlpha(ctx);
+    } catch {
+      // Ignore.
+    }
+  }
+}
+
 export function drawFrame(
   ctx: DrawCtx,
   frame: PlannedFrame,
@@ -193,6 +407,16 @@ export function drawFrame(
     typeof ctx.scale === "function";
   let painted = false;
   let brollDrawn = false;
+  const skipScene = !!extra?.image;
+  const sceneVariant: SceneVariant = frame.variant ?? variantForKind(frame.cue.kind);
+  const paintScene = () => {
+    if (skipScene) return;
+    try {
+      drawScene(ctx, sceneVariant, frame.t, W, H, theme.accent);
+    } catch {
+      // Scene must never throw; bg already painted.
+    }
+  };
   const paintBroll = () => {
     if (extra?.image) {
       const iw = extra.image.width;
@@ -220,6 +444,11 @@ export function drawFrame(
       paintBg();
       painted = true;
       try {
+        paintScene();
+      } catch {
+        // Scene inside zoom must never throw; bg already painted.
+      }
+      try {
         paintBroll();
       } catch {
         // B-roll inside zoom must never throw; bg already painted.
@@ -241,6 +470,11 @@ export function drawFrame(
       paintBg();
     } catch {
       // Plain draw must never throw.
+    }
+    try {
+      paintScene();
+    } catch {
+      // Scene fallback must never throw.
     }
   }
   if (!brollDrawn) {
