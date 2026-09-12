@@ -14,20 +14,23 @@ export interface VideoScript {
 }
 
 function pick<T>(arr: T[], seed: string): T {
+  if (arr.length === 0) throw new Error("E_EMPTY_BANK");
   let h = 0;
   for (const c of seed) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return arr[h % arr.length]!;
 }
 
 export function buildScript(idea: string, profile: Profile, pack: NichePack): VideoScript {
-  const clean = idea.trim().replace(/\s+/g, " ");
+  let clean = idea.trim().replace(/\s+/g, " ");
+  if (!clean) throw new Error("E_EMPTY_IDEA: idea must be non-empty");
+  clean = clean.length <= 140 ? clean : clean.slice(0, 140).replace(/\s+\S*$/, "");
   const hook = `${pick(pack.hooks, clean)} ${clean}.`;
   const beats: [string, string, string] = [
     `Problem: ${profile.audience} struggle because ${clean} is missing.`,
     `Proof for ${clean}: ${profile.proof}.`,
     `Offer: ${profile.offer} — ${profile.tone}.`,
   ];
-  const cta = `${pick(pack.ctas, clean + profile.niche)} ${clean}.`;
+  const cta = `${pick(pack.ctas, clean + "\n" + profile.niche)} ${clean}.`;
   const cues: TimedCue[] = [
     { start: 0, end: 4, kind: "hook", text: hook },
     { start: 4, end: 16, kind: "beat", text: beats[0]! },
@@ -42,6 +45,6 @@ export function buildScript(idea: string, profile: Profile, pack: NichePack): Vi
   ];
   return {
     hook, beats, cta, cues,
-    linkedin: { variants, body: `${variants[0]}\n\n${beats.join("\n")}\n\n${cta}`, hashtags: pack.hashtags },
+    linkedin: { variants, body: `${variants[0]}\n\n${beats.join("\n")}\n\n${cta}\n\n${[...pack.hashtags].join(" ")}`, hashtags: [...pack.hashtags] },
   };
 }
