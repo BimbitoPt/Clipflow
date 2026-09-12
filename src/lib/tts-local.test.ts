@@ -6,4 +6,12 @@ describe("tts-local", () => {
     const loader = createSpeechT5Loader();
     expect(typeof loader).toBe("function");
   });
+
+  it("two factory calls return distinct loader functions without network", async () => {
+    const a = createSpeechT5Loader();
+    const b = createSpeechT5Loader();
+    expect(typeof a).toBe("function");
+    expect(typeof b).toBe("function");
+    expect(a).not.toBe(b);
+  });
 });
