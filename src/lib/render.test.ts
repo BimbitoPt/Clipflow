@@ -5,13 +5,29 @@ import type { Theme } from "./packs";
 type Rect = [number, number, number, number];
 type TextArgs = [string, number, number, number | undefined];
 
-function stubCtx(): DrawCtx & { calls: string[]; texts: string[]; rects: Rect[]; textArgs: TextArgs[] } {
-  return {
-    calls: [],
-    texts: [],
-    rects: [],
-    textArgs: [],
-    fillStyle: "",
+function stubCtx(): DrawCtx & {
+  calls: string[];
+  texts: string[];
+  rects: Rect[];
+  textArgs: TextArgs[];
+  accents: unknown[];
+  assigned: unknown[];
+  scales: Array<[number, number]>;
+  drawImageCalls: Array<{ img: unknown; dx: number; dy: number; dw: number; dh: number }>;
+  globalAlphaValues: number[];
+} {
+  const stub = {
+    calls: [] as string[],
+    texts: [] as string[],
+    rects: [] as Rect[],
+    textArgs: [] as TextArgs[],
+    accents: [] as unknown[],
+    assigned: [] as unknown[],
+    scales: [] as Array<[number, number]>,
+    drawImageCalls: [] as Array<{ img: unknown; dx: number; dy: number; dw: number; dh: number }>,
+    globalAlphaValues: [] as number[],
+    _fillStyle: "" as unknown,
+    _alpha: 1,
     font: "",
     fillRect(this: any, x: number, y: number, w: number, h: number) {
       this.calls.push("rect");
@@ -21,6 +37,7 @@ function stubCtx(): DrawCtx & { calls: string[]; texts: string[]; rects: Rect[];
       this.calls.push("text");
       this.texts.push(String(t));
       this.textArgs.push([String(t), x, y, maxWidth]);
+      this.accents.push(this._fillStyle);
     },
     measureText(this: any, t: string) {
       const f: string = this.font ?? "";
@@ -28,6 +45,65 @@ function stubCtx(): DrawCtx & { calls: string[]; texts: string[]; rects: Rect[];
       const size = m ? Number(m[1]) : 16;
       return { width: String(t).length * size * 0.55 };
     },
+    save(this: any) {
+      this.calls.push("save");
+    },
+    restore(this: any) {
+      this.calls.push("restore");
+    },
+    translate(this: any, _x: number, _y: number) {
+      this.calls.push("translate");
+    },
+    scale(this: any, x: number, y: number) {
+      this.calls.push("scale");
+      this.scales.push([x, y]);
+    },
+    drawImage(this: any, img: unknown, dx: number, dy: number, dw: number, dh: number) {
+      this.calls.push("drawImage");
+      this.drawImageCalls.push({ img, dx, dy, dw, dh });
+    },
+    beginPath(this: any) {
+      this.calls.push("beginPath");
+    },
+    arc(this: any) {
+      this.calls.push("arc");
+    },
+    fill(this: any) {
+      this.calls.push("fill");
+    },
+  };
+  Object.defineProperty(stub, "fillStyle", {
+    get(this: any) {
+      return this._fillStyle;
+    },
+    set(this: any, v: unknown) {
+      this._fillStyle = v;
+      this.assigned.push(v);
+    },
+    configurable: true,
+    enumerable: true,
+  });
+  Object.defineProperty(stub, "globalAlpha", {
+    get(this: any) {
+      return this._alpha;
+    },
+    set(this: any, v: number) {
+      this._alpha = v;
+      this.globalAlphaValues.push(v);
+    },
+    configurable: true,
+    enumerable: true,
+  });
+  return stub as unknown as DrawCtx & {
+    calls: string[];
+    texts: string[];
+    rects: Rect[];
+    textArgs: TextArgs[];
+    accents: unknown[];
+    assigned: unknown[];
+    scales: Array<[number, number]>;
+    drawImageCalls: Array<{ img: unknown; dx: number; dy: number; dw: number; dh: number }>;
+    globalAlphaValues: number[];
   };
 }
 
@@ -84,5 +160,46 @@ describe("render", () => {
     drawFrame(ctx, { t: 22.5, cue: { start: 0, end: 4, kind: "hook", text: "Hello niche" } }, theme);
     const near = ctx.rects.filter(([, , w]) => Math.abs(w - 360) <= 2);
     expect(near.length).toBeGreaterThan(0);
+  });
+
+  it("pops current word in accent", () => {
+    const ctx = stubCtx();
+    const words = [
+      { word: "Hello", start: 0, end: 2, cueKind: "hook" as const },
+      { word: "niche", start: 2, end: 4, cueKind: "hook" as const },
+    ];
+    drawFrame(
+      ctx,
+      { t: 3, cue: { start: 0, end: 4, kind: "hook", text: "Hello niche" } },
+      theme,
+      720,
+      1280,
+      { words },
+    );
+    expect(ctx.texts.join(" ")).toMatch(/niche/);
+    const nicheIdx = ctx.texts.findIndex((t) => t === "niche");
+    expect(nicheIdx).toBeGreaterThanOrEqual(0);
+    expect(ctx.accents[nicheIdx]).toBe(theme.accent);
+  });
+
+  it("applies ken burns zoom at t=45", () => {
+    const ctx = stubCtx();
+    drawFrame(ctx, { t: 45, cue: { start: 0, end: 4, kind: "hook", text: "Hello niche" } }, theme);
+    const max = Math.max(...ctx.scales.map(([x, y]) => Math.max(x, y)), 0);
+    expect(max).toBeGreaterThan(1);
+  });
+
+  it("draws b-roll cover-fit with dim overlay", () => {
+    const ctx = stubCtx();
+    drawFrame(
+      ctx,
+      { t: 1, cue: { start: 0, end: 4, kind: "hook", text: "Hello niche" } },
+      theme,
+      720,
+      1280,
+      { image: { width: 100, height: 100 } },
+    );
+    expect(ctx.drawImageCalls.length).toBeGreaterThan(0);
+    expect(ctx.globalAlphaValues).toContain(0.55);
   });
 });
