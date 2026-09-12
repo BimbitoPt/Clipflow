@@ -10,6 +10,7 @@ function stubCtx(): DrawCtx & {
   texts: string[];
   rects: Rect[];
   textArgs: TextArgs[];
+  fonts: string[];
   accents: unknown[];
   assigned: unknown[];
   scales: Array<[number, number]>;
@@ -21,6 +22,7 @@ function stubCtx(): DrawCtx & {
     texts: [] as string[],
     rects: [] as Rect[],
     textArgs: [] as TextArgs[],
+    fonts: [] as string[],
     accents: [] as unknown[],
     assigned: [] as unknown[],
     scales: [] as Array<[number, number]>,
@@ -37,6 +39,7 @@ function stubCtx(): DrawCtx & {
       this.calls.push("text");
       this.texts.push(String(t));
       this.textArgs.push([String(t), x, y, maxWidth]);
+      this.fonts.push(String(this.font ?? ""));
       this.accents.push(this._fillStyle);
     },
     measureText(this: any, t: string) {
@@ -99,6 +102,7 @@ function stubCtx(): DrawCtx & {
     texts: string[];
     rects: Rect[];
     textArgs: TextArgs[];
+    fonts: string[];
     accents: unknown[];
     assigned: unknown[];
     scales: Array<[number, number]>;
@@ -201,5 +205,66 @@ describe("render", () => {
     );
     expect(ctx.drawImageCalls.length).toBeGreaterThan(0);
     expect(ctx.globalAlphaValues).toContain(0.55);
+  });
+
+  it("balances save/restore with b-roll inside zoom", () => {
+    const ctx = stubCtx();
+    drawFrame(
+      ctx,
+      { t: 10, cue: { start: 0, end: 4, kind: "hook", text: "Hello niche" } },
+      theme,
+      720,
+      1280,
+      { image: { width: 100, height: 100 } },
+    );
+    const saves = ctx.calls.filter((c) => c === "save").length;
+    const restores = ctx.calls.filter((c) => c === "restore").length;
+    expect(saves).toBeGreaterThan(0);
+    expect(saves).toBe(restores);
+    const saveIdx = ctx.calls.indexOf("save");
+    const restoreIdx = ctx.calls.indexOf("restore");
+    const drawIdx = ctx.calls.indexOf("drawImage");
+    expect(drawIdx).toBeGreaterThan(saveIdx);
+    expect(drawIdx).toBeLessThan(restoreIdx);
+  });
+
+  it("restores alpha to 1 after b-roll draw", () => {
+    const ctx = stubCtx();
+    drawFrame(
+      ctx,
+      { t: 1, cue: { start: 0, end: 4, kind: "hook", text: "Hello niche" } },
+      theme,
+      720,
+      1280,
+      { image: { width: 100, height: 100 } },
+    );
+    expect(ctx.drawImageCalls.length).toBeGreaterThan(0);
+    expect(ctx.globalAlpha).toBe(1);
+  });
+
+  it("keeps popped lines within frame", () => {
+    const ctx = stubCtx();
+    const text = "alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima";
+    const tokens = text.split(" ");
+    const words = tokens.map((word, i) => ({
+      word,
+      start: i * 2,
+      end: i * 2 + 2,
+      cueKind: "hook" as const,
+    }));
+    drawFrame(
+      ctx,
+      { t: 5, cue: { start: 0, end: tokens.length * 2, kind: "hook", text } },
+      theme,
+      720,
+      1280,
+      { words },
+    );
+    expect(ctx.textArgs.length).toBeGreaterThan(0);
+    ctx.textArgs.forEach(([t, x], i) => {
+      ctx.font = ctx.fonts[i] ?? "";
+      const w = ctx.measureText!.call(ctx, t).width;
+      expect(x + w).toBeLessThanOrEqual(720 - 48 + 1);
+    });
   });
 });

@@ -122,7 +122,9 @@ function drawPopLine(
     return;
   }
   const normalFont = fontFor(baseFont, baseSize);
-  const popFont = fontFor(baseFont, baseSize * 1.15);
+  // Integer px: fractional sizes (e.g. 32.199999999999996px) break naive
+  // /(\d+)px/ font-size parsers, which match the trailing digit run.
+  const popFont = fontFor(baseFont, Math.max(1, Math.round(baseSize * 1.15)));
   const tokens = line.split(" ").filter(Boolean);
   const popIdx = tokens.findIndex((t) => t === popWord);
   if (popIdx < 0) {
@@ -190,21 +192,47 @@ export function drawFrame(
     typeof ctx.translate === "function" &&
     typeof ctx.scale === "function";
   let painted = false;
+  let brollDrawn = false;
+  const paintBroll = () => {
+    if (extra?.image) {
+      const iw = extra.image.width;
+      const ih = extra.image.height;
+      if (iw > 0 && ih > 0 && typeof ctx.drawImage === "function") {
+        const s = Math.max(W / iw, H / ih);
+        const dw = iw * s;
+        const dh = ih * s;
+        const dx = (W - dw) / 2;
+        const dy = (H - dh) / 2;
+        ctx.drawImage(extra.image, dx, dy, dw, dh);
+        brollDrawn = true;
+      }
+    }
+  };
   if (hasTransform) {
     const z = 1 + 0.08 * (frame.t / VIDEO_SECS);
+    let entered = false;
     try {
       ctx.save!();
+      entered = true;
       ctx.translate!(W / 2, H / 2);
       ctx.scale!(z, z);
       ctx.translate!(-W / 2, -H / 2);
       paintBg();
       painted = true;
+      try {
+        paintBroll();
+      } catch {
+        // B-roll inside zoom must never throw; bg already painted.
+      }
+      entered = false;
       ctx.restore!();
     } catch {
-      try {
-        ctx.restore!();
-      } catch {
-        // No-throw zoom skip.
+      if (entered) {
+        try {
+          ctx.restore!();
+        } catch {
+          // No-throw zoom skip.
+        }
       }
     }
   }
@@ -215,29 +243,36 @@ export function drawFrame(
       // Plain draw must never throw.
     }
   }
-  if (extra?.image) {
-    const iw = extra.image.width;
-    const ih = extra.image.height;
-    if (iw > 0 && ih > 0 && typeof ctx.drawImage === "function") {
+  if (!brollDrawn) {
+    try {
+      paintBroll();
+    } catch {
+      // Gradient path fallback: bg already drawn, no throw.
+    }
+  }
+  if (brollDrawn) {
+    try {
       try {
-        const s = Math.max(W / iw, H / ih);
-        const dw = iw * s;
-        const dh = ih * s;
-        const dx = (W - dw) / 2;
-        const dy = (H - dh) / 2;
-        ctx.drawImage(extra.image, dx, dy, dw, dh);
         ctx.globalAlpha = 0.55;
         ctx.fillStyle = "#000000";
         ctx.fillRect(0, 0, W, H);
-        ctx.globalAlpha = 1;
-      } catch {
-        // Gradient path fallback: bg already drawn, no throw.
+      } finally {
+        try {
+          ctx.globalAlpha = 1;
+        } catch {
+          // Never throw while restoring alpha.
+        }
       }
+    } catch {
+      // Overlay must never throw; alpha already restored by finally.
     }
   }
   ctx.fillStyle = theme.accent;
   ctx.fillRect(0, 0, W, 12);
   const maxW = W - 96;
+  // Headroom for the 1.15x pop word: fit lines against maxW/1.15 so the
+  // popped word can never overflow the frame.
+  const fitW = maxW / 1.15;
   const base = parseBaseSize(theme.font);
   let lines: string[];
   let best = base;
@@ -256,8 +291,8 @@ export function drawFrame(
     // Binary-search largest size in [28, base] where every wrapped line fits.
     while (lo <= hi) {
       const mid = Math.floor((lo + hi) / 2);
-      const candidate = wrapMeasured(frame.cue.text, maxW, measureAt(mid));
-      const ok = candidate.every((ln) => measureAt(mid)(ln) <= maxW);
+      const candidate = wrapMeasured(frame.cue.text, fitW, measureAt(mid));
+      const ok = candidate.every((ln) => measureAt(mid)(ln) <= fitW);
       if (ok) {
         best = mid;
         lo = mid + 1;
@@ -267,7 +302,7 @@ export function drawFrame(
     }
     ctx.font = fontFor(theme.font, best);
     const measureBest = measureAt(best);
-    lines = wrapMeasured(frame.cue.text, maxW, measureBest);
+    lines = wrapMeasured(frame.cue.text, fitW, measureBest);
   }
   const wordList = extra?.words;
   if (wordList && wordList.length > 0 && typeof ctx.measureText === "function") {
