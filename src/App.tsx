@@ -12,6 +12,18 @@ const theme: Theme = pack.themes[0]!;
 
 const OUT_W = 720, OUT_H = 1280, OUT_BITRATE = 5_000_000, OUT_NAME = "clipflow-916.mp4";
 
+const STARTER = [
+  "/broll/1.jpg",
+  "/broll/2.jpg",
+  "/broll/3.jpg",
+  "/broll/4.jpg",
+  "/broll/5.jpg",
+  "/broll/6.jpg",
+  "/broll/7.jpg",
+  "/broll/8.jpg",
+  "/broll/9.jpg",
+];
+
 function store() {
   return { getItem: (k: string) => localStorage.getItem(k), setItem: (k: string, v: string) => localStorage.setItem(k, v) };
 }
@@ -50,6 +62,7 @@ export function App() {
   const [err, setErr] = useState("");
   const [status, setStatus] = useState<"idle" | "working" | "exported" | "error">("idle");
   const [broll, setBroll] = useState<ImageBitmap | null>(null);
+  const [starterSrc, setStarterSrc] = useState<string | null>(null);
   const [voiceOn, setVoiceOn] = useState(true);
   const [exportMsg, setExportMsg] = useState("");
   const [voiceWarn, setVoiceWarn] = useState("");
@@ -90,6 +103,27 @@ export function App() {
       const prev = brollRef.current;
       brollRef.current = bmp;
       setBroll(bmp);
+      setStarterSrc(null);
+      if (prev) {
+        try {
+          prev.close();
+        } catch {
+          // close on closed bitmap throws; never propagate.
+        }
+      }
+      setErr("");
+    } catch {
+      setErr("Could not load that image — try another file.");
+    }
+  }
+
+  async function onStarterSelect(src: string) {
+    try {
+      const bmp = await createImageBitmap(await (await fetch(src)).blob());
+      const prev = brollRef.current;
+      brollRef.current = bmp;
+      setBroll(bmp);
+      setStarterSrc(src);
       if (prev) {
         try {
           prev.close();
@@ -107,6 +141,7 @@ export function App() {
     const cur = brollRef.current;
     brollRef.current = null;
     setBroll(null);
+    setStarterSrc(null);
     if (cur) {
       try {
         cur.close();
@@ -379,6 +414,24 @@ export function App() {
               />
             </div>
             <div className="flex flex-wrap items-center gap-4">
+              <div className="w-full space-y-2">
+                <p className="font-mono text-xs uppercase tracking-widest text-gray-400">Starter visuals</p>
+                <div className="flex flex-wrap gap-2">
+                  {STARTER.map((src, i) => (
+                    <button
+                      key={src}
+                      type="button"
+                      title={`Unsplash starter photo ${i + 1}`}
+                      onClick={() => void onStarterSelect(src)}
+                      className={`overflow-hidden rounded-lg border ${
+                        starterSrc === src ? "border-transparent ring-2 ring-[#246BFD]" : "border-white/15"
+                      }`}
+                    >
+                      <img src={src} alt={`Starter visual ${i + 1}`} loading="lazy" className="h-16 w-10 object-cover" />
+                    </button>
+                  ))}
+                </div>
+              </div>
               <label className="font-mono text-xs uppercase tracking-widest text-gray-400">
                 B-roll
                 <input
