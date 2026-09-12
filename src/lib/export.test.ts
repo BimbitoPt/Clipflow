@@ -23,4 +23,20 @@ describe("export", () => {
     expect(finalize).toHaveBeenCalledTimes(1);
     expect(out).toEqual(new Uint8Array([1, 2, 3]));
   });
+
+  it("rejects E_NO_FRAMES on empty frames", async () => {
+    await expect(exportClip({ frames: [], theme, fps: 30 })).rejects.toThrow(/E_NO_FRAMES/);
+  });
+
+  it("closes encoder and propagates on encode throw", async () => {
+    const encode = vi.fn(() => {
+      throw new Error("E_X");
+    });
+    const finalize = vi.fn(async () => new Uint8Array([9]));
+    const close = vi.fn();
+    const encoderFactory = () => ({ encode, finalize, close });
+    await expect(exportClip({ frames, theme, fps: 30, encoderFactory })).rejects.toThrow(/E_X/);
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(finalize).not.toHaveBeenCalled();
+  });
 });
