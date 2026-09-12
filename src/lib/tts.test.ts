@@ -13,6 +13,16 @@ describe("tts", () => {
     expect(() => previewSpeak("x")).not.toThrow();
   });
 
+  it("speak-throws-does-not-propagate", () => {
+    const synth = {
+      speak: () => {
+        throw new Error("boom");
+      },
+      cancel: () => {},
+    };
+    expect(() => previewSpeak("x", synth)).not.toThrow();
+  });
+
   it("local synth without loader throws E_TTS_BACKEND", async () => {
     await expect(synthesizeLocal("x")).rejects.toThrow(/E_TTS_BACKEND/);
   });
