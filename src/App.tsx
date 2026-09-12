@@ -158,58 +158,150 @@ export function App() {
   const xpost = script ? `${script.hook} ${script.cta}`.slice(0, 280) : "";
 
   return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: 24 }}>
-      <h1>Clipflow</h1>
-      <section>
-        <h2>Context</h2>
-        <label>Niche<input value={niche} onChange={(e) => setNiche(e.target.value)} /></label>
-        <label>Audience<input value={audience} onChange={(e) => setAudience(e.target.value)} /></label>
-        <label>Offer<input value={offer} onChange={(e) => setOffer(e.target.value)} /></label>
-        <label>Tone<input value={tone} onChange={(e) => setTone(e.target.value)} /></label>
-        <label>Proof<input value={proof} onChange={(e) => setProof(e.target.value)} /></label>
-        <button onClick={onSave}>Save</button>
-        {saved ? <p>{saved}</p> : null}
-      </section>
-      <section>
-        <h2>Idea</h2>
-        <input value={idea} onChange={(e) => setIdea(e.target.value)} placeholder="Your video idea" />
-        {err ? <p role="alert">{err}</p> : null}
-      </section>
-      {script ? (
-        <>
-          <section>
-            <h2>Script</h2>
-            <p>{script.hook}</p>
-            {script.beats.map((b) => (
-              <p key={b}>{b}</p>
-            ))}
-            <p>{script.cta}</p>
-          </section>
-          <canvas ref={canvasRef} width={360} height={640} />
-          <div>
-            <button onClick={() => previewSpeak(script.hook)}>Preview voice</button>
-            <button onClick={onExport} disabled={status === "working"}>
-              {status === "working" ? "Exporting…" : "Export"}
-            </button>
+    <main className="min-h-screen bg-[#080A0D] text-gray-100">
+      <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
+        <h1 className="font-mono text-3xl uppercase tracking-widest">Clipflow</h1>
+        <section className="space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-6">
+          <h2 className="font-mono text-sm uppercase tracking-widest text-gray-300">Context</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block font-mono text-xs uppercase tracking-widest text-gray-400">
+              Niche
+              <input
+                className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm normal-case tracking-normal text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
+                value={niche}
+                onChange={(e) => setNiche(e.target.value)}
+              />
+            </label>
+            <label className="block font-mono text-xs uppercase tracking-widest text-gray-400">
+              Audience
+              <input
+                className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm normal-case tracking-normal text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
+                value={audience}
+                onChange={(e) => setAudience(e.target.value)}
+              />
+            </label>
+            <label className="block font-mono text-xs uppercase tracking-widest text-gray-400">
+              Offer
+              <input
+                className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm normal-case tracking-normal text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
+                value={offer}
+                onChange={(e) => setOffer(e.target.value)}
+              />
+            </label>
+            <label className="block font-mono text-xs uppercase tracking-widest text-gray-400">
+              Tone
+              <input
+                className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm normal-case tracking-normal text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
+                value={tone}
+                onChange={(e) => setTone(e.target.value)}
+              />
+            </label>
+            <label className="block font-mono text-xs uppercase tracking-widest text-gray-400">
+              Proof
+              <input
+                className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm normal-case tracking-normal text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
+                value={proof}
+                onChange={(e) => setProof(e.target.value)}
+              />
+            </label>
           </div>
-          {status === "exported" ? <p>Exported clipflow-916.mp4.</p> : null}
-          <details>
-            <summary>TikTok caption</summary>
-            <p>{tiktok}</p>
-            <button onClick={() => void copyText(tiktok)}>Copy</button>
-          </details>
-          <details>
-            <summary>X post</summary>
-            <p>{xpost}</p>
-            <button onClick={() => void copyText(xpost)}>Copy</button>
-          </details>
-          <details>
-            <summary>LinkedIn</summary>
-            <p>{script.linkedin.body}</p>
-            <button onClick={() => void copyText(script.linkedin.body)}>Copy</button>
-          </details>
-        </>
-      ) : null}
+          <button
+            className="rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90 disabled:opacity-50"
+            onClick={onSave}
+          >
+            Save
+          </button>
+          {saved ? <p className="text-sm text-gray-400">{saved}</p> : null}
+        </section>
+        <section className="space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-6">
+          <h2 className="font-mono text-sm uppercase tracking-widest text-gray-300">Idea</h2>
+          <input
+            className="w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
+            value={idea}
+            onChange={(e) => setIdea(e.target.value)}
+            placeholder="Your video idea"
+          />
+          {err ? (
+            <p role="alert" className="text-sm text-red-400">
+              {err}
+            </p>
+          ) : null}
+        </section>
+        {script ? (
+          <>
+            <section className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-6">
+              <h2 className="font-mono text-sm uppercase tracking-widest text-gray-300">Script</h2>
+              <p className="text-gray-100">{script.hook}</p>
+              {script.beats.map((b) => (
+                <p key={b} className="text-gray-300">
+                  {b}
+                </p>
+              ))}
+              <p className="text-gray-100">{script.cta}</p>
+            </section>
+            <div className="flex justify-center">
+              <canvas
+                ref={canvasRef}
+                width={360}
+                height={640}
+                className="aspect-[9/16] h-auto w-full max-w-xs rounded-xl border border-white/10 bg-black"
+              />
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <button
+                className="rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90 disabled:opacity-50"
+                onClick={() => previewSpeak(script.hook)}
+              >
+                Preview voice
+              </button>
+              <button
+                className="rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90 disabled:opacity-50"
+                onClick={onExport}
+                disabled={status === "working"}
+              >
+                {status === "working" ? "Exporting…" : "Export"}
+              </button>
+            </div>
+            {status === "exported" ? <p className="text-sm text-gray-300">Exported clipflow-916.mp4.</p> : null}
+            <details className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
+              <summary className="cursor-pointer font-mono text-xs uppercase tracking-widest text-gray-400">
+                TikTok caption
+              </summary>
+              <p className="mt-3 text-gray-300">{tiktok}</p>
+              <button
+                className="mt-3 rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90"
+                onClick={() => void copyText(tiktok)}
+              >
+                Copy
+              </button>
+            </details>
+            <details className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
+              <summary className="cursor-pointer font-mono text-xs uppercase tracking-widest text-gray-400">
+                X post
+              </summary>
+              <p className="mt-3 text-gray-300">{xpost}</p>
+              <button
+                className="mt-3 rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90"
+                onClick={() => void copyText(xpost)}
+              >
+                Copy
+              </button>
+            </details>
+            <details className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
+              <summary className="cursor-pointer font-mono text-xs uppercase tracking-widest text-gray-400">
+                LinkedIn
+              </summary>
+              <p className="mt-3 text-gray-300">{script.linkedin.body}</p>
+              <button
+                className="mt-3 rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90"
+                onClick={() => void copyText(script.linkedin.body)}
+              >
+                Copy
+              </button>
+            </details>
+          </>
+        ) : null}
+      </div>
     </main>
   );
 }
