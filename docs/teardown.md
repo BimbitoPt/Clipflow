@@ -53,7 +53,7 @@ Date: 2026-09-12. Sources: official sites/pricing/docs + App Store/Play + G2/Cap
 |---|---|---|
 | Word-level animated open captions are the default everywhere | captions/render | KEEP: kinetic word-level default already planned; ADD caption style presets (≥3) before v2 — Captions has 100+, parity impossible, 3 good ones suffice |
 | Credit meters + watermark paywalls drive the worst reviews | pricing/funnel | DIFFERENTIATE: unlimited drafts + clean 720p export free forever; charge (later) for convenience (1080p, batch, cloud voices), never hostage storage/expiry |
-| Paywall fires at Export, not at creation | funnel | STEAL: let users build everything free; monetize export upgrades only (matches free-tool → Mstudio upsell) |
+| Paywall fires at Export, not at creation | funnel | STEAL: let users build everything free; monetize export upgrades only (matches free-tool → Clipflow Managed upsell) |
 | Brand kits/templates auto-applied (OpusClip, Descript layouts) | packs/template | STEAL: niche packs ARE the brand kit — auto-apply theme + hooks, zero config |
 | Script-as-source-of-truth (Descript) | script | KEEP: script engine already central; ADD karaoke word-timing when TTS lands (cues already timed) |
 | Virality/quality scoring (OpusClip) | script | AVOID v1: scores need trend data = server; deterministic packs instead (already decided) |

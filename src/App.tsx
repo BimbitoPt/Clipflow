@@ -653,14 +653,14 @@ export function App() {
           </>
         ) : null}
         <section className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-          <h2 className="font-mono text-sm uppercase tracking-widest text-gray-300">Managed</h2>
+          <h2 className="font-mono text-sm uppercase tracking-widest text-gray-300">Clipflow Managed</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-3">
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
               <p className="font-mono text-xs uppercase tracking-widest text-gray-400">DIY Free</p>
               <p className="mt-3 text-gray-300">Free local-first tool, self-serve.</p>
             </div>
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-              <p className="font-mono text-xs uppercase tracking-widest text-gray-400">Managed €500 setup + €300/mo</p>
+              <p className="font-mono text-xs uppercase tracking-widest text-gray-400">Clipflow Managed €500 setup + €300/mo</p>
               <p className="mt-3 text-gray-300">Niche setup, video pipeline, posting calendar, monthly report.</p>
             </div>
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
@@ -672,7 +672,7 @@ export function App() {
             href="mailto:hello@mstudioweb.pt?subject=Clipflow%20Managed"
             className="mt-4 inline-block rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90"
           >
-            Contact about Managed
+            Contact about Clipflow Managed
           </a>
         </section>
       </div>
