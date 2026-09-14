@@ -8,7 +8,7 @@ export const MSTUDIO_PROFILE: Profile = {
   tone: "direct, confident, zero fluff",
   proof: "ships in 1–2 weeks, documented handoff, you own the code",
 };
-function isProfile(v: unknown): v is Profile {
+export function isProfile(v: unknown): v is Profile {
   if (typeof v !== "object" || v === null) return false;
   const o = v as Record<string, unknown>;
   return ["niche", "audience", "offer", "tone", "proof"].every((k) => typeof o[k] === "string" && (o[k] as string).trim().length > 0);
