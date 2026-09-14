@@ -3,7 +3,8 @@ import { loadPack, type Theme } from "./lib/packs";
 import { MSTUDIO_PROFILE, loadProfile, saveProfile } from "./lib/profile";
 import { buildScript } from "./lib/script";
 import { planFrames, planWords, VIDEO_SECS, type PlannedFrame } from "./lib/planner";
-import { drawFrame, type BrollImage, type DrawCtx, type RenderExtra } from "./lib/render";
+import { drawFrame, type DrawCtx, type RenderExtra } from "./lib/render";
+import { assignCueAssets, preloadCueAssets, type PoolEntry, type StockAsset } from "./lib/broll";
 import { previewSpeak } from "./lib/tts";
 import { createSpeechT5Loader } from "./lib/tts-local";
 
@@ -51,6 +52,45 @@ async function copyText(s: string): Promise<void> {
   ta.remove();
 }
 
+function cueIndexOf(script: { cues: Array<{ start: number; kind: string }> }, cue: { start: number; kind: string }): number {
+  const byRef = (script.cues as unknown[]).indexOf(cue as unknown);
+  if (byRef >= 0) return byRef;
+  const byStart = script.cues.findIndex((c) => c.start === cue.start && c.kind === cue.kind);
+  return byStart >= 0 ? byStart : 0;
+}
+
+async function seekVideo(el: HTMLVideoElement, t: number): Promise<void> {
+  try {
+    const dur = el.duration;
+    const target = Number.isFinite(dur) && dur > 0 ? t % dur : t;
+    if (Math.abs(el.currentTime - target) < 0.05) return;
+    await new Promise<void>((resolve) => {
+      let done = false;
+      const finish = () => {
+        if (!done) {
+          done = true;
+          resolve();
+        }
+      };
+      const timer = setTimeout(finish, 250);
+      const onSeeked = () => {
+        clearTimeout(timer);
+        el.removeEventListener("seeked", onSeeked);
+        finish();
+      };
+      el.addEventListener("seeked", onSeeked, { once: true });
+      try {
+        el.currentTime = target;
+      } catch {
+        clearTimeout(timer);
+        finish();
+      }
+    });
+  } catch {
+    // Seek is best-effort; gradient/video-current-frame fallback covers failure.
+  }
+}
+
 export function App() {
   const [niche, setNiche] = useState(() => initialProfile().niche);
   const [audience, setAudience] = useState(() => initialProfile().audience);
@@ -65,6 +105,9 @@ export function App() {
   const [starterSrc, setStarterSrc] = useState<string | null>(null);
   const [voiceOn, setVoiceOn] = useState(true);
   const [exportMsg, setExportMsg] = useState("");
+  const [exportProgress, setExportProgress] = useState(0);
+  const [autoMsg, setAutoMsg] = useState("");
+  const [autoAssets, setAutoAssets] = useState<Array<StockAsset | null>>([]);
   const [voiceWarn, setVoiceWarn] = useState("");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const busyRef = useRef(false);
@@ -95,6 +138,55 @@ export function App() {
   }, [script]);
 
   const words = useMemo(() => (script ? planWords(script) : undefined), [script]);
+
+  // Auto mode: on idea/profile/script change, auto assign + preload 1 stock
+  // asset per cue (hook/beat1/beat2/beat3/cta). Debounced, no click needed.
+  useEffect(() => {
+    if (!script) {
+      setAutoAssets([]);
+      return;
+    }
+    let cancelled = false;
+    setAutoMsg("Auto casting stock…");
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const cueTexts = script.cues.map((c) => c.text);
+          const entries: PoolEntry[] = assignCueAssets(idea, profile, cueTexts);
+          const loaded = await preloadCueAssets(entries);
+          if (!cancelled) {
+            setAutoAssets(loaded);
+            const ok = loaded.filter(Boolean).length;
+            setAutoMsg(ok === loaded.length ? `Auto stock ready (${ok}/5).` : `Auto stock ready (${ok}/5, rest gradient).`);
+          }
+        } catch {
+          if (!cancelled) {
+            setAutoAssets([]);
+            setAutoMsg("");
+          }
+        }
+      })();
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [script, idea, profile]);
+
+  function assetForCue(cue: { start: number; kind: string }): StockAsset | null {
+    // Manual override wins: single user-picked b-roll covers every cue.
+    if (broll) {
+      return {
+        kind: "image",
+        src: starterSrc ?? "upload",
+        el: broll,
+        keywords: [],
+      };
+    }
+    if (!script) return null;
+    const idx = cueIndexOf(script, cue);
+    return autoAssets[idx] ?? null;
+  }
 
   async function onBrollFile(file: File | undefined) {
     if (!file) return;
@@ -165,12 +257,14 @@ export function App() {
       if (!frame) return;
       const extra: RenderExtra = {};
       if (words) extra.words = words;
-      if (broll) extra.image = broll as unknown as BrollImage;
+      const asset = assetForCue(frame.cue);
+      if (asset) extra.asset = asset;
       drawFrame(ctx as DrawCtx, frame, theme, 360, 640, extra);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
-  }, [script, words, broll]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [script, words, broll, autoAssets]);
 
   function onSave() {
     try {
@@ -198,14 +292,26 @@ export function App() {
       }
       setStatus("working");
       setErr("");
-      setExportMsg("");
+      setExportMsg("Script ready.");
+      setExportProgress(10);
       setVoiceWarn("");
       try {
+        // Assets: ensure 5 auto assets are loaded (script -> assets step).
+        let cueAssets: Array<StockAsset | null> = autoAssets;
+        if (cueAssets.length !== script.cues.length) {
+          setExportMsg("Casting stock…");
+          setExportProgress(25);
+          const entries = assignCueAssets(idea, profile, script.cues.map((c) => c.text));
+          cueAssets = await preloadCueAssets(entries);
+          setAutoAssets(cueAssets);
+        }
+        setExportProgress(35);
         let pcm: Float32Array | null = null;
         if (voiceOn) {
           const loader = createSpeechT5Loader();
           const fullText = [script.hook, ...script.beats, script.cta].join(". ");
           setExportMsg("Rendering voice…");
+          setExportProgress(50);
           try {
             const raw = await loader(fullText);
             const target = VIDEO_SECS * 16000;
@@ -225,9 +331,10 @@ export function App() {
             setErr(e instanceof Error ? e.message : String(e));
             return;
           } finally {
-            setExportMsg("");
+            setExportProgress(65);
           }
         }
+        setExportMsg("Muxing clipflow-916.mp4…");
         const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
         const muxer = voiceOn
           ? new Muxer({
@@ -243,9 +350,16 @@ export function App() {
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
         const frames: PlannedFrame[] = planFrames(script, 30);
-        const extra: RenderExtra = {};
-        if (words) extra.words = words;
-        if (broll) extra.image = broll as unknown as BrollImage;
+        const assetByCue = new Map<number, StockAsset | null>();
+        script.cues.forEach((c, i) => {
+          if (broll) {
+            assetByCue.set(i, { kind: "image", src: starterSrc ?? "upload", el: broll, keywords: [] });
+          } else {
+            assetByCue.set(i, cueAssets[i] ?? null);
+          }
+        });
+        // Deterministic video start: seek each cue's video once before its frames.
+        const sought = new Set<number>();
         let encErr: unknown = null;
         const encoder = new VideoEncoder({
           output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
@@ -266,13 +380,28 @@ export function App() {
           audioEncoder.configure({ codec: "mpac", sampleRate: 16000, numberOfChannels: 1, bitrate: 96000 });
         }
         try {
+          let n = 0;
           for (const f of frames) {
+            const idx = cueIndexOf(script, f.cue);
+            const asset = assetByCue.get(idx) ?? null;
+            if (asset?.kind === "video" && !sought.has(idx)) {
+              sought.add(idx);
+              await seekVideo(asset.el as HTMLVideoElement, 0.1);
+            }
+            const extra: RenderExtra = {};
+            if (words) extra.words = words;
+            if (asset) extra.asset = asset;
             drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, extra);
             const vf = new VideoFrame(canvas, { timestamp: Math.round(f.t * 1e6) });
             try {
               encoder.encode(vf, { keyFrame: f.t < 1 });
             } finally {
               vf.close();
+            }
+            n++;
+            if (n % 90 === 0) {
+              setExportProgress(65 + Math.round((30 * n) / frames.length));
+              setExportMsg(`Muxing ${n}/${frames.length} frames…`);
             }
           }
           await encoder.flush();
@@ -303,6 +432,8 @@ export function App() {
           if (encoder.state !== "closed") encoder.close();
           if (audioEncoder && audioEncoder.state !== "closed") audioEncoder.close();
         }
+        setExportProgress(100);
+        setExportMsg("");
         const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -314,6 +445,8 @@ export function App() {
       } catch (e) {
         setStatus("error");
         setErr(e instanceof Error ? e.message : String(e));
+      } finally {
+        setExportProgress(0);
       }
     } finally {
       busyRef.current = false;
@@ -387,6 +520,7 @@ export function App() {
             onChange={(e) => setIdea(e.target.value)}
             placeholder="Your video idea"
           />
+          {autoMsg ? <p className="text-sm text-gray-400">{autoMsg}</p> : null}
           {err ? (
             <p role="alert" className="text-sm text-red-400">
               {err}
@@ -415,7 +549,7 @@ export function App() {
             </div>
             <div className="flex flex-wrap items-center gap-4">
               <div className="w-full space-y-2">
-                <p className="font-mono text-xs uppercase tracking-widest text-gray-400">Starter visuals</p>
+                <p className="font-mono text-xs uppercase tracking-widest text-gray-400">Starter visuals (override auto stock)</p>
                 <div className="flex flex-wrap gap-2">
                   {STARTER.map((src, i) => (
                     <button
@@ -446,12 +580,12 @@ export function App() {
                   className="rounded-full border border-white/15 px-6 py-2 font-mono text-xs uppercase tracking-widest text-gray-200 hover:opacity-90"
                   onClick={onRemoveBroll}
                 >
-                  Remove
+                  Use auto stock
                 </button>
               ) : null}
               <label className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-gray-400">
                 <input type="checkbox" checked={voiceOn} onChange={(e) => setVoiceOn(e.target.checked)} />
-                Voiceover (first render downloads voice ~200MB, cached)
+                Voiceover + captions (first render downloads voice ~200MB, cached)
               </label>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -466,10 +600,18 @@ export function App() {
                 onClick={onExport}
                 disabled={status === "working"}
               >
-                {status === "working" ? "Exporting…" : "Export"}
+                {status === "working" ? "Exporting…" : "Export clipflow-916.mp4"}
               </button>
             </div>
-            {exportMsg ? <p className="text-sm text-gray-300">{exportMsg}</p> : null}
+            {status === "working" ? (
+              <div className="space-y-2">
+                <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+                  <div className="h-full rounded-full bg-[#246BFD] transition-all" style={{ width: `${exportProgress}%` }} />
+                </div>
+                {exportMsg ? <p className="text-sm text-gray-300">{exportMsg}</p> : null}
+              </div>
+            ) : null}
+            {exportMsg && status !== "working" ? <p className="text-sm text-gray-300">{exportMsg}</p> : null}
             {voiceWarn ? <p className="text-sm text-gray-300">{voiceWarn}</p> : null}
             {status === "exported" ? <p className="text-sm text-gray-300">Exported clipflow-916.mp4.</p> : null}
             <details className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
@@ -510,6 +652,29 @@ export function App() {
             </details>
           </>
         ) : null}
+        <section className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
+          <h2 className="font-mono text-sm uppercase tracking-widest text-gray-300">Managed</h2>
+          <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
+              <p className="font-mono text-xs uppercase tracking-widest text-gray-400">DIY Free</p>
+              <p className="mt-3 text-gray-300">Free local-first tool, self-serve.</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
+              <p className="font-mono text-xs uppercase tracking-widest text-gray-400">Managed €500 setup + €300/mo</p>
+              <p className="mt-3 text-gray-300">Niche setup, video pipeline, posting calendar, monthly report.</p>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
+              <p className="font-mono text-xs uppercase tracking-widest text-gray-400">Rev-share €500 + 20%</p>
+              <p className="mt-3 text-gray-300">€500 + 20%, 90-day min.</p>
+            </div>
+          </div>
+          <a
+            href="mailto:hello@mstudioweb.pt?subject=Clipflow%20Managed"
+            className="mt-4 inline-block rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90"
+          >
+            Contact about Managed
+          </a>
+        </section>
       </div>
     </main>
   );
