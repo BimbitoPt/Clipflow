@@ -1,4 +1,8 @@
-# Clipflow dogfood — MSTUDIO launch
+# Clipflow (DIY) / Clipflow Managed — one engine, two doors
+
+> Clipflow is one engine with two doors: **Clipflow (DIY)** — free, local-first PWA you run yourself — and **Clipflow Managed** (see `docs/managed.md`) — done-for-you by MSTUDIO. This file covers the DIY side only.
+
+Context: DIY dogfood validation for MSTUDIO launch.
 
 Profile: MSTUDIO default (Task 2). Pack: mstudio (Task 3).
 
