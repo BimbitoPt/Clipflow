@@ -64,6 +64,7 @@ export function spendCredits(
   reason: string,
   now: Date = new Date(),
 ): boolean {
+  if (!Number.isFinite(amount) || amount <= 0) return false;
   const txn = db.transaction(() => {
     const row = db
       .prepare(

@@ -33,5 +33,13 @@ describe("credits", () => {
     expect(spendCredits(db, "a@b.co", 10, "test", M1)).toBe(true);
     expect(balanceFor(db, "a@b.co")).toBe(0);
   });
+  it("rejects zero, negative and non-finite spend", () => {
+    const db = freshTestDb();
+    grantCredits(db, "a@b.co", 5, "grant", M1);
+    expect(spendCredits(db, "a@b.co", 0, "test", M1)).toBe(false);
+    expect(spendCredits(db, "a@b.co", -2, "test", M1)).toBe(false);
+    expect(spendCredits(db, "a@b.co", Number.NaN, "test", M1)).toBe(false);
+    expect(balanceFor(db, "a@b.co")).toBe(5);
+  });
 });
 
