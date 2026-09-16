@@ -36,3 +36,9 @@ CREATE TABLE IF NOT EXISTS verification_tokens(
   expires TEXT NOT NULL,
   UNIQUE(identifier, token)
 );
+CREATE TABLE IF NOT EXISTS subscriptions(
+  user_email TEXT PRIMARY KEY,
+  tier TEXT NOT NULL,
+  status TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
