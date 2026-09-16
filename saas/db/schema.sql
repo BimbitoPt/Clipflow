@@ -54,3 +54,14 @@ CREATE TABLE IF NOT EXISTS credits_ledger(
   reason TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS jobs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_email TEXT NOT NULL,
+  idea TEXT NOT NULL,
+  voice TEXT NOT NULL DEFAULT 'auto',
+  status TEXT NOT NULL DEFAULT 'queued',
+  out_path TEXT,
+  error TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
