@@ -27,9 +27,15 @@ export default function Upgrade() {
         window.location.href = body.url;
         return;
       }
-      if (res.status === 401) setError("Sign in first to upgrade.");
-      else if (res.status === 503) setError("Billing is not configured yet.");
-      else setError("Something went wrong. Try again.");
+      if (typeof body?.error === "string" && body.error) {
+        setError(body.error);
+      } else if (res.status === 401) {
+        setError("Sign in first to upgrade.");
+      } else if (res.status === 503) {
+        setError("Billing is not configured yet.");
+      } else {
+        setError("Something went wrong. Try again.");
+      }
     } catch {
       setError("Something went wrong. Try again.");
     } finally {

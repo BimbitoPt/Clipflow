@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import type { Database } from "better-sqlite3";
 import { getDb } from "@/lib/db";
 import { setSubscription } from "@/lib/billing";
+import { resolveCustomerEmail } from "@/lib/customer-email";
 
 export const runtime = "nodejs";
 
@@ -12,15 +13,19 @@ const KNOWN_EVENTS = new Set([
   "customer.subscription.deleted",
 ]);
 
-type EmailLike = { customer_email?: string | null; client_details?: { email?: string | null } | null };
 type MetadataLike = { metadata?: Record<string, string> | null };
 type StatusLike = { status?: string | null };
+type CustomerLike = { customer?: string | null };
 
-function upsertFromSession(event: Stripe.CheckoutSessionCompletedEvent) {
-  const session = event.data.object as EmailLike & MetadataLike;
-  const email = session.customer_email || session.client_details?.email;
+async function upsertFromSession(event: Stripe.CheckoutSessionCompletedEvent, stripe: Stripe) {
+  const session = event.data.object as Stripe.Checkout.Session;
   const tier = session.metadata?.tier;
-  if (!email || !tier) return;
+  if (!tier) return;
+  if (session.payment_status !== "paid" && session.payment_status !== "no_payment_required") {
+    return;
+  }
+  const email = await resolveCustomerEmail(session, stripe);
+  if (!email) return;
   setSubscription(getDb(), email, tier, "active");
 }
 
@@ -29,7 +34,7 @@ async function upsertFromSubscription(event: Stripe.CustomerSubscriptionUpdatedE
   const tier = sub.metadata?.tier;
   const status = sub.status;
   if (!tier || !status) return;
-  const email = await emailForSubscription(event, stripe);
+  const email = await resolveCustomerEmail(sub as CustomerLike, stripe);
   if (!email) return;
   if (status === "active" || status === "trialing") {
     setSubscription(getDb(), email, tier, status);
@@ -40,7 +45,7 @@ async function upsertFromSubscription(event: Stripe.CustomerSubscriptionUpdatedE
 
 async function cancelSubscription(event: Stripe.CustomerSubscriptionDeletedEvent, stripe: Stripe) {
   const sub = event.data.object as MetadataLike & StatusLike;
-  const email = await emailForSubscription(event, stripe);
+  const email = await resolveCustomerEmail(sub as CustomerLike, stripe);
   if (!email) return;
   const tier = sub.metadata?.tier || readStoredTier(getDb(), email) || "free";
   setSubscription(getDb(), email, tier, "canceled");
@@ -51,28 +56,6 @@ function readStoredTier(db: Database, email: string): string | undefined {
     .prepare("SELECT tier FROM subscriptions WHERE user_email = ?")
     .get(email) as { tier: string } | undefined;
   return row?.tier;
-}
-
-async function emailForSubscription(
-  event: Stripe.CustomerSubscriptionUpdatedEvent | Stripe.CustomerSubscriptionDeletedEvent,
-  stripe: Stripe,
-): Promise<string | undefined> {
-  const sub = event.data.object as {
-    customer?: string | null;
-    customer_email?: string | null;
-    customer_details?: { email?: string | null } | null;
-  };
-  const direct = sub.customer_email || sub.customer_details?.email;
-  if (direct) return direct;
-  if (typeof sub.customer === "string") {
-    try {
-      const customer = await stripe.customers.retrieve(sub.customer);
-      if (!customer.deleted && typeof customer.email === "string") return customer.email;
-    } catch {
-      return undefined;
-    }
-  }
-  return undefined;
 }
 
 export async function POST(request: Request) {
@@ -97,15 +80,15 @@ export async function POST(request: Request) {
   if (KNOWN_EVENTS.has(event.type)) {
     try {
       if (event.type === "checkout.session.completed") {
-        upsertFromSession(event as Stripe.CheckoutSessionCompletedEvent);
+        await upsertFromSession(event as Stripe.CheckoutSessionCompletedEvent, stripe);
       } else if (event.type === "customer.subscription.updated") {
-        upsertFromSubscription(event as Stripe.CustomerSubscriptionUpdatedEvent, stripe);
+        await upsertFromSubscription(event as Stripe.CustomerSubscriptionUpdatedEvent, stripe);
       } else if (event.type === "customer.subscription.deleted") {
-        cancelSubscription(event as Stripe.CustomerSubscriptionDeletedEvent, stripe);
+        await cancelSubscription(event as Stripe.CustomerSubscriptionDeletedEvent, stripe);
       }
       return NextResponse.json({ received: true });
     } catch {
-      return NextResponse.json({ received: true });
+      return NextResponse.json({ error: "webhook handler failed" }, { status: 500 });
     }
   }
 

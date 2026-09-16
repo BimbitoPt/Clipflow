@@ -43,6 +43,21 @@ export async function POST(request: Request) {
     customer_email: email,
     metadata: { tier: selectedTier },
   };
-  const checkout = await stripe.checkout.sessions.create(sessionParams);
+  let checkout: Stripe.Checkout.Session;
+  try {
+    checkout = await stripe.checkout.sessions.create(sessionParams);
+  } catch (err) {
+    console.error(`checkout session create failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (
+      err instanceof Stripe.errors.StripeInvalidRequestError ||
+      err instanceof Stripe.errors.StripeAuthenticationError
+    ) {
+      return NextResponse.json({ error: "billing misconfigured" }, { status: 503 });
+    }
+    if (err instanceof Stripe.errors.StripeAPIError || err instanceof Stripe.errors.StripeConnectionError) {
+      return NextResponse.json({ error: "stripe unavailable" }, { status: 502 });
+    }
+    return NextResponse.json({ error: "checkout failed" }, { status: 500 });
+  }
   return NextResponse.json({ url: checkout.url });
 }
