@@ -11,7 +11,12 @@ const VOICES = new Set(["auto", "sapi", "off"]);
 
 function validVoice(voice: unknown): boolean {
   if (typeof voice !== "string") return false;
-  return VOICES.has(voice) || voice.startsWith("eleven:");
+  if (VOICES.has(voice)) return true;
+  if (voice.startsWith("eleven:")) {
+    const voiceId = voice.slice("eleven:".length);
+    return /^[A-Za-z0-9]{8,64}$/.test(voiceId);
+  }
+  return false;
 }
 
 export async function POST(request: Request) {

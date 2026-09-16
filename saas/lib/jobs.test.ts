@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { freshTestDb } from "./waitlist";
-import { enqueue, claimNextJob, completeJob, failJob } from "./jobs";
+import { enqueue, claimNextJob, completeJob, failJob, reapStaleJobs } from "./jobs";
 import { canRender, recordRender, quotaFor } from "./credits";
 
 describe("jobs", () => {
@@ -37,5 +37,21 @@ describe("jobs", () => {
     const done = db.prepare("SELECT * FROM jobs WHERE id = ?").get(id2) as any;
     expect(done.status).toBe("done");
     expect(done.out_path).toBe("out/x.mp4");
+  });
+  it("reapStaleJobs fails stale running jobs but leaves fresh ones running", () => {
+    const db = freshTestDb();
+    const staleId = enqueue(db, "a@b.co", "stale", "auto");
+    const freshId = enqueue(db, "a@b.co", "fresh", "auto");
+    claimNextJob(db);
+    claimNextJob(db);
+    db.prepare(
+      "UPDATE jobs SET updated_at = datetime('now', '-20 minutes') WHERE id = ?",
+    ).run(staleId);
+    reapStaleJobs(db, 10);
+    const stale = db.prepare("SELECT * FROM jobs WHERE id = ?").get(staleId) as any;
+    expect(stale.status).toBe("failed");
+    expect(stale.error).toContain("restart or timeout");
+    const fresh = db.prepare("SELECT * FROM jobs WHERE id = ?").get(freshId) as any;
+    expect(fresh.status).toBe("running");
   });
 });

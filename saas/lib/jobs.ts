@@ -54,3 +54,9 @@ export function failJob(db: Database, id: number, error: string): void {
     "UPDATE jobs SET status = 'failed', error = ?, updated_at = datetime('now') WHERE id = ?",
   ).run(error.slice(0, 500), id);
 }
+
+export function reapStaleJobs(db: Database, staleMinutes = 10): void {
+  db.prepare(
+    "UPDATE jobs SET status = 'failed', error = 'worker restart or timeout: job claimed but never finished', updated_at = datetime('now') WHERE status = 'running' AND updated_at < datetime('now', ?)",
+  ).run(`-${staleMinutes} minutes`);
+}
