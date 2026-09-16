@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Clipflow — idea in, video out",
+  title: "Clipflow - idea in, video out",
   description:
     "idea in, video out. Clipflow turns a rough idea into a vertical marketing video.",
 };

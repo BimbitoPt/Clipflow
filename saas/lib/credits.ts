@@ -1,7 +1,6 @@
 import type { Database } from "better-sqlite3";
 
-// Quotas are hardcoded here rather than imported from billing.ts to avoid a
-// circular dependency (billing would need tiers/quota lookups too).
+// Quotas match the tiers in billing.ts; this map is the single source of truth.
 const QUOTAS = { free: 5, creator: 60, studio: 200 } as const;
 
 export function quotaFor(tier: "free" | "creator" | "studio"): number {
