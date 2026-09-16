@@ -22,7 +22,7 @@ Commands: `npm install`, `npm test`, `npm run build`, `npm run dev`
 - Env: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_CREATOR` (Creator, $19/mo), `STRIPE_PRICE_STUDIO` (Studio, $49/mo). Free has no price.
 - Local webhook testing: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`, then set `STRIPE_WEBHOOK_SECRET` to the printed value.
 - Quotas: Free 5 renders/month, Creator 60, Studio 200. When the quota is exhausted, the render route responds 402.
-- AI features (ElevenLabs voice) spend credits from `credits_ledger`, separate from render quota.
+- AI features (ElevenLabs voice) spend credits from `credits_ledger`, separate from render quota. Voices are billed credits and require `ELEVENLABS_API_KEY`.
 
 ## Renderer
 
@@ -40,5 +40,5 @@ Commands: `npm install`, `npm test`, `npm run build`, `npm run dev`
 
 ## Scope
 
-- ElevenLabs is metered at 1 credit per 1000 characters of prompt text, charged before the fetch and refunded on fetch failure. Render failure after a valid fetch keeps the charge (documented seam, reconciliation task later).
-- Seedance video generation has a provider seam: currently a mock (`MockSeedanceProvider` returns deterministic bytes derived from a sha256 of the prompt, wrapped in a filesystem cache). A real HTTP provider is pending external API docs and does not exist yet.
+- ElevenLabs is metered at 1 credit per 1000 characters, rounded up, charged before the fetch and refunded on fetch failure. Render failure after a valid fetch keeps the charge (documented seam, reconciliation task later).
+- Seedance video generation has a provider seam: currently a mock (`MockSeedanceProvider` returns deterministic bytes derived from a sha256 of the prompt, wrapped in a filesystem cache; cache location is `SEEDANCE_CACHE_DIR`, default `saas/storage/seedance`). A real HTTP provider is pending external API docs and does not exist yet.

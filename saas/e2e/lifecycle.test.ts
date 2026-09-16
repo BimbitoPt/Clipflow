@@ -59,9 +59,15 @@ describe("e2e lifecycle", () => {
     const claimed = claimNextJob(db);
     expect(claimed?.id).toBe(staleId);
     db.prepare("UPDATE jobs SET updated_at = datetime('now', '-20 minutes') WHERE id = ?").run(staleId);
+
+    const freshId = enqueue(db, "zoe@clip.co", "fresh idea");
+    const freshClaimed = claimNextJob(db);
+    expect(freshClaimed?.id).toBe(freshId);
     processJobsOnce();
     const reaped = db.prepare("SELECT status, error FROM jobs WHERE id = ?").get(staleId) as { status: string; error: string };
     expect(reaped.status).toBe("failed");
     expect(reaped.error).toContain("restart or timeout");
+    const fresh = db.prepare("SELECT status FROM jobs WHERE id = ?").get(freshId) as { status: string };
+    expect(fresh.status).toBe("running");
   });
 });
