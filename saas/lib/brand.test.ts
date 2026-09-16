@@ -7,5 +7,6 @@ describe("brand", () => {
     expect(BRAND.blue).toBe("#246BFD");
     expect(BRAND.lime).toBe("#CFFF47");
     expect(BRAND.tagline).toBe("idea in, video out.");
+    expect(Object.isFrozen(BRAND)).toBe(true);
   });
 });
