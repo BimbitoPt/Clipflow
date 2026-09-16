@@ -18,12 +18,12 @@ cargo run --manifest-path native/Cargo.toml -- render --idea "AI builds a site i
 All flags (with defaults):
 
 ```powershell
-cargo run --manifest-path native/Cargo.toml -- render --idea "..." --pack mstudio --voice on --out ./exports --models ../public/models
+cargo run --manifest-path native/Cargo.toml -- render --idea "..." --pack mstudio --voice auto --out ./exports --models ../public/models
 ```
 
 - `--idea` (required): video topic, truncated to 140 chars at a word boundary.
 - `--pack` (default `mstudio`): script pack id (currently only `mstudio`).
-- `--voice` (default `on`): `on | sapi | off` — see Voice below.
+- `--voice` (default `auto`): `auto | on | sapi | off` — see Voice below.
 - `--out` (default `exports`): output directory (created if missing).
 - `--models` (default `../public/models`): directory holding the local ONNX TTS weights.
 
@@ -33,12 +33,14 @@ outputs; the slug is the first three alphanumeric words of the idea.
 
 ## Voice
 
-- `on` — ort SpeechT5 default: synthesizes narration with the local ONNX
+- `auto` (default) — system voice on Windows (SAPI, best quality), ort
+  SpeechT5 everywhere else.
+- `on` — ort SpeechT5 everywhere: synthesizes narration with the local ONNX
   SpeechT5 + HiFi-GAN weights under `--models` into a 16kHz mono WAV that is
   mixed into the MP4 as AAC audio.
-- `sapi` — Windows-only System.Speech: synthesizes via PowerShell +
-  `System.Speech` at 16kHz/16-bit/mono; errors on non-Windows targets
-  (`sapi is Windows-only`).
+- `sapi` — Windows-only System.Speech: per-cue synthesis with real word onsets
+  via PowerShell + `System.Speech` at 16kHz/16-bit/mono; errors on non-Windows
+  targets (`sapi is Windows-only`).
 - `off` — silent video, no audio stream: no TTS runs and the MP4 is rendered
   video-only (cue timing falls back to the 45s plan).
 
