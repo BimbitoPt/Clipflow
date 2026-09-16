@@ -11,7 +11,7 @@ export default defineConfig({
     },
   },
   test: {
-    include: ["lib/**/*.test.ts", "app/**/*.test.ts"],
+    include: ["lib/**/*.test.ts", "app/**/*.test.ts", "e2e/**/*.test.ts"],
     server: {
       deps: {
         inline: ["next-auth", "@auth/core"],
