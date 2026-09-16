@@ -11,23 +11,26 @@ type SessionLike = { user?: (DatabaseUser & EmailUser) | null };
 export function sessionUserId(
   session: SessionLike,
   db: Database,
-): string {
+): string | undefined {
   const email = session.user?.email;
-  if (!email) throw new Error("session user email is required");
+  if (!email) return undefined;
   const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email) as
     | { id: string }
     | undefined;
   if (existing) {
-    session.user!.id = existing.id;
+    if (session.user) session.user.id = existing.id;
     return existing.id;
   }
-  const id = crypto.randomUUID();
-  db.prepare("INSERT INTO users(id, email) VALUES (?, ?) ON CONFLICT(email) DO NOTHING").run(id, email);
-  session.user!.id = id;
+  db.prepare("INSERT INTO users(id, email) VALUES (?, ?) ON CONFLICT(email) DO NOTHING").run(crypto.randomUUID(), email);
+  const id = (db.prepare("SELECT id FROM users WHERE email = ?").get(email) as
+    | { id: string }
+    | undefined)?.id;
+  if (!id) return undefined;
+  if (session.user) session.user.id = id;
   return id;
 }
 
-const adapter = {
+export const adapter = {
   createUser(data: { id?: string; email: string; emailVerified?: Date | null; name?: string | null; image?: string | null }) {
     const db = getDb();
     const id = data.id ?? crypto.randomUUID();
@@ -78,7 +81,9 @@ const adapter = {
       partial.image ?? null,
       partial.id,
     );
-    return getUserById(partial.id, db)!;
+    const user = getUserById(partial.id, db);
+    if (!user) throw new Error("user not found after update");
+    return user;
   },
   linkAccount(account: {
     userId: string;
@@ -123,13 +128,119 @@ const adapter = {
     return { identifier, token, expires };
   },
   useVerificationToken({ identifier, token }: { identifier: string; token: string }) {
+    const row = getDb()
+      .prepare("DELETE FROM verification_tokens WHERE token = ? RETURNING identifier, token, expires")
+      .get(token) as { identifier: string; token: string; expires: string } | undefined;
+    if (!row) return null;
+    return { identifier: row.identifier, token: row.token, expires: new Date(row.expires) };
+  },
+  createSession({ sessionToken, userId, expires }: { sessionToken: string; userId: string; expires: Date }) {
+    getDb()
+      .prepare("INSERT INTO sessions(id, session_token, user_id, expires) VALUES (?, ?, ?, ?)")
+      .run(crypto.randomUUID(), sessionToken, userId, expires.toISOString());
+    const row = getDb()
+      .prepare("SELECT id, session_token, user_id, expires FROM sessions WHERE session_token = ?")
+      .get(sessionToken) as
+      | { id: string; session_token: string; user_id: string; expires: string }
+      | undefined;
+    if (!row) throw new Error("failed to create session");
+    return {
+      id: row.id,
+      sessionToken: row.session_token,
+      userId: row.user_id,
+      expires: new Date(row.expires),
+    };
+  },
+  getSessionAndUser(sessionToken: string) {
     const db = getDb();
     const row = db
-      .prepare("SELECT identifier, token, expires FROM verification_tokens WHERE identifier = ? AND token = ?")
-      .get(identifier, token) as { identifier: string; token: string; expires: string } | undefined;
+      .prepare(
+        `SELECT s.id AS s_id, s.session_token, s.user_id, s.expires AS s_expires,
+                u.id AS u_id, u.email, u.email_verified, u.name, u.image
+         FROM sessions s JOIN users u ON u.id = s.user_id
+         WHERE s.session_token = ?`,
+      )
+      .get(sessionToken) as
+      | {
+          s_id: string;
+          session_token: string;
+          user_id: string;
+          s_expires: string;
+          u_id: string;
+          email: string;
+          email_verified: string | null;
+          name: string | null;
+          image: string | null;
+        }
+      | undefined;
     if (!row) return null;
-    db.prepare("DELETE FROM verification_tokens WHERE identifier = ? AND token = ?").run(identifier, token);
-    return { identifier: row.identifier, token: row.token, expires: new Date(row.expires) };
+    return {
+      session: {
+        id: row.s_id,
+        sessionToken: row.session_token,
+        userId: row.user_id,
+        expires: new Date(row.s_expires),
+      },
+      user: {
+        id: row.u_id,
+        email: row.email,
+        emailVerified: row.email_verified ? new Date(row.email_verified) : null,
+        name: row.name,
+        image: row.image,
+      },
+    };
+  },
+  updateSession(
+    sessionTokenOrSession: string | { sessionToken: string; userId?: string; expires?: Date },
+    maybeUpdates?: { sessionToken?: string; userId?: string; expires?: Date },
+  ) {
+    const token =
+      typeof sessionTokenOrSession === "string" ? sessionTokenOrSession : sessionTokenOrSession.sessionToken;
+    const updates =
+      typeof sessionTokenOrSession === "string"
+        ? maybeUpdates
+        : {
+            sessionToken: sessionTokenOrSession.sessionToken,
+            userId: sessionTokenOrSession.userId,
+            expires: sessionTokenOrSession.expires,
+          };
+    if (!token || !updates) return null;
+    const row = getDb()
+      .prepare("SELECT id, session_token, user_id, expires FROM sessions WHERE session_token = ?")
+      .get(token) as
+      | { id: string; session_token: string; user_id: string; expires: string }
+      | undefined;
+    if (!row) return null;
+    getDb()
+      .prepare(
+        `UPDATE sessions SET
+           session_token = COALESCE(?, session_token),
+           user_id = COALESCE(?, user_id),
+           expires = COALESCE(?, expires)
+         WHERE session_token = ?`,
+      )
+      .run(
+        updates.sessionToken ?? null,
+        updates.userId ?? null,
+        updates.expires ? updates.expires.toISOString() : null,
+        token,
+      );
+    const updated = getDb()
+      .prepare("SELECT id, session_token, user_id, expires FROM sessions WHERE session_token = ?")
+      .get(updates.sessionToken ?? token) as
+      | { id: string; session_token: string; user_id: string; expires: string }
+      | undefined;
+    if (!updated) return null;
+    return {
+      id: updated.id,
+      sessionToken: updated.session_token,
+      userId: updated.user_id,
+      expires: new Date(updated.expires),
+    };
+  },
+  deleteSession(sessionToken: string) {
+    getDb().prepare("DELETE FROM sessions WHERE session_token = ?").run(sessionToken);
+    return Promise.resolve();
   },
 };
 
@@ -175,12 +286,16 @@ const config = {
           if (!res.ok) throw new Error("Resend send failed: " + (await res.text()));
           return;
         }
+        if (process.env.NODE_ENV === "production") {
+          throw new Error("RESEND_API_KEY is required in production to send sign-in emails");
+        }
         console.log(`[auth] magic link for ${identifier}: ${url}`);
       },
     }),
   ],
   callbacks: {
     session({ session }: { session: Session }) {
+      if (!session?.user?.email) return session;
       sessionUserId(session, getDb());
       return session;
     },
