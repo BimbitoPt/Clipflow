@@ -1,7 +1,7 @@
-import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { getDb } from "./lib/db";
-import { claimNextJob, completeJob, failJob } from "./lib/jobs";
+import { claimNextJob, failJob } from "./lib/jobs";
+import { renderCli } from "./lib/render-cli";
 
 if (process.env.CLIPFLOW_WORKER !== "1") {
   console.log("worker disabled: set CLIPFLOW_WORKER=1");
@@ -15,10 +15,8 @@ export function processJobsOnce(): void {
   const job = claimNextJob(db);
   if (!job) return;
   try {
-    mkdirSync(OUT_DIR, { recursive: true });
-    const outPath = path.join(OUT_DIR, `${job.id}.txt`);
-    writeFileSync(outPath, job.idea, "utf8");
-    completeJob(db, job.id, outPath);
+    const outDir = path.join(OUT_DIR, String(job.id));
+    renderCli(db, job, outDir);
   } catch (err) {
     failJob(db, job.id, String(err).slice(0, 500));
   }
@@ -28,4 +26,6 @@ function loop(): void {
   setInterval(processJobsOnce, 2000);
 }
 
-loop();
+if (!process.env.VITEST) {
+  loop();
+}

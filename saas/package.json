@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
+    "slow": "vitest run --testTimeout=900000 --config vitest.slow.config.ts",
     "worker": "tsx worker.ts"
   },
   "dependencies": {
