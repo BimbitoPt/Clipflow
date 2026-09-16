@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export function promptHash(prompt: string): string {
@@ -39,7 +39,8 @@ export class CachedSeedanceProvider implements SeedanceProvider {
     } catch {
       mkdirSync(this.dir, { recursive: true });
       const buffer = await this.inner.generate(prompt);
-      writeFileSync(file, buffer);
+      writeFileSync(`${file}.tmp`, buffer);
+      renameSync(`${file}.tmp`, file);
       return buffer;
     }
   }
