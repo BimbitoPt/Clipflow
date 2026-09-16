@@ -343,7 +343,11 @@ mod tests {
         assert!(events[0].contains(r"{\1c&H00FD6B24&\3c&H00000000&}bio."));
         assert!(events[1].contains(r"{\1c&H00FD6B24&\3c&H00000000&}now."));
         assert!(!events[0].contains("HOOK"));
+        assert!(!events[0].contains("BEAT"));
+        assert!(!events[0].contains("CTA"));
         assert!(!events[1].contains("HOOK"));
+        assert!(!events[1].contains("BEAT"));
+        assert!(!events[1].contains("CTA"));
     }
 
     #[test]
