@@ -1,0 +1,22 @@
+{
+  "id": "mstudio",
+  "label": "M Studio Web",
+  "hooks": [
+    "Your website is losing you clients every day it looks unfinished.",
+    "Creators don't need more content. They need a site that converts.",
+    "A €299 site that ships in 2 weeks beats a €5,000 site that never ships.",
+    "Nobody buys from a link-in-bio. They buy from proof.",
+    "Does your site load in under a second? Are your clients still waiting?",
+    "1.8s load vs 5s: what does that cost you in sales every week?"
+  ],
+  "ctas": [
+    "Link in bio — fixed price, fixed timeline, shipped.",
+    "Start with a conversation. Fixed quote, no hourly surprises.",
+    "mstudioweb.pt — start a project, get the site + documentation."
+  ],
+  "themes": [
+    { "bg": ["#080A0D", "#12306e"], "accent": "#246BFD", "font": "700 96px system-ui, sans-serif" },
+    { "bg": ["#080A0D", "#0d3b2e"], "accent": "#CFFF47", "font": "700 96px system-ui, sans-serif" }
+  ],
+  "hashtags": ["#webdesign", "#buildinpublic", "#creatoreconomy", "#indiehacker"]
+}
