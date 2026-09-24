@@ -126,5 +126,19 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .batch-row b { display: block; margin-bottom: 4px; font-size: 13px; }
 .batch-row small { color: var(--muted); font-size: 10px; }
 .batch-row-count { margin-left: auto; color: #a6b3c2; font: 10px ui-monospace, monospace; }
+.player-shell { width: 100%; max-width: 390px; aspect-ratio: 9 / 16; margin: 12px auto; overflow: hidden; background: #080a0d; border: 1px solid #29323e; border-radius: 8px; }
+.player-error { width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 18px; color: #ffd3c9; background: #211513; font: 11px ui-monospace, monospace; overflow: auto; }
+.player-error code { white-space: pre-wrap; color: #f2bbb2; line-height: 1.5; }
+.render-progress { padding: 14px 18px; margin: -9px 0 18px; }
+.render-summary { display: flex; justify-content: space-between; align-items: center; gap: 14px; }
+.render-summary b { display: block; margin-top: 6px; font: 700 12px ui-monospace, monospace; color: var(--ink); }
+.render-result-count { color: var(--muted); font: 9px ui-monospace, monospace; }
+.progress-track { height: 4px; background: #222a33; margin-top: 13px; overflow: hidden; }
+.progress-track i { display: block; height: 100%; background: linear-gradient(90deg, var(--blue), var(--lime)); transition: width .35s ease; }
+.render-failure { margin: 8px 0 0; color: #ff9f8c; font-size: 10px; line-height: 1.5; }
+.download-pair { display: flex; gap: 10px; }
+.download-pair a { border: 1px solid #374251; border-radius: 4px; padding: 8px 10px; color: #c9d2dc; font: 9px ui-monospace, monospace; }
+.download-pair a:hover { border-color: var(--blue); color: white; }
+.button.is-disabled { opacity: .48; cursor: not-allowed; pointer-events: auto; }
 @media (max-width: 1100px) { .review-layout { grid-template-columns: minmax(0, 1fr); } .clip-editor { position: static; } .editor-preview { max-width: 380px; margin: 12px auto; width: calc(100% - 24px); } .batch-heading { align-items: start; flex-direction: column; } }
 @media (max-width: 520px) { .clip-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .clip-card { padding: 4px; } .batch-counts { flex-wrap: wrap; } .creator-panel { padding: 17px; } .csv-editor { min-height: 270px; font-size: 9px; } .form-grid { grid-template-columns: 1fr; } .wide { grid-column: auto; } .editor-actions { align-items: stretch; flex-direction: column; } .editor-actions .button { width: 100%; } }

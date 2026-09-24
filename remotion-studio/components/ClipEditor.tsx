@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { BrandKit, ClipBrief } from "@/src/lib/domain";
+import ClipPlayer from "@/components/ClipPlayer";
 
 export default function ClipEditor({ clip, brand, onChanged }: { clip: ClipBrief; brand?: BrandKit; onChanged: () => Promise<void> }) {
   const [draft, setDraft] = useState(clip);
@@ -32,10 +33,7 @@ export default function ClipEditor({ clip, brand, onChanged }: { clip: ClipBrief
   }
 
   return <aside className="clip-editor panel">
-    <div className="editor-preview" style={{ background: `radial-gradient(circle at 75% 20%, ${brand?.palette.accent ?? "#246BFD"}70, transparent 34%), linear-gradient(160deg, ${brand?.palette.background ?? "#080A0D"}, #161d27)` }}>
-      <span className="eyebrow">{brand?.name ?? clip.brandId} / {clip.format}</span><h2>{draft.hook}</h2><p>{draft.keyMessage}</p><span className="editor-cta" style={{ background: brand?.palette.accentAlt ?? "#CFFF47", color: brand?.palette.background ?? "#080A0D" }}>{draft.cta}</span>
-      <span className="preview-caption">PREVIEW COMING NEXT</span>
-    </div>
+    {brand ? <ClipPlayer clip={draft} brand={brand} /> : <div className="editor-preview"><span>Loading brand kit…</span></div>}
     <div className="editor-form">
       <div className="section-heading"><h2>Clip brief</h2><span className={`status-label ${clip.status}`}>{clip.status.replace("_", " ")}</span></div>
       <label>Concept<input value={draft.concept} onChange={(event) => patch({ concept: event.target.value })} /></label>
@@ -47,6 +45,8 @@ export default function ClipEditor({ clip, brand, onChanged }: { clip: ClipBrief
       <label>Call to action<input value={draft.cta} onChange={(event) => patch({ cta: event.target.value })} /></label>
       <label>Scene copy <small>One scene per line</small><textarea rows={4} value={draft.sceneCopy.join("\n")} onChange={(event) => patch({ sceneCopy: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean) })} /></label>
       <label>Post copy<textarea rows={4} value={draft.postCopy} onChange={(event) => patch({ postCopy: event.target.value })} /></label>
+      {clip.status === "failed" && <p className="render-failure" role="alert">Render failed: {clip.renderError ?? "Unknown error"}</p>}
+      {clip.status === "rendered" && <div className="download-pair"><a href={`/api/renders/${clip.id}?batchId=${clip.batchId}&asset=video`}>↓ DOWNLOAD MP4</a><a href={`/api/renders/${clip.id}?batchId=${clip.batchId}&asset=cover`}>↓ COVER PNG</a></div>}
       {message && <p className="editor-message" role="status">{message}</p>}
       <div className="editor-actions"><button className="button secondary" disabled={busy || clip.status === "rendering"} onClick={() => void save()}>SAVE EDITS</button><button className="button" disabled={busy || clip.status === "rendering"} onClick={() => void review(clip.status !== "approved" && clip.status !== "rendered")}>{busy ? "SAVING…" : clip.status === "approved" || clip.status === "rendered" ? "REMOVE APPROVAL" : "APPROVE CLIP"}</button></div>
     </div>

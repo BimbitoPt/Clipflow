@@ -18,6 +18,12 @@ npm test
 npm run build
 ```
 
+## Batch workflow
+
+Create a batch with 10–20 mixed-brand clip briefs, then edit and preview each clip before approving it. Render approved clips from the batch page. The local worker processes one clip at a time; if it stops, restart `npm run dev` and queued work resumes. The export button downloads a ZIP containing MP4s, matching cover images, post-copy text and a manifest. Partial exports include successful clips and list failed or incomplete clips in the manifest without including their media.
+
+Before export, check the opening hook, spelling, brand, caption safe area, proof and CTA in the preview. Attach only operator-approved music in the brand kit; it is mixed at a restrained level across the full clip. Watch the rendered clip and confirm its cover and post copy before manual posting. The studio does not publish or schedule posts.
+
 ## Brand and media rules
 
 Clipflow and MStudio starter kits use the brand material in the repository. Add Sabre's real logo, colors, claims and voice through its kit before producing a Sabre clip. Use only owned or explicitly approved footage, music and proof; record provenance in the kit. Do not add customer results, testimonials or product claims without operator-supplied evidence.
