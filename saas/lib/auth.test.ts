@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sessionUserId } from "./auth";
+import { sessionUserId } from "../auth";
 import { freshTestDb } from "./waitlist";
 
 describe("auth session", () => {

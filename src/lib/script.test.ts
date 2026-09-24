@@ -54,4 +54,12 @@ describe("script", () => {
     const s = buildScript(idea, MSTUDIO_PROFILE, pack);
     expect(s.linkedin.body).toContain("#webdesign");
   });
+
+  it("generated copy has no em/en dashes (no AI slop)", () => {
+    const s = buildScript(idea, MSTUDIO_PROFILE, pack);
+    for (const t of [s.hook, ...s.beats, s.cta, s.linkedin.body]) {
+      expect(t).not.toContain("—");
+      expect(t).not.toContain("–");
+    }
+  });
 });

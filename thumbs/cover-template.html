@@ -1,0 +1,110 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    width: 1080px; height: 1920px;
+    font-family: "Inter", "Segoe UI", Arial, sans-serif;
+    background: #060a13;
+    position: relative;
+    overflow: hidden;
+  }
+  body::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(900px 600px at 80% -10%, rgba(47,124,246,0.28), transparent 60%),
+      radial-gradient(700px 500px at 10% 110%, rgba(125,232,107,0.10), transparent 60%);
+  }
+  .top {
+    position: absolute; top: 0; left: 0; right: 0;
+    padding: 96px 84px 0;
+  }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .badge {
+    display: flex; align-items: center; gap: 18px;
+    color: #7de86b; font-weight: 700; font-size: 30px; letter-spacing: 6px;
+    text-transform: uppercase;
+  }
+  .badge .dot { width: 22px; height: 22px; border-radius: 50%; background: #7de86b; box-shadow: 0 0 24px #7de86b; }
+  .badge .sep { color: #3a4658; }
+  .chip {
+    border: 2px solid rgba(255,255,255,0.22);
+    border-radius: 999px; padding: 12px 28px;
+    color: #e8edf4; font-size: 26px; font-weight: 700; letter-spacing: 2px;
+  }
+  .headline {
+    margin-top: 64px;
+    color: #f4f7fb;
+    font-size: 104px; line-height: 1.06; font-weight: 800; letter-spacing: -3px;
+  }
+  .headline .blue { color: #2f7cf6; }
+  .sub {
+    margin-top: 36px;
+    color: #9fb0c6; font-size: 42px; line-height: 1.45; font-weight: 400;
+  }
+  .sub strong { color: #f4f7fb; font-weight: 700; }
+  .chips {
+    margin-top: 44px;
+    display: flex; gap: 20px;
+  }
+  .chip2 {
+    border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.05);
+    border-radius: 999px; padding: 16px 30px;
+    color: #c6d2e2; font-size: 30px; font-weight: 600;
+  }
+  .chip2 b { color: #7de86b; font-weight: 800; }
+  .shotwrap {
+    position: absolute; left: 84px; right: 84px; bottom: 190px; top: 944px;
+    border-radius: 40px 40px 0 0;
+    overflow: hidden;
+    border: 2px solid rgba(255,255,255,0.16);
+    border-bottom: none;
+    box-shadow: 0 -30px 90px rgba(0,0,0,0.6);
+    background: #0a0f1a;
+  }
+  .shot {
+    position: absolute; inset: 0;
+    background: url("{{SHOT}}") center 20% / cover no-repeat;
+  }
+  .shot::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(6,10,19,0.55) 0%, rgba(6,10,19,0) 22%);
+  }
+  .footer {
+    position: absolute; left: 0; right: 0; bottom: 0;
+    height: 190px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 84px;
+    border-top: 1px solid rgba(255,255,255,0.12);
+    background: #060a13;
+  }
+  .footer .cta { color: #f4f7fb; font-size: 40px; font-weight: 800; }
+  .footer .cta span { color: #2f7cf6; }
+  .footer .brand { color: #8fa3bd; font-size: 28px; font-weight: 700; letter-spacing: 4px; }
+</style>
+</head>
+<body>
+  <div class="top">
+    <div class="row">
+      <div class="badge"><span class="dot"></span> MSTUDIO <span class="sep">/</span> SHIPPED WORK</div>
+      <div class="chip">{{CHIP_TOP}}</div>
+    </div>
+    <div class="headline">{{HOOK_HTML}}.</div>
+    <div class="sub">{{SUB_TOP}}<br><strong>Fixed price. Fixed timeline. Live today.</strong></div>
+    <div class="chips">
+      <div class="chip2"><b>&euro;299</b> starter builds</div>
+      <div class="chip2"><b>9</b> live projects</div>
+    </div>
+  </div>
+  <div class="shotwrap"><div class="shot"></div></div>
+  <div class="footer">
+    <div class="cta">Watch <span>&rarr;</span></div>
+    <div class="brand">MSTUDIOWEB.PT</div>
+  </div>
+</body>
+</html>

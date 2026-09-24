@@ -151,7 +151,7 @@ describe("render", () => {
 
   it("fits long lines without maxWidth squash", () => {
     const ctx = stubCtx();
-    const long = "word ".repeat(40).trim(); // 200-char cue
+    const long = "x".repeat(200); // 200-char single token forces shrink
     expect(long.length).toBeGreaterThanOrEqual(199);
     drawFrame(ctx, { t: 1, cue: { start: 0, end: 4, kind: "hook", text: long } }, theme);
     const m = /(\d+)px/.exec(ctx.font);
@@ -166,6 +166,21 @@ describe("render", () => {
     drawFrame(ctx, { t: 22.5, cue: { start: 0, end: 4, kind: "hook", text: "Hello niche" } }, theme);
     const near = ctx.rects.filter(([, , w]) => Math.abs(w - 360) <= 2);
     expect(near.length).toBeGreaterThan(0);
+  });
+
+  it("scales progress and zoom to a custom total", () => {
+    const ctx = stubCtx();
+    drawFrame(
+      ctx,
+      { t: 37.1, cue: { start: 32.1, end: 37.1, kind: "cta", text: "Hello niche" } },
+      theme,
+      720,
+      1280,
+      undefined,
+      37.1,
+    );
+    const full = ctx.rects.filter(([, , w]) => Math.abs(w - 720) <= 2);
+    expect(full.length).toBeGreaterThan(0);
   });
 
   it("pops current word in accent", () => {
@@ -188,6 +203,76 @@ describe("render", () => {
     expect(ctx.accents[nicheIdx]).toBe(theme.accent);
   });
 
+  it("shows a max 3-word karaoke window, never the full cue", () => {
+    const ctx = stubCtx();
+    const tokens = ["a", "b", "c", "d", "e"];
+    const words = tokens.map((word, i) => ({
+      word,
+      start: i,
+      end: i + 1,
+      cueKind: "hook" as const,
+    }));
+    drawFrame(
+      ctx,
+      { t: 2.5, cue: { start: 0, end: 5, kind: "hook", text: "a b c d e" } },
+      theme,
+      720,
+      1280,
+      { words },
+    );
+    expect(ctx.texts).toEqual(["b", "c", "d"]);
+    expect(ctx.accents[1]).toBe(theme.accent);
+  });
+
+  it("follows voice-timed words outside their cue window", () => {
+    const ctx = stubCtx();
+    // Hook spoken 0-8s while its caption cue is 0-4s: at t=6 the caption
+    // must still follow the hook voice, not jump to beat words.
+    const words = [
+      { word: "slow", start: 5.0, end: 5.5, cueKind: "hook" as const },
+      { word: "sites", start: 5.5, end: 6.0, cueKind: "hook" as const },
+      { word: "kill", start: 6.0, end: 6.5, cueKind: "hook" as const },
+      { word: "beat", start: 7.0, end: 7.5, cueKind: "beat" as const },
+    ];
+    drawFrame(
+      ctx,
+      { t: 6.2, cue: { start: 4, end: 16, kind: "beat", text: "beat words here" } },
+      theme,
+      720,
+      1280,
+      { words },
+    );
+    expect(ctx.texts).toEqual(["sites", "kill", "beat"]);
+    const killIdx = ctx.texts.findIndex((t) => t === "kill");
+    expect(ctx.accents[killIdx]).toBe(theme.accent);
+  });
+
+  it("dips to brand dark across cue boundaries, never mid-cue", () => {
+    const near = stubCtx();
+    drawFrame(
+      near,
+      { t: 4.05, cue: { start: 4, end: 16, kind: "beat", text: "beat words here" } },
+      theme,
+      720,
+      1280,
+    );
+    // edge = 0.05s into the cue -> alpha = 0.7 * (1 - 0.05/0.15)^2 ~= 0.311
+    const dip = near.globalAlphaValues.filter((a) => a > 0.2 && a < 0.7);
+    expect(dip.length).toBeGreaterThan(0);
+    expect(Math.abs(dip[0]! - 0.311)).toBeLessThan(0.01);
+    expect(near.globalAlpha).toBe(1);
+
+    const mid = stubCtx();
+    drawFrame(
+      mid,
+      { t: 10, cue: { start: 4, end: 16, kind: "beat", text: "beat words here" } },
+      theme,
+      720,
+      1280,
+    );
+    expect(mid.globalAlphaValues.filter((a) => a > 0.2 && a < 0.7).length).toBe(0);
+  });
+
   it("applies ken burns zoom at t=45", () => {
     const ctx = stubCtx();
     drawFrame(ctx, { t: 45, cue: { start: 0, end: 4, kind: "hook", text: "Hello niche" } }, theme);
@@ -203,7 +288,28 @@ describe("render", () => {
       theme,
       720,
       1280,
-      { image: { width: 100, height: 100 } },
+      { asset: { kind: "image", src: "/broll/1.jpg", el: { width: 100, height: 100 } as unknown as ImageBitmap, keywords: [] } },
+    );
+    expect(ctx.drawImageCalls.length).toBeGreaterThan(0);
+    expect(ctx.globalAlphaValues).toContain(0.55);
+  });
+
+  it("draws video b-roll cover-fit with dim overlay", () => {
+    const ctx = stubCtx();
+    drawFrame(
+      ctx,
+      { t: 1, cue: { start: 0, end: 4, kind: "hook", text: "Hello niche" } },
+      theme,
+      720,
+      1280,
+      {
+        asset: {
+          kind: "video",
+          src: "/broll/clips/clip-1.mp4",
+          el: { videoWidth: 720, videoHeight: 1280 } as unknown as HTMLVideoElement,
+          keywords: [],
+        },
+      },
     );
     expect(ctx.drawImageCalls.length).toBeGreaterThan(0);
     expect(ctx.globalAlphaValues).toContain(0.55);
@@ -217,7 +323,7 @@ describe("render", () => {
       theme,
       720,
       1280,
-      { image: { width: 100, height: 100 } },
+      { asset: { kind: "image", src: "/broll/1.jpg", el: { width: 100, height: 100 } as unknown as ImageBitmap, keywords: [] } },
     );
     const saves = ctx.calls.filter((c) => c === "save").length;
     const restores = ctx.calls.filter((c) => c === "restore").length;
@@ -238,7 +344,7 @@ describe("render", () => {
       theme,
       720,
       1280,
-      { image: { width: 100, height: 100 } },
+      { asset: { kind: "image", src: "/broll/1.jpg", el: { width: 100, height: 100 } as unknown as ImageBitmap, keywords: [] } },
     );
     expect(ctx.drawImageCalls.length).toBeGreaterThan(0);
     expect(ctx.globalAlpha).toBe(1);

@@ -1,5 +1,6 @@
 import type { Theme } from "./packs";
 import { VIDEO_SECS, type PlannedFrame, type SceneVariant, type WordCue } from "./planner";
+import { assetSize, type StockAsset } from "./broll";
 
 export interface BrollImage {
   width: number;
@@ -7,7 +8,7 @@ export interface BrollImage {
 }
 
 export interface RenderExtra {
-  image?: BrollImage;
+  asset?: StockAsset;
   words?: WordCue[];
 }
 
@@ -22,7 +23,7 @@ export interface DrawCtx {
   restore?(): void;
   translate?(x: number, y: number): void;
   scale?(x: number, y: number): void;
-  drawImage?(img: BrollImage, dx: number, dy: number, dw: number, dh: number): void;
+  drawImage?(img: BrollImage | ImageBitmap | HTMLVideoElement, dx: number, dy: number, dw: number, dh: number): void;
   globalAlpha?: number;
   beginPath?(): void;
   arc?(x: number, y: number, radius: number, startAngle: number, endAngle: number, counterclockwise?: boolean): void;
@@ -94,13 +95,15 @@ function wrapMeasured(text: string, maxW: number, measure: (s: string) => number
   return kept;
 }
 
-function findCurrentWord(wordList: WordCue[], frame: PlannedFrame): WordCue | undefined {
-  const inCue = wordList.filter((w) => w.start >= frame.cue.start && w.start < frame.cue.end);
-  if (inCue.length === 0) return undefined;
-  const sorted = [...inCue].sort((a, b) => a.start - b.start);
+function findCurrentWord(wordList: WordCue[], t: number): WordCue | undefined {
+  // Global lookup (never cue-filtered): voice-timed words can legitimately
+  // sound outside their caption cue's window (e.g. a slow hook bleeding
+  // into the first beat), and the caption must follow the voice.
+  const sorted = [...wordList].sort((a, b) => a.start - b.start);
+  if (sorted.length === 0) return undefined;
   let cur: WordCue | undefined;
   for (const w of sorted) {
-    if (w.start <= frame.t) cur = w;
+    if (w.start <= t) cur = w;
     else break;
   }
   return cur ?? sorted[0];
@@ -384,6 +387,7 @@ export function drawFrame(
   W = 720,
   H = 1280,
   extra?: RenderExtra,
+  totalSecs: number = VIDEO_SECS,
 ): void {
   const bg0 = typeof theme.bg[0] === "string" && theme.bg[0].length > 0 ? theme.bg[0] : "";
   const bg1 = typeof theme.bg[1] === "string" && theme.bg[1].length > 0 ? theme.bg[1] : "";
@@ -407,7 +411,7 @@ export function drawFrame(
     typeof ctx.scale === "function";
   let painted = false;
   let brollDrawn = false;
-  const skipScene = !!extra?.image;
+  const skipScene = !!extra?.asset;
   const sceneVariant: SceneVariant = frame.variant ?? variantForKind(frame.cue.kind);
   const paintScene = () => {
     if (skipScene) return;
@@ -418,22 +422,27 @@ export function drawFrame(
     }
   };
   const paintBroll = () => {
-    if (extra?.image) {
-      const iw = extra.image.width;
-      const ih = extra.image.height;
+    const asset = extra?.asset;
+    if (asset) {
+      const { w: iw, h: ih } = assetSize(asset.el);
       if (iw > 0 && ih > 0 && typeof ctx.drawImage === "function") {
         const s = Math.max(W / iw, H / ih);
         const dw = iw * s;
         const dh = ih * s;
         const dx = (W - dw) / 2;
         const dy = (H - dh) / 2;
-        ctx.drawImage(extra.image, dx, dy, dw, dh);
-        brollDrawn = true;
+        try {
+          // Same cover-fit for image bitmaps and video frames.
+          ctx.drawImage(asset.el as BrollImage, dx, dy, dw, dh);
+          brollDrawn = true;
+        } catch {
+          // drawImage on a not-ready <video> throws — gradient fallback.
+        }
       }
     }
   };
   if (hasTransform) {
-    const z = 1 + 0.08 * (frame.t / VIDEO_SECS);
+    const z = 1 + 0.08 * (frame.t / totalSecs);
     let entered = false;
     try {
       ctx.save!();
@@ -501,6 +510,30 @@ export function drawFrame(
       // Overlay must never throw; alpha already restored by finally.
     }
   }
+  // Edge dip: brief dip-to-brand-dark across cue boundaries hides hard cuts
+  // (including same-take restarts) while the accent bar, progress bar and
+  // captions paint after it at full brightness.
+  try {
+    const DIP_SECS = 0.15;
+    const edge = Math.min(frame.t - frame.cue.start, frame.cue.end - frame.t);
+    if (edge < DIP_SECS && edge >= 0 && typeof ctx.fillRect === "function") {
+      const k = 1 - edge / DIP_SECS;
+      try {
+        ctx.globalAlpha = 0.7 * k * k;
+      } catch {
+        // Keep current alpha; the dip darkens slightly less.
+      }
+      ctx.fillStyle = "#080A0D";
+      ctx.fillRect(0, 0, W, H);
+      try {
+        ctx.globalAlpha = 1;
+      } catch {
+        // Never throw while restoring alpha.
+      }
+    }
+  } catch {
+    // Dip must never throw; captions paint next regardless.
+  }
   ctx.fillStyle = theme.accent;
   ctx.fillRect(0, 0, W, 12);
   const maxW = W - 96;
@@ -510,64 +543,98 @@ export function drawFrame(
   const base = parseBaseSize(theme.font);
   let lines: string[];
   let best = base;
-  if (typeof ctx.measureText !== "function") {
+  // Text measurement helpers — only defined when the ctx supports it.
+  let measureAt: ((size: number) => (s: string) => number) | undefined;
+  let fitLargest: ((text: string, hi: number) => { size: number; fitted: string[] }) | undefined;
+  if (typeof ctx.measureText === "function") {
+    const measure = ctx.measureText;
+    measureAt = (size: number) => {
+      ctx.font = fontFor(theme.font, size);
+      const m = measure;
+      return (s: string) => m.call(ctx, s).width;
+    };
+    // Largest size in [28, hi] where every wrapped line of text fits fitW.
+    const measureFn = measureAt;
+    fitLargest = (text: string, hi: number): { size: number; fitted: string[] } => {
+      let lo = 28;
+      let top = hi;
+      let size = 28;
+      while (lo <= top) {
+        const mid = Math.floor((lo + top) / 2);
+        const candidate = wrapMeasured(text, fitW, measureFn(mid));
+        const ok = candidate.every((ln) => measureFn(mid)(ln) <= fitW);
+        if (ok) {
+          size = mid;
+          lo = mid + 1;
+        } else {
+          top = mid - 1;
+        }
+      }
+      return { size, fitted: wrapMeasured(text, fitW, measureFn(size)) };
+    };
+  }
+  if (!fitLargest) {
     ctx.font = theme.font;
     lines = words(frame.cue.text);
   } else {
-    const measureAt = (size: number) => {
-      ctx.font = fontFor(theme.font, size);
-      const m = ctx.measureText!;
-      return (s: string) => m.call(ctx, s).width;
-    };
-    let lo = 28;
-    let hi = base;
-    best = 28;
-    // Binary-search largest size in [28, base] where every wrapped line fits.
-    while (lo <= hi) {
-      const mid = Math.floor((lo + hi) / 2);
-      const candidate = wrapMeasured(frame.cue.text, fitW, measureAt(mid));
-      const ok = candidate.every((ln) => measureAt(mid)(ln) <= fitW);
-      if (ok) {
-        best = mid;
-        lo = mid + 1;
-      } else {
-        hi = mid - 1;
-      }
-    }
+    const full = fitLargest(frame.cue.text, base);
+    best = full.size;
     ctx.font = fontFor(theme.font, best);
-    const measureBest = measureAt(best);
-    lines = wrapMeasured(frame.cue.text, fitW, measureBest);
+    lines = full.fitted;
   }
   const wordList = extra?.words;
   if (wordList && wordList.length > 0 && typeof ctx.measureText === "function") {
     let current: WordCue | undefined;
     try {
-      current = findCurrentWord(wordList, frame);
+      current = findCurrentWord(wordList, frame.t);
     } catch {
       current = undefined;
     }
-    if (current) {
-      const popIdx = lines.findIndex((ln) => ln.split(" ").includes(current!.word));
-      if (popIdx >= 0) {
-        lines.forEach((ln, i) => {
-          const y = H / 2 + i * 110;
-          if (i === popIdx) {
-            try {
-              drawPopLine(ctx, ln, current!.word, 48, y, theme.font, best, theme.accent);
-            } catch {
-              ctx.fillStyle = "#F7F8FA";
-              ctx.font = fontFor(theme.font, best);
-              ctx.fillText(ln, 48, y);
-            }
-          } else {
-            ctx.fillStyle = "#F7F8FA";
-            ctx.font = fontFor(theme.font, best);
-            ctx.fillText(ln, 48, y);
+    if (current && measureAt) {
+      // Trending karaoke: max 3 words on screen (prev/current/next),
+      // current word popped in accent — never the full cue paragraph.
+      let windowLine = current.word;
+      try {
+        // Neighbor window in global time order (never cue-filtered): the
+        // words sounding right now, even across a cue boundary.
+        const sorted = [...wordList].sort((a, b) => a.start - b.start);
+        let idx = sorted.findIndex((w) => w === current);
+        if (idx < 0) {
+          idx = sorted.findIndex((w) => w.start === current!.start && w.word === current!.word);
+        }
+        if (idx < 0) idx = 0;
+        const lo = Math.max(0, idx - 1);
+        const hi = Math.min(sorted.length, lo + 3);
+        const lo2 = Math.max(0, hi - 3);
+        const joined = sorted
+          .slice(lo2, hi)
+          .map((w) => w.word)
+          .join(" ");
+        if (joined) windowLine = joined;
+      } catch {
+        windowLine = current.word;
+      }
+      // Single-line fit: the window draws as ONE line, so fit the joined
+      // line itself (never multi-line wrap scoring).
+      const fits = measureAt;
+      let winSize = 28;
+      for (let s = 120; s >= 28; s--) {
+        try {
+          if (fits(s)(windowLine) <= fitW) {
+            winSize = s;
+            break;
           }
-        });
-      } else {
+        } catch {
+          // Treat measure failure as not-fitting; keep shrinking.
+        }
+      }
+      ctx.font = fontFor(theme.font, winSize);
+      try {
+        drawPopLine(ctx, windowLine, current.word, 48, H / 2, theme.font, winSize, theme.accent);
+      } catch {
         ctx.fillStyle = "#F7F8FA";
-        lines.forEach((ln, i) => ctx.fillText(ln, 48, H / 2 + i * 110));
+        ctx.font = fontFor(theme.font, winSize);
+        ctx.fillText(windowLine, 48, H / 2);
       }
     } else {
       ctx.fillStyle = "#F7F8FA";
@@ -577,19 +644,8 @@ export function drawFrame(
     ctx.fillStyle = "#F7F8FA";
     lines.forEach((ln, i) => ctx.fillText(ln, 48, H / 2 + i * 110));
   }
-  const label = frame.cue.kind.toUpperCase();
-  const pillFont = "700 40px system-ui, sans-serif";
-  ctx.font = pillFont;
-  let pillW = 200;
-  if (typeof ctx.measureText === "function") {
-    const lw = ctx.measureText.call(ctx, label).width;
-    pillW = Math.max(120, lw + 48);
-  }
+  // No cue pills: TikTok style shows speech captions only, never
+  // HOOK/BEAT/CTA labels.
   ctx.fillStyle = theme.accent;
-  ctx.fillRect(48, 88, pillW, 56);
-  ctx.fillStyle = "#F7F8FA";
-  ctx.font = pillFont;
-  ctx.fillText(label, 72, 126);
-  ctx.fillStyle = theme.accent;
-  ctx.fillRect(0, H - 14, (W * frame.t) / VIDEO_SECS, 14);
+  ctx.fillRect(0, H - 14, (W * frame.t) / totalSecs, 14);
 }

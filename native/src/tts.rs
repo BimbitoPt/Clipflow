@@ -14,6 +14,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use ort::session::Session;
 use ort::value::Tensor;
+use serde::Deserialize;
 
 const SAMPLE_RATE: u32 = 16000;
 const NUM_MEL_BINS: usize = 80;
@@ -240,6 +241,106 @@ pub fn synth_to_wav(models_dir: &Path, text: &str, wav_out: &Path) -> Result<f64
     write_wav_16k_mono(wav_out, &wave)
 }
 
+/// A SAPI `SpeakProgress` word onset: `word_index` into the cue's
+/// whitespace-split tokens, `start_secs` since cue start.
+#[derive(Debug, Clone, Copy)]
+pub struct CueWordTime {
+    pub word_index: usize,
+    pub start_secs: f64,
+}
+
+#[derive(Deserialize)]
+struct SapiEvent {
+    pos: usize,
+    #[allow(dead_code)]
+    len: usize,
+    #[serde(rename = "audioMs")]
+    audio_ms: i64,
+}
+
+/// Windows SAPI synthesis of ONE cue to 16kHz mono WAV with real word
+/// onset times (David voice, rate -1 — the proven social VO).
+///
+/// Runs powershell `System.Speech` with a `SpeakProgress` subscription that
+/// dumps JSON events beside the wav; maps character positions to word
+/// indices (ASCII text: .NET UTF-16 units == bytes). First event wins per
+/// word; words without events are absent (caller interpolates).
+/// Returns wav duration + times. On non-Windows always fails.
+pub fn synth_sapi_cue(
+    text: &str,
+    wav_out: &Path,
+) -> Result<(f64, Vec<CueWordTime>)> {
+    if !cfg!(windows) {
+        bail!("sapi is Windows-only");
+    }
+    if let Some(parent) = wav_out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let json_out = wav_out.with_extension("wordtimes.json");
+    // Single quotes inside -Command: double them for PowerShell escaping.
+    let ps_text = text.replace('\'', "''");
+    let wav_str = wav_out.to_string_lossy().replace('\'', "''");
+    let json_str = json_out.to_string_lossy().replace('\'', "''");
+    let script = format!(
+        "Add-Type -AssemblyName System.Speech; \
+         $s = New-Object System.Speech.Synthesis.SpeechSynthesizer; \
+         $s.SelectVoice('Microsoft David Desktop'); \
+         $s.Rate = -1; \
+         $f = New-Object System.Speech.AudioFormat.SpeechAudioFormatInfo(16000, [System.Speech.AudioFormat.AudioBitsPerSample]::Sixteen, [System.Speech.AudioFormat.AudioChannel]::Mono); \
+         $s.SetOutputToWaveFile('{wav_str}', $f); \
+         $ev = New-Object System.Collections.ArrayList; \
+         $sub = Register-ObjectEvent -InputObject $s -EventName SpeakProgress -Action {{ \
+           $e = $Event.SourceEventArgs; \
+           $null = $ev.Add(@{{ pos = $e.CharacterPosition; len = $e.CharacterCount; audioMs = [int]$e.AudioPosition.TotalMilliseconds }}); \
+         }}; \
+         $s.Speak('{ps_text}'); \
+         Unregister-Event -SubscriptionId $sub.Id; \
+         $s.Dispose(); \
+         ConvertTo-Json -InputObject @($ev.ToArray()) -Compress | Set-Content '{json_str}';"
+    );
+    let status = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", &script])
+        .status()
+        .context("launch powershell for SAPI cue synthesis")?;
+    if !status.success() {
+        bail!("SAPI cue synthesis failed with {status}");
+    }
+    let raw = std::fs::read_to_string(&json_out).context("read SAPI wordtimes")?;
+    let events: Vec<SapiEvent> = serde_json::from_str(&raw).context("parse SAPI wordtimes")?;
+    // SAPI CharacterPosition uses UTF-16 offsets, not UTF-8 byte offsets.
+    let mut spans: Vec<(usize, usize)> = Vec::new();
+    let mut p = 0usize;
+    for w in text.split_whitespace() {
+        let rel = text[p..].find(w).unwrap_or(0);
+        let a = p + rel;
+        let utf16_start = text[..a].encode_utf16().count();
+        spans.push((utf16_start, utf16_start + w.encode_utf16().count()));
+        p = a + w.len();
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut times = Vec::new();
+    for e in events {
+        if let Some(k) = spans
+            .iter()
+            .position(|&(a, b)| a <= e.pos && e.pos < b)
+        {
+            if seen.insert(k) {
+                times.push(CueWordTime {
+                    word_index: k,
+                    start_secs: e.audio_ms as f64 / 1000.0,
+                });
+            }
+        }
+    }
+    // Event delivery order is not guaranteed; restore word order.
+    times.sort_by_key(|t| t.word_index);
+    let reader = hound::WavReader::open(wav_out).context("read SAPI cue wav")?;
+    let dur = reader.len() as f64 / SAMPLE_RATE as f64;
+    Ok((dur, times))
+}
+
 /// Windows SAPI synthesis to 16kHz mono WAV (the `--voice sapi` path).
 ///
 /// On non-Windows targets this always fails with a `sapi is Windows-only`
@@ -276,8 +377,7 @@ pub fn synth_sapi_to_wav(text: &str, wav_out: &Path) -> Result<f64> {
     Ok(n / SAMPLE_RATE as f64)
 }
 
-fn write_wav_16k_mono(wav_out: &Path, wave: &[f32]) -> Result<f64> {
-    if let Some(parent) = wav_out.parent() {
+fn write_wav_16k_mono(wav_out: &Path, wave: &[f32]) -> Result<f64> {    if let Some(parent) = wav_out.parent() {
         if !parent.as_os_str().is_empty() {
             std::fs::create_dir_all(parent)?;
         }
@@ -295,4 +395,40 @@ fn write_wav_16k_mono(wav_out: &Path, wave: &[f32]) -> Result<f64> {
     }
     writer.finalize()?;
     Ok(wave.len() as f64 / SAMPLE_RATE as f64)
+}
+
+/// Concatenate same-spec 16kHz mono i16 WAVs (per-cue SAPI outputs) into
+/// one file. Returns total duration. Bails on spec mismatch.
+pub fn concat_wavs_16k_mono(inputs: &[std::path::PathBuf], out: &Path) -> Result<f64> {
+    if let Some(parent) = out.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate: SAMPLE_RATE,
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(out, spec)?;
+    let mut total = 0u32;
+    for inp in inputs {
+        let mut reader = hound::WavReader::open(inp)
+            .with_context(|| format!("read cue wav {}", inp.display()))?;
+        anyhow::ensure!(
+            reader.spec().channels == 1
+                && reader.spec().sample_rate == SAMPLE_RATE
+                && reader.spec().bits_per_sample == 16,
+            "cue wav spec mismatch in {}: {:?}",
+            inp.display(),
+            reader.spec()
+        );
+        for s in reader.samples::<i16>() {
+            writer.write_sample(s?)?;
+            total += 1;
+        }
+    }
+    writer.finalize()?;
+    Ok(total as f64 / SAMPLE_RATE as f64)
 }

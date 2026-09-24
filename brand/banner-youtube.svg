@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2560 1440">
+  <defs>
+    <linearGradient id="flow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#246BFD"/>
+      <stop offset="1" stop-color="#CFFF47"/>
+    </linearGradient>
+  </defs>
+  <rect width="2560" height="1440" fill="#080A0D"/>
+  <circle cx="2100" cy="300" r="420" fill="#246BFD" opacity="0.12"/>
+  <circle cx="350" cy="1200" r="480" fill="#CFFF47" opacity="0.07"/>
+  <rect x="0" y="0" width="2560" height="200" fill="#080A0D" opacity="0.0"/>
+  <g stroke-linecap="round" fill="none">
+    <path d="M880 480 H1040" stroke="#246BFD" stroke-width="44"/>
+    <path d="M880 580 H1110" stroke="#246BFD" stroke-width="44"/>
+    <path d="M880 680 H1000" stroke="#CFFF47" stroke-width="44"/>
+  </g>
+  <polygon points="1140,450 1290,580 1140,710" fill="#F7F8FA"/>
+  <text x="880" y="880" font-family="system-ui, sans-serif" font-weight="800" font-size="150" fill="#F7F8FA" letter-spacing="10">CLIPFLOW</text>
+  <text x="886" y="945" font-family="system-ui, sans-serif" font-weight="600" font-size="56" fill="#CFFF47">idea in, video out.</text>
+  <rect x="0" y="1424" width="2560" height="16" fill="url(#flow)"/>
+</svg>

@@ -28,7 +28,7 @@ export function buildScript(idea: string, profile: Profile, pack: NichePack): Vi
   const beats: [string, string, string] = [
     `${profile.audience} keep losing to competitors who look finished.`,
     `Proof: ${profile.proof}.`,
-    `You get ${profile.offer} — ${profile.tone}.`,
+    `You get ${profile.offer}. ${profile.tone}.`,
   ];
   const cta = `${pick(pack.ctas, clean + "\n" + profile.niche)}`;
   const cues: TimedCue[] = [
@@ -41,7 +41,7 @@ export function buildScript(idea: string, profile: Profile, pack: NichePack): Vi
   const variants: [string, string, string] = [
     `${hook}`,
     `Stop looking unfinished: ${profile.offer}.`,
-    `${profile.niche} for ${profile.audience} — ${profile.tone}.`,
+    `${profile.niche} for ${profile.audience}. ${profile.tone}.`,
   ];
   return {
     hook, beats, cta, cues,

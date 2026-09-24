@@ -270,11 +270,12 @@ mod tests {
 
     #[test]
     fn trending_ass_has_chunk_captions_without_pills() {
-        // 77 engine words in TikTok chunks (<=4 words, sentence-aware) and
-        // ZERO pill/label events. Bounds count-proportional over total_secs.
+        // Engine word count follows the current pack copy (79 words after
+        // the 2026-09-17 agency-voice pack). Asserts structure, not magic.
         let s = build_script(IDEA).unwrap();
         let words = plan_words(&s);
-        assert_eq!(words.len(), 77);
+        assert!(words.len() >= 70 && words.len() <= 90, "{}", words.len());
+        assert_eq!(words.len(), 79);
         let counts: Vec<usize> = s
             .cues
             .iter()

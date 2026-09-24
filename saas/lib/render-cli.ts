@@ -3,6 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import type { Database } from "better-sqlite3";
 import { completeJob, failJob, type Job } from "./jobs";
+import { renderCoverCli } from "./cover-cli";
 
 const RENDER_TIMEOUT_MS = 600_000;
 
@@ -67,4 +68,11 @@ export function renderCli(db: Database, job: Job, outDir: string): void {
 
   const mp4Path = mp4Paths[mp4Paths.length - 1];
   completeJob(db, job.id, mp4Path);
+
+  // Cover is additive: a cover failure must never fail the job.
+  try {
+    renderCoverCli(mp4Path, outDir, job.idea);
+  } catch (err) {
+    console.warn(`[cover] failed: ${String(err).slice(0, 200)}`);
+  }
 }

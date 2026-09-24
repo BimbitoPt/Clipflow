@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { loadPack, type Theme } from "./lib/packs";
-import { MSTUDIO_PROFILE, loadProfile, saveProfile } from "./lib/profile";
+import { MSTUDIO_PROFILE, loadProfile, saveProfile, type Profile } from "./lib/profile";
 import { buildScript } from "./lib/script";
-import { planFrames, planWords, VIDEO_SECS, type PlannedFrame } from "./lib/planner";
+import { planFrames, planWordsTimed, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
 import { drawFrame, type DrawCtx, type RenderExtra } from "./lib/render";
-import { assignCueAssets, preloadCueAssets, type PoolEntry, type StockAsset } from "./lib/broll";
+import { applyAssetOverride, assignCueAssets, preloadCueAssets, type PoolEntry, type StockAsset } from "./lib/broll";
 import { previewSpeak } from "./lib/tts";
 import { createSpeechT5Loader } from "./lib/tts-local";
 
@@ -59,11 +59,81 @@ function cueIndexOf(script: { cues: Array<{ start: number; kind: string }> }, cu
   return byStart >= 0 ? byStart : 0;
 }
 
+// Voice-timed karaoke sidecar (localStorage `clipflow.wordtimes`), written
+// by the headless VO pipeline next to the wav it was measured from. Applied
+// only on exact idea+profile match — otherwise the deterministic even-split
+// grid is used, so stale timings can never leak into another video.
+// Optional voice-driven render grid (windows + total): when present and
+// valid, the video renders the measured cue spans instead of the fixed 45s
+// grid, so a tightly packed VO yields a shorter video.
+function readWordTiming(
+  idea: string,
+  profile: Profile,
+): {
+  cues: TimedCueTiming[];
+  windows: Array<{ start: number; end: number }> | null;
+  total: number | null;
+  assets: Array<string | null> | null;
+} | null {
+  try {
+    const raw = localStorage.getItem("clipflow.wordtimes");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      idea?: unknown;
+      profile?: Partial<Profile>;
+      cues?: unknown;
+      windows?: unknown;
+      total?: unknown;
+      assets?: unknown;
+    };
+    if (!parsed || parsed.idea !== idea) return null;
+    const p = parsed.profile;
+    if (
+      !p ||
+      p.niche !== profile.niche ||
+      p.audience !== profile.audience ||
+      p.offer !== profile.offer ||
+      p.tone !== profile.tone ||
+      p.proof !== profile.proof
+    ) {
+      return null;
+    }
+    if (!Array.isArray(parsed.cues)) return null;
+    let windows: Array<{ start: number; end: number }> | null = null;
+    if (
+      Array.isArray(parsed.windows) &&
+      parsed.windows.length === parsed.cues.length &&
+      parsed.windows.every(
+        (w) =>
+          w &&
+          typeof (w as { start: unknown }).start === "number" &&
+          typeof (w as { end: unknown }).end === "number",
+      )
+    ) {
+      windows = parsed.windows as Array<{ start: number; end: number }>;
+    }
+    const total =
+      typeof parsed.total === "number" && Number.isFinite(parsed.total) && parsed.total > 0
+        ? parsed.total
+        : null;
+    let assets: Array<string | null> | null = null;
+    if (
+      Array.isArray(parsed.assets) &&
+      parsed.assets.every((a) => a === null || typeof a === "string")
+    ) {
+      assets = parsed.assets as Array<string | null>;
+    }
+    return { cues: parsed.cues as TimedCueTiming[], windows, total, assets };
+  } catch {
+    return null;
+  }
+}
+
 async function seekVideo(el: HTMLVideoElement, t: number): Promise<void> {
   try {
     const dur = el.duration;
     const target = Number.isFinite(dur) && dur > 0 ? t % dur : t;
-    if (Math.abs(el.currentTime - target) < 0.05) return;
+    if (Math.abs(el.currentTime - target) < 0.001) return;
     await new Promise<void>((resolve) => {
       let done = false;
       const finish = () => {
@@ -137,7 +207,11 @@ export function App() {
     setErr(scriptErr);
   }, [script]);
 
-  const words = useMemo(() => (script ? planWords(script) : undefined), [script]);
+  const timing = useMemo(() => readWordTiming(idea, profile), [idea, profile]);
+  const words = useMemo(
+    () => (script ? planWordsTimed(script, timing?.cues ?? null) : undefined),
+    [script, timing],
+  );
 
   // Auto mode: on idea/profile/script change, auto assign + preload 1 stock
   // asset per cue (hook/beat1/beat2/beat3/cta). Debounced, no click needed.
@@ -152,7 +226,10 @@ export function App() {
       void (async () => {
         try {
           const cueTexts = script.cues.map((c) => c.text);
-          const entries: PoolEntry[] = assignCueAssets(idea, profile, cueTexts);
+          const entries: PoolEntry[] = applyAssetOverride(
+            assignCueAssets(idea, profile, cueTexts),
+            timing?.assets ?? null,
+          );
           const loaded = await preloadCueAssets(entries);
           if (!cancelled) {
             setAutoAssets(loaded);
@@ -171,7 +248,7 @@ export function App() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [script, idea, profile]);
+  }, [script, idea, profile, timing]);
 
   function assetForCue(cue: { start: number; kind: string }): StockAsset | null {
     // Manual override wins: single user-picked b-roll covers every cue.
@@ -253,13 +330,13 @@ export function App() {
       return;
     }
     try {
-      const frame = planFrames(script, 30)[0];
+      const frame = planFrames(script, 30, timing?.windows ?? null)[0];
       if (!frame) return;
       const extra: RenderExtra = {};
       if (words) extra.words = words;
       const asset = assetForCue(frame.cue);
       if (asset) extra.asset = asset;
-      drawFrame(ctx as DrawCtx, frame, theme, 360, 640, extra);
+      drawFrame(ctx as DrawCtx, frame, theme, 360, 640, extra, timing?.total ?? VIDEO_SECS);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
@@ -301,7 +378,10 @@ export function App() {
         if (cueAssets.length !== script.cues.length) {
           setExportMsg("Casting stock…");
           setExportProgress(25);
-          const entries = assignCueAssets(idea, profile, script.cues.map((c) => c.text));
+          const entries = applyAssetOverride(
+            assignCueAssets(idea, profile, script.cues.map((c) => c.text)),
+            timing?.assets ?? null,
+          );
           cueAssets = await preloadCueAssets(entries);
           setAutoAssets(cueAssets);
         }
@@ -314,7 +394,7 @@ export function App() {
           setExportProgress(50);
           try {
             const raw = await loader(fullText);
-            const target = VIDEO_SECS * 16000;
+            const target = Math.round((timing?.total ?? VIDEO_SECS) * 16000);
             if (raw.length > target) {
               const secs = (raw.length / 16000).toFixed(1);
               setVoiceWarn(`Voice ran ${secs}s — trimmed to ${VIDEO_SECS}s video. Shorten the idea for a perfect fit.`);
@@ -325,6 +405,19 @@ export function App() {
               pcm = fitted;
             } else {
               pcm = raw;
+            }
+            // Normalize: SpeechT5 peaks near 0.1 (whisper-quiet) — peak to
+            // 0.89 so the export is audible without cranking device volume.
+            if (pcm) {
+              let peak = 0;
+              for (let i = 0; i < pcm.length; i++) {
+                const a = Math.abs(pcm[i]);
+                if (a > peak) peak = a;
+              }
+              if (peak > 0.001) {
+                const gv = 0.89 / peak;
+                for (let i = 0; i < pcm.length; i++) pcm[i] = Math.max(-1, Math.min(1, pcm[i] * gv));
+              }
             }
           } catch (e) {
             setStatus("error");
@@ -349,7 +442,7 @@ export function App() {
         canvas.height = OUT_H;
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
-        const frames: PlannedFrame[] = planFrames(script, 30);
+        const frames: PlannedFrame[] = planFrames(script, 30, timing?.windows ?? null);
         const assetByCue = new Map<number, StockAsset | null>();
         script.cues.forEach((c, i) => {
           if (broll) {
@@ -359,7 +452,6 @@ export function App() {
           }
         });
         // Deterministic video start: seek each cue's video once before its frames.
-        const sought = new Set<number>();
         let encErr: unknown = null;
         const encoder = new VideoEncoder({
           output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
@@ -384,14 +476,19 @@ export function App() {
           for (const f of frames) {
             const idx = cueIndexOf(script, f.cue);
             const asset = assetByCue.get(idx) ?? null;
-            if (asset?.kind === "video" && !sought.has(idx)) {
-              sought.add(idx);
-              await seekVideo(asset.el as HTMLVideoElement, 0.1);
+            if (asset?.kind === "video") {
+              const video = asset.el as HTMLVideoElement;
+              video.pause();
+              const start = timing?.windows?.[idx]?.start ?? f.cue.start;
+              const elapsed = Math.max(0, f.t - start);
+              const seek = Number.isFinite(video.duration) && video.duration > 0
+                ? elapsed % video.duration : elapsed;
+              await seekVideo(video, seek);
             }
             const extra: RenderExtra = {};
             if (words) extra.words = words;
             if (asset) extra.asset = asset;
-            drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, extra);
+            drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, extra, timing?.total ?? VIDEO_SECS);
             const vf = new VideoFrame(canvas, { timestamp: Math.round(f.t * 1e6) });
             try {
               encoder.encode(vf, { keyFrame: f.t < 1 });

@@ -2,3 +2,25 @@ node_modules/
 dist/
 exports/
 *.local
+target/
+public/.broll-usage.json
+
+# Local weights, databases and render/debug output
+/public/models/*
+!/public/models/.gitkeep
+/data/
+/temp/
+/C
+/bright-sample.pgm
+/bright-stats.txt
+/thumbs/*.jpg
+/thumbs/cover-v5.html
+/thumbs/cover.html
+/thumbs/cover.ass
+/thumbs/shoot-cover-v5.mjs
+/public/broll/clips/sync-*.mp4
+/public/broll/clips/vo-*.mp4
+/public/broll/clips/post2-*.mp4
+.env
+.env.*
+!.env.example

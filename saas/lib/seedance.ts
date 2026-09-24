@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -39,8 +39,9 @@ export class CachedSeedanceProvider implements SeedanceProvider {
     } catch {
       mkdirSync(this.dir, { recursive: true });
       const buffer = await this.inner.generate(prompt);
-      writeFileSync(`${file}.tmp`, buffer);
-      renameSync(`${file}.tmp`, file);
+      const temporary = `${file}.${randomUUID()}.tmp`;
+      writeFileSync(temporary, buffer);
+      renameSync(temporary, file);
       return buffer;
     }
   }

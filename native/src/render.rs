@@ -58,8 +58,17 @@ pub struct Job {
     pub out: PathBuf,
 }
 
-/// Full multi-image render: slow zoompan per image over its cue span,
-/// concat → brand bar → subtitles → yuv420p, plus optional WAV audio.
+pub fn is_video(path: &Path) -> bool {
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(ext) => matches!(ext.to_ascii_lowercase().as_str(), "mp4" | "mov" | "webm" | "mkv"),
+        None => false,
+    }
+}
+
+/// Full mixed render: per cue, a still gets slow zoompan and a motion clip
+/// gets scale+crop with the span trimmed from a seamless loop (`-stream_loop`
+/// keeps short clips alive over longer spans). Clip audio is dropped; the VO
+/// track is the only audio. concat -> brand bar -> subtitles -> yuv420p.
 pub fn render(job: &Job, cue_secs: &[(f64, f64)]) -> anyhow::Result<()> {
     if job.images.len() != cue_secs.len() {
         anyhow::bail!(
@@ -74,11 +83,19 @@ pub fn render(job: &Job, cue_secs: &[(f64, f64)]) -> anyhow::Result<()> {
     let mut filter_parts: Vec<String> = Vec::new();
     let mut concat_inputs = String::new();
     for (i, (start, end)) in cue_secs.iter().enumerate() {
-        let n = ((*end - *start) * 30.0).round() as i64;
-        let n = n.max(15);
-        filter_parts.push(format!(
-            "[{i}:v]scale=1440:2560,zoompan=z='min(zoom+0.0015,1.30)':d={n}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=30,setsar=1[v{i}]"
-        ));
+        let span = *end - *start;
+        let chain = if is_video(&job.images[i]) {
+            format!(
+                "[{i}:v]scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,fps=30,trim=duration={span},setpts=PTS-STARTPTS,setsar=1[v{i}]"
+            )
+        } else {
+            let n = ((end * 30.0).round() - (start * 30.0).round()) as i64;
+            let n = n.max(1);
+            format!(
+                "[{i}:v]scale=1440:2560,zoompan=z='min(zoom+0.0015,1.30)':d={n}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=720x1280:fps=30,setsar=1[v{i}]"
+            )
+        };
+        filter_parts.push(chain);
         concat_inputs.push_str(&format!("[v{i}]"));
     }
     let n_segs = cue_secs.len();
@@ -95,6 +112,11 @@ pub fn render(job: &Job, cue_secs: &[(f64, f64)]) -> anyhow::Result<()> {
     let mut cmd = Command::new(&ffmpeg);
     cmd.arg("-y");
     for img in &job.images {
+        if is_video(img) {
+            // Infinite loop lets short clips cover any cue span; the
+            // per-segment trim bounds it and -shortest ends the mux.
+            cmd.args(["-stream_loop", "-1"]);
+        }
         cmd.arg("-i").arg(img);
     }
     if let Some(wav) = &job.wav {
@@ -103,6 +125,9 @@ pub fn render(job: &Job, cue_secs: &[(f64, f64)]) -> anyhow::Result<()> {
     cmd.args(["-filter_complex", &filter]);
     if job.wav.is_some() {
         cmd.args(["-map", "[vout]", "-map", &format!("{n_segs}:a")]);
+        // Normalize ort/SAPI voiceovers: raw TTS renders whisper-quiet
+        // (measured max -26 dB). Single-pass loudnorm to social loudness.
+        cmd.args(["-af", "loudnorm=I=-14:TP=-1:LRA=11"]);
         cmd.args(["-c:a", "aac", "-b:a", "128k", "-ar", "44100", "-ac", "2"]);
     } else {
         cmd.args(["-map", "[vout]"]);

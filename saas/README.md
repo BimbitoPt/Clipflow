@@ -22,7 +22,7 @@ Commands: `npm install`, `npm test`, `npm run build`, `npm run dev`
 - Env: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_CREATOR` (Creator, $19/mo), `STRIPE_PRICE_STUDIO` (Studio, $49/mo). Free has no price.
 - Local webhook testing: `stripe listen --forward-to localhost:3000/api/webhooks/stripe`, then set `STRIPE_WEBHOOK_SECRET` to the printed value.
 - Quotas: Free 5 renders/month, Creator 60, Studio 200. When the quota is exhausted, the render route responds 402.
-- AI features (ElevenLabs voice) spend credits from `credits_ledger`, separate from render quota. Voices are billed credits and require `ELEVENLABS_API_KEY`.
+- Paid ElevenLabs rendering is disabled until the renderer can consume the requested audio. API requests reject these voices; existing queued jobs fail without a charge.
 
 ## Renderer
 
@@ -34,11 +34,11 @@ Commands: `npm install`, `npm test`, `npm run build`, `npm run dev`
 
 ## Deploy
 
-- App and API: Next.js on Vercel (or any Node host). All env via platform secrets/auth env vars.
+- App/API and worker: run on the same Node host with a shared persistent SQLite volume. This SQLite configuration cannot use a separate Vercel filesystem. All env via host secrets.
 - Render box: ONE machine runs the worker (`CLIPFLOW_WORKER=1 npm run worker`) and must have (a) the clipflow binary from `cargo build --release`, (b) the ffmpeg sidecar (auto-downloads on first render), (c) the model files synced to `saas/../public/models`.
 - SQLite lives at `saas/data/clipflow.db`. For single-region deploy, mount that file on a persistent volume. Multi-region is not supported with SQLite; migrating to Postgres is a future task (tracked here in docs on purpose, not as code TODOs).
 
 ## Scope
 
-- ElevenLabs is metered at 1 credit per 1000 characters, rounded up, charged before the fetch and refunded on fetch failure. Render failure after a valid fetch keeps the charge (documented seam, reconciliation task later).
+- ElevenLabs provider and credit helpers remain available for future integration; the job path is disabled and does not charge.
 - Seedance video generation has a provider seam: currently a mock (`MockSeedanceProvider` returns deterministic bytes derived from a sha256 of the prompt, wrapped in a filesystem cache; cache location is `SEEDANCE_CACHE_DIR`, default `saas/storage/seedance`). A real HTTP provider is pending external API docs and does not exist yet.

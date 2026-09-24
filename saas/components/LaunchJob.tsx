@@ -27,8 +27,8 @@ export default function LaunchJob() {
         setError("Sign in first to launch a job.");
       } else if (body?.error === "quota") {
         setError("Monthly render quota reached.");
-      } else if (body?.error === "empty idea") {
-        setError("Enter an idea first.");
+      } else if (res.status === 400) {
+        setError("Enter an idea between 1 and 140 characters.");
       } else {
         setError("Something went wrong. Try again.");
       }
@@ -48,7 +48,7 @@ export default function LaunchJob() {
           value={idea}
           onChange={(e) => setIdea(e.target.value)}
           required
-          maxLength={1000}
+          maxLength={140}
         />
         <button type="submit" disabled={pending}>
           {pending ? "Launching..." : "Launch video job"}

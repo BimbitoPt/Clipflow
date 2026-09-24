@@ -4,7 +4,7 @@
 
 Context: DIY local starter assets — tracked in git, app never throws on missing clips.
 
-Starter thumbnails shipped in `public/broll/` (`1.jpg`–`9.jpg`).
+Starter thumbnails shipped in `public/broll/` (`1.jpg`–`25.jpg`).
 
 Sources (in thumbnail order):
 
@@ -17,14 +17,40 @@ Sources (in thumbnail order):
 7. https://unsplash.com/photos/C1n6WSkAsgg
 8. https://unsplash.com/photos/theClRb3XB4
 9. https://unsplash.com/photos/5Gm8oxVP18A
+10. https://picsum.photos/id/1/720/1280
+11. https://picsum.photos/id/3/720/1280
+12. https://picsum.photos/id/8/720/1280
+13. https://picsum.photos/id/26/720/1280
+14. https://picsum.photos/id/48/720/1280
+15. https://picsum.photos/id/60/720/1280
+16. https://picsum.photos/id/96/720/1280
+17. https://picsum.photos/id/106/720/1280
+18. https://picsum.photos/id/180/720/1280
+19. https://picsum.photos/id/201/720/1280
+20. https://picsum.photos/id/213/720/1280
+21. https://picsum.photos/id/219/720/1280
+22. https://picsum.photos/id/239/720/1280
+23. https://picsum.photos/id/242/720/1280
+24. https://picsum.photos/id/250/720/1280
+25. https://picsum.photos/id/257/720/1280
+26. Synthesized locally (code-editor mock, no license needed)
 
-Unsplash License, free to use.
+Unsplash License (1-9) + Picsum/Unsplash free to use (10-25) + local synth (26).
 
 Note: thumbnails ship in `public/broll` and must stay tracked in git — ensure `git add` includes them.
 
 ## Vertical clips (`public/broll/clips/*.mp4`)
 
-Auto stock also maps 6 vertical clip slots (`clip-1.mp4`–`clip-6.mp4`).
+Auto stock also maps 6 vertical clip slots (`clip-1.mp4`–`clip-6.mp4`)
+plus 2 MSTUDIO site case-study takes (`web-mstudioweb-hero.mp4`,
+`web-mstudioweb-scroll.mp4` — real site footage shot with
+`scripts/shoot-websites.mjs`, keyworded to outscore generic stock on
+site-related queries so case-study videos open on the site).
+Current clips are local Ken Burns motion renders from photos 13/17/22/18/23/10
+(interim video stock, 720x1280 5s each) — no external license needed.
+Source map (one photo source per video — matcher enforces distinct sources):
+clip-1→13, clip-2→17, clip-3→22, clip-4→18, clip-5→23, clip-6→10.
+Replace with Pexels/Coverr/Pixabay verticals when verified IDs land.
 Fetch with `scripts/fetch-broll.sh`. Missing clips fall back to jpg/gradient —
 the app never throws on 404.
 

@@ -42,6 +42,7 @@ export async function POST(request: Request) {
     cancel_url: `${origin}/app?checkout=cancel`,
     customer_email: email,
     metadata: { tier: selectedTier },
+    subscription_data: { metadata: { tier: selectedTier } },
   };
   let checkout: Stripe.Checkout.Session;
   try {

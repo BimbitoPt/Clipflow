@@ -4,6 +4,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: {
     alias: {
+      "@": new URL(".", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1"),
       "next/server": pathToFileURL("./node_modules/next/server.js").href,
       "next/headers": pathToFileURL("./node_modules/next/headers.js").href,
       "next/navigation": pathToFileURL("./node_modules/next/navigation.js").href,

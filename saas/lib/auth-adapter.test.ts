@@ -8,6 +8,12 @@ import { adapter } from "../auth";
 process.env.CLIPFLOW_DB = path.join(mkdtempSync(path.join(os.tmpdir(), "clipflow-auth-")), "test.db");
 
 describe("auth adapter sessions", () => {
+  it("binds verification tokens to the requested email and consumes once", () => {
+    adapter.createVerificationToken({ identifier: "a@b.co", token: "email-token", expires: new Date(Date.now() + 60_000) });
+    expect(adapter.useVerificationToken({ identifier: "other@b.co", token: "email-token" })).toBeNull();
+    expect(adapter.useVerificationToken({ identifier: "a@b.co", token: "email-token" })?.identifier).toBe("a@b.co");
+    expect(adapter.useVerificationToken({ identifier: "a@b.co", token: "email-token" })).toBeNull();
+  });
   it("roundtrips updateSession and deleteSession", () => {
     const db = getDb();
     db.prepare("INSERT INTO users(id, email) VALUES (?, ?)").run("u1", "s@b.co");

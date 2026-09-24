@@ -5,8 +5,8 @@ export const MSTUDIO_PROFILE: Profile = {
   niche: "web design, development and AI automation studio",
   audience: "creators, personal brands and digital businesses",
   offer: "fixed-price Speed Site, Brand + Website System and AI Automation Build",
-  tone: "direct, confident, zero fluff",
-  proof: "ships in 1–2 weeks, documented handoff, you own the code",
+  tone: "Direct, confident, zero fluff",
+  proof: "ships in 1-2 weeks, documented handoff, you own the code",
 };
 export function isProfile(v: unknown): v is Profile {
   if (typeof v !== "object" || v === null) return false;

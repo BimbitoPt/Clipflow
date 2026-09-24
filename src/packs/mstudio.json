@@ -2,19 +2,27 @@
   "id": "mstudio",
   "label": "M Studio Web",
   "hooks": [
-    "Your website is losing you clients every day it looks unfinished.",
-    "Creators don't need more content. They need a site that converts.",
-    "A €299 site that ships in 2 weeks beats a €5,000 site that never ships.",
-    "Nobody buys from a link-in-bio. They buy from proof.",
-    "Your brand looks different on every platform. That's costing you."
+    "Your website should sell while you sleep.",
+    "Most brands post content. Winners build systems that sell.",
+    "A site that ships in 2 weeks beats a redesign that never opens.",
+    "AI should reply to your leads before your competitors do.",
+    "Slow sites cost you sales every single week.",
+    "Templates lose deals. Custom builds close them."
+  ],
+  "beats": [
+    "creators, brands and digital businesses run on websites that convert visitors into clients.",
+    "MSTUDIO ships brand and web builds in 1 to 2 weeks, documented, code you own.",
+    "You get a Speed Site, a Brand and Website System or an AI Automation Build. Fixed price, fixed timeline."
   ],
   "ctas": [
-    "Link in bio — fixed price, fixed timeline, shipped.",
-    "Start with a conversation. Fixed quote, no hourly surprises."
+    "Book MSTUDIO. Your site ships while you keep selling.",
+    "Start at mstudioweb.pt. Fixed quote, shipped in weeks.",
+    "Link in bio. MSTUDIO turns ideas into working web systems."
   ],
   "themes": [
     { "bg": ["#080A0D", "#12306e"], "accent": "#246BFD", "font": "700 96px system-ui, sans-serif" },
     { "bg": ["#080A0D", "#0d3b2e"], "accent": "#CFFF47", "font": "700 96px system-ui, sans-serif" }
   ],
-  "hashtags": ["#webdesign", "#buildinpublic", "#creatoreconomy", "#indiehacker"]
+  "hashtags": ["#webdesign", "#buildinpublic", "#creatoreconomy", "#indiehacker"],
+  "banned": ["idea in, video out.", "clipflow", "early access", "waitlist", "join the waitlist"]
 }

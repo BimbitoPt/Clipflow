@@ -129,8 +129,8 @@ export const adapter = {
   },
   useVerificationToken({ identifier, token }: { identifier: string; token: string }) {
     const row = getDb()
-      .prepare("DELETE FROM verification_tokens WHERE token = ? RETURNING identifier, token, expires")
-      .get(token) as { identifier: string; token: string; expires: string } | undefined;
+      .prepare("DELETE FROM verification_tokens WHERE identifier = ? AND token = ? RETURNING identifier, token, expires")
+      .get(identifier, token) as { identifier: string; token: string; expires: string } | undefined;
     if (!row) return null;
     return { identifier: row.identifier, token: row.token, expires: new Date(row.expires) };
   },

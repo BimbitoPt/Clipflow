@@ -763,3 +763,46 @@ Expected: all PASS
 git add native/README.md
 git commit -m "docs(native): usage and roadmap"
 ```
+
+---
+
+### Task 10: SAPI per-cue word times (true caption sync)
+
+**Files:**
+- Modify: `native/src/tts.rs` (add per-cue synth + event parse), `native/src/main.rs` (wire), `native/README.md` (one-line Voice note)
+- Test: `native/tests/sapi_times.rs` (short fixture; SAPI-only — `#[ignore]` on non-Windows via early return, NOT #[ignore] attr: assert `cfg!(windows)` else return)
+
+**Interfaces:**
+- `pub struct CueWordTime { pub word_index: usize, pub start_secs: f64 }`
+- `pub fn synth_sapi_cue(text: &str, wav_out: &Path) -> anyhow::Result<(f64, Vec<CueWordTime>)>` — shells powershell `System.Speech` at 16kHz/16-bit/mono (same voice/rate as `synth_sapi_to_wav`), captures `SpeakProgress` events as JSON (`pos`, `len`, `audioMs`), maps char pos → word index via split_whitespace spans (first event wins per word), returns wav duration + times. `bail!` on non-Windows (`sapi is Windows-only`). Missing words (no event) are NOT filled here — caller interpolates.
+- main.rs SAPI/auto-Windows path: synth EACH cue text separately (hook, 3 beats, cta) → durations are the true cue bounds (no proportional model); word times offset by cumulative durations; missing words forward-filled at 0.38s steps then tail/head-compressed into remaining audio (same rules as the proven 2026-09-16 script). ort path unchanged (proportional `cue_bounds`). `off` unchanged (45s fallback).
+
+- [ ] Steps 1-5 (TDD): failing test `native/tests/sapi_times.rs` asserting first word start < 0.5s, times non-decreasing, count within ±2 of token count for fixture "Link in bio. Fixed price."; run FAIL; implement; run PASS (timeout 600000); commit `feat(native): SAPI per-cue word times`.
+
+### Task 11: Retention auto-cuts + timed chunk captions
+
+**Files:**
+- Modify: `native/src/captions.rs` (add `write_ass_timed`), `native/src/main.rs` (segment + wire), tests inline + e2e
+- Test: captions unit (fixture timed words → chunk events with exact spans, accent on last token, \fs fit); e2e asserts unchanged (mp4/aac/hashtags)
+
+**Interfaces:**
+- `pub fn write_ass_timed(timed: &[(String, f64, f64)], path: &Path) -> anyhow::Result<()>` — chunks consecutive words (≤3 words, ≤16 chars, sentence-aware) with spans from word times (chunk end = next chunk start, last = total); same Chunk style (68/heavy/center, \fs fit) and last-token accent; NO pills; `bail!` on empty input.
+- main.rs: subdivide every cue span into ≤2.4s segments; segment k of cue i renders assigned asset `(i+k)%5` (round-robin, never repeats previous — with 5 assets always satisfiable); per-image zoompan `d` from segment span; SAPI path feeds `write_ass_timed` with real times; ort/off paths build timed words from `cue_bounds` proportional spans (existing behavior, new function).
+
+- [ ] Steps 1-5 (TDD): failing captions test first (exact spans on 6-word fixture); run FAIL; implement; run PASS; e2e ignored-run PASS (timeout 600000); commit `feat(native): timed chunk captions and retention cuts`.
+
+### Task 12: Loudness-gated instrumented e2e
+
+**Files:**
+- Modify: `native/tests/e2e_trending.rs` (add assertions; no src changes expected)
+- Test: same ignored e2e, extended gates below
+
+**Interfaces:** none new — pure assertion upgrade on the Task 8 e2e.
+
+**Gates (all measured with the sidecar ffmpeg binary, no new deps):**
+- Loudness floor: `-af volumedetect -f null` on the AAC stream → parse `max_volume`; assert `max_volume > -12 dB` (raw ort output measured -26 dB on 2026-09-16; anything quieter than -12 dB fails the gate). Proves the `loudnorm` stage ran.
+- Caption coverage: parse the intermediate `.ass` (kept in temp per debug-hygiene rule — e2e must resolve its path the same way `main.rs` does) → last event end within ±1.5s of probed mp4 duration; event count ≥ word count / 3 (chunking happened, no single-blob captions).
+- Source diversity: 5 cue assets resolve to ≥4 distinct `source_of` ids (photo + motion-twin count as one — see `source_of` in `native/src/broll.rs`).
+- Existing asserts stay (720x1280 h264 + aac + `#webdesign`).
+
+- [ ] Steps 1-5 (TDD): extend e2e with the three gates (run FAILs on any silent/mismatched build); run PASS (timeout 600000); commit `test(native): loudness + coverage + diversity gates`.

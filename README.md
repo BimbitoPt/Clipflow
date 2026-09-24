@@ -3,7 +3,7 @@
 Clipflow is one engine with two doors:
 
 - **Clipflow (DIY)** — free, local-first PWA. No server, no keys, no auto-post.
-- **Clipflow Managed** — done-for-you short-form by MSTUDIO. See `docs/managed.md`.
+- **Clipflow Managed** — done-for-you short-form by MSTUDIO. See `docs/clipflow-saas.md`.
 
 DIY is the default. Managed is the upgrade. Same engine, same loop.
 
@@ -22,7 +22,7 @@ DIY is the default. Managed is the upgrade. Same engine, same loop.
 
 ## Docs
 
-- `docs/managed.md` — Clipflow Managed positioning (Task 2 creates it next).
+- `docs/clipflow-saas.md` — Clipflow SaaS direction and operating plan.
 - `docs/teardown.md` — competitive teardown feeding DIY positioning.
 - `docs/dogfood.md` — DIY dogfood validation (3 MSTUDIO ideas).
 - `docs/broll.md` — DIY local starter assets.

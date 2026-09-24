@@ -8,6 +8,12 @@ Rust CLI + library that renders vertical clips locally.
 - Windows, macOS, or Linux
 - NO system ffmpeg/ffprobe needed — the `ffmpeg-sidecar` crate
   auto-downloads a static ffmpeg binary on first run.
+- Voice rendering needs the SpeechT5 and HiFi-GAN model files under
+  `public/models` (about 215 MB); weights are local and are not stored in Git.
+  Download the files from `Xenova/speecht5_tts` and `Xenova/speecht5_hifigan`
+  on Hugging Face, keep each repository's directory layout, and put
+  `speaker_embeddings.bin` at `public/models/speaker_embeddings.bin`.
+  Silent rendering with `--voice off` does not need model weights.
 
 ## Usage
 
