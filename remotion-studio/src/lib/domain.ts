@@ -25,6 +25,14 @@ export const BrandKitSchema = z.object({
 
 export const ClipFormatSchema = z.enum(["explainer", "demo", "proof"]);
 export const ClipStatusSchema = z.enum(["draft", "needs_review", "approved", "rendering", "rendered", "failed"]);
+export const MotionStyleSchema = z.enum(["kinetic", "float", "snap", "cinematic"]);
+export const WordTimingSchema = z.object({ word: z.string().min(1).max(900), start: z.number().min(0), end: z.number().positive() });
+export const VoiceoverSchema = z.object({
+  script: z.string().max(900).default(""),
+  audioPath: localPathSchema.nullable().default(null),
+  wordTimings: z.array(WordTimingSchema).max(450).default([]),
+  generatedFor: z.string().max(64).nullable().default(null),
+}).default({ script: "", audioPath: null, wordTimings: [], generatedFor: null });
 
 export const ClipBriefSchema = z.object({
   id: idSchema,
@@ -41,6 +49,8 @@ export const ClipBriefSchema = z.object({
   sceneCopy: z.array(z.string().trim().min(1).max(220)).min(2).max(8),
   postCopy: z.string().max(1200),
   mediaOverrides: z.array(localPathSchema).max(12),
+  voiceover: VoiceoverSchema,
+  motionStyle: MotionStyleSchema.default("kinetic"),
   status: ClipStatusSchema,
   progress: z.number().min(0).max(1),
   outputPath: localPathSchema.nullable(),
@@ -61,4 +71,5 @@ export type BrandKit = z.infer<typeof BrandKitSchema>;
 export type ClipFormat = z.infer<typeof ClipFormatSchema>;
 export type ClipStatus = z.infer<typeof ClipStatusSchema>;
 export type ClipBrief = z.infer<typeof ClipBriefSchema>;
+export type WordTiming = z.infer<typeof WordTimingSchema>;
 export type Batch = z.infer<typeof BatchSchema>;

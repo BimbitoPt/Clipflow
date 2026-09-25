@@ -15,10 +15,21 @@ describe("studio domain schemas", () => {
   });
 
   it("validates clip duration, format and safe media paths", () => {
-    expect(ClipBriefSchema.parse(validClip).durationSeconds).toBe(25);
+    const parsed = ClipBriefSchema.parse(validClip);
+    expect(parsed.durationSeconds).toBe(25);
+    expect(parsed.motionStyle).toBe("kinetic");
+    expect(parsed.voiceover).toEqual({ script: "", audioPath: null, wordTimings: [], generatedFor: null });
     expect(ClipBriefSchema.safeParse({ ...validClip, durationSeconds: 9 }).success).toBe(false);
     expect(ClipBriefSchema.safeParse({ ...validClip, format: "viral" }).success).toBe(false);
     expect(ClipBriefSchema.safeParse({ ...validClip, mediaOverrides: ["../../secret.mp4"] }).success).toBe(false);
+    expect(ClipBriefSchema.safeParse({ ...validClip, voiceover: { script: "A", audioPath: "../voice.wav", wordTimings: [], generatedFor: null } }).success).toBe(false);
+  });
+
+  it("accepts estimated timings for every word allowed by a 900-character script", () => {
+    const script = `${"a ".repeat(449)}a`;
+    const wordTimings = Array.from({ length: 450 }, (_, index) => ({ word: "a", start: index, end: index + 1 }));
+    const parsed = ClipBriefSchema.parse({ ...validClip, voiceover: { script, audioPath: "local-assets/voiceovers/long.wav", wordTimings, generatedFor: "digest" } });
+    expect(parsed.voiceover.wordTimings).toHaveLength(450);
   });
 
   it("requires at least one and no more than twenty clips in a batch", () => {

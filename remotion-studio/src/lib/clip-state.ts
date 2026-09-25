@@ -11,7 +11,18 @@ export function unapproveClip(clip: ClipBrief): ClipBrief {
   return { ...clip, status: "needs_review", progress: 0, renderError: null, updatedAt: new Date().toISOString() };
 }
 
-export function editClip(clip: ClipBrief, patch: Pick<ClipBrief, "concept" | "hook" | "keyMessage" | "supportingPoint" | "proof" | "cta" | "format" | "durationSeconds" | "sceneCopy" | "postCopy">): ClipBrief {
+export type ClipEdit = Pick<ClipBrief, "concept" | "hook" | "keyMessage" | "supportingPoint" | "proof" | "cta" | "format" | "durationSeconds" | "sceneCopy" | "postCopy" | "motionStyle"> & { voiceoverScript: string };
+
+export function editClip(clip: ClipBrief, patch: ClipEdit): ClipBrief {
   if (["rendering"].includes(clip.status)) throw new Error("A rendering clip cannot be edited");
-  return { ...clip, ...patch, status: "needs_review", progress: 0, renderError: null, updatedAt: new Date().toISOString() };
+  const { voiceoverScript, ...fields } = patch;
+  const voiceover = voiceoverScript === clip.voiceover.script
+    ? clip.voiceover
+    : { script: voiceoverScript, audioPath: null, wordTimings: [], generatedFor: null };
+  return {
+    ...clip, ...fields, voiceover,
+    outputPath: voiceoverScript === clip.voiceover.script ? clip.outputPath : null,
+    coverPath: voiceoverScript === clip.voiceover.script ? clip.coverPath : null,
+    status: "needs_review", progress: 0, renderError: null, updatedAt: new Date().toISOString(),
+  };
 }

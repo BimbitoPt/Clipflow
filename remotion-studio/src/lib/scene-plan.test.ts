@@ -21,6 +21,12 @@ describe("Remotion composition planning", () => {
     expect(compositionId("demo")).toBe("ClipProductDemo");
     expect(compositionId("proof")).toBe("ClipProofStory");
   });
+  it("carries selected motion and generated word timings into the composition", () => {
+    const animated = ClipBriefSchema.parse({ ...clip, motionStyle: "snap", voiceover: { script: "Move now", audioPath: "local-assets/voiceovers/clip.wav", generatedFor: "abc", wordTimings: [{ word: "Move", start: 0, end: 0.4 }, { word: "now", start: 0.4, end: 0.8 }] } });
+    const props = buildCompositionProps(animated, starterBrands[0]);
+    expect(props.clip.motionStyle).toBe("snap");
+    expect(props.clip.voiceover.wordTimings).toHaveLength(2);
+  });
   it("rejects empty and excessive scene plans", () => {
     expect(() => makeScenePlan({ sceneCopy: ["Only one"], durationSeconds: 25 })).toThrow("between 2 and 8");
     expect(() => makeScenePlan({ sceneCopy: Array(9).fill("Beat"), durationSeconds: 25 })).toThrow("between 2 and 8");

@@ -119,6 +119,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .status-label.approved, .status-label.rendered { color: var(--lime); }
 .status-label.failed { color: #ff8d7b; }
 .editor-message { margin: 0; color: #b5c7a1; font-size: 10px; }
+.voiceover-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.voiceover-actions audio { width: 100%; height: 34px; accent-color: var(--blue); }
 .editor-form .editor-actions { margin-top: 0; }
 .editor-form .button { padding: 10px; font-size: 9px; }
 .batch-list { display: grid; gap: 8px; }

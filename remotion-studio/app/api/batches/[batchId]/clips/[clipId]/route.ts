@@ -9,6 +9,7 @@ const patchSchema = z.object({
   supportingPoint: z.string().max(400).nullable(), proof: z.string().max(500).nullable(), cta: z.string().trim().min(1).max(180),
   format: z.enum(["explainer", "demo", "proof"]), durationSeconds: z.number().int().min(10).max(60),
   sceneCopy: z.array(z.string().trim().min(1).max(220)).min(2).max(8), postCopy: z.string().max(1200),
+  voiceoverScript: z.string().max(900), motionStyle: z.enum(["kinetic", "float", "snap", "cinematic"]),
 }).strict().superRefine((clip, context) => {
   if (clip.format === "proof" && !clip.proof?.trim()) context.addIssue({ code: "custom", path: ["proof"], message: "Proof/story clips need operator-supplied proof." });
 });
