@@ -71,5 +71,6 @@ describe("durable render queue", () => {
     const status = await getRenderStatus(created.batch.id, active!.clipId, root);
     expect(status.clip).toMatchObject({ status: "rendered", progress: 1, outputPath: "exports/batches/test/video.mp4", coverPath: "exports/batches/test/cover.png" });
     expect(status.job?.status).toBe("complete");
+    await expect(enqueueApproved(created.batch.id, root)).rejects.toThrow(/Approve at least one clip/);
   });
 });

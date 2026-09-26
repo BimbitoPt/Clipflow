@@ -1,7 +1,7 @@
 import type { BrandKit, ClipBrief, ClipFormat } from "./domain";
 
 export type SceneSegment = { copy: string; durationInFrames: number; startFrame: number; index: number };
-export type CompositionProps = { clip: ClipBrief; brand: BrandKit; format: ClipFormat; scenes: SceneSegment[]; totalFrames: number; transitionFrames: number };
+export type CompositionProps = { clip: ClipBrief; brand: BrandKit; format: ClipFormat; scenes: SceneSegment[]; totalFrames: number; transitionFrames: number; coverMode?: boolean };
 
 export function makeScenePlan(clip: Pick<ClipBrief, "sceneCopy" | "durationSeconds">, fps = 30) {
   if (!Number.isInteger(fps) || fps < 1) throw new Error("Frame rate must be a positive integer");

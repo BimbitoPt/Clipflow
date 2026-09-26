@@ -81,7 +81,9 @@ async function renderOne(job: RenderJob, appRoot: string, dataRoot: string, getS
     });
     await progressWrites;
     const coverFrame = Math.min(props.totalFrames - 1, Math.floor(props.scenes[0].durationInFrames / 2));
-    await renderStill({ composition, serveUrl, inputProps: props, frame: coverFrame, output: paths.coverAbsolute, imageFormat: "png", overwrite: true });
+    const coverProps = { ...props, coverMode: true };
+    const coverComposition = await selectComposition({ serveUrl, id: compositionId(clip.format), inputProps: coverProps });
+    await renderStill({ composition: coverComposition, serveUrl, inputProps: coverProps, frame: coverFrame, output: paths.coverAbsolute, imageFormat: "png", overwrite: true });
     await progressWrites;
     return { outputPath: paths.video, coverPath: paths.cover };
   } catch (error) {

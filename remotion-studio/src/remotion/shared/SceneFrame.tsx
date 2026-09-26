@@ -48,10 +48,10 @@ export function AnimatedScene({ props, scene, variant }: { props: CompositionPro
       </div>}
       {variant === "proof" && scene.index === props.scenes.length - 2 && <div style={{ marginTop: 28, padding: "18px 22px", borderLeft: `5px solid ${accent}`, background: "#ffffff0b", fontSize: 27, fontWeight: 600, lineHeight: 1.25 }}>{clip.proof}</div>}
     </div>
-    <div style={{ position: "absolute", left: 88, right: 88, bottom: 300 }}>
+    {!props.coverMode && <div style={{ position: "absolute", left: 88, right: 88, bottom: 300 }}>
       <div style={{ color: "#9aa6b3", textTransform: "uppercase", letterSpacing: ".22em", fontSize: 15, marginBottom: 16 }}>{variant === "proof" ? "WHAT CHANGED" : variant === "demo" ? "WATCH THIS" : "THE TAKEAWAY"}</div>
       {clip.voiceover.audioPath && activeWord >= 0 ? <div aria-label="Timed voiceover captions" style={{ display: "inline-block", padding: "13px 19px", maxWidth: 940, color: brand.palette.foreground, background: `${brand.palette.background}ee`, borderBottom: `4px solid ${brand.captionStyle.highlightColor}`, fontSize: 34, lineHeight: 1.15, fontWeight: 800, letterSpacing: "-.035em", textTransform: "uppercase" }}>{captionWords.map((item, index) => <span key={`${item.start}-${index}`} style={{ color: captionStart + index === activeWord ? brand.captionStyle.highlightColor : brand.palette.foreground, transform: captionStart + index === activeWord ? "translateY(-3px) scale(1.06)" : "none", display: "inline-block", marginRight: 9 }}>{item.word}</span>)}</div> : <div style={{ display: "inline-block", padding: "13px 19px", maxWidth: 940, color: brand.palette.foreground, background: `${brand.palette.background}ee`, borderBottom: `4px solid ${brand.captionStyle.highlightColor}`, fontSize: 34, lineHeight: 1.15, fontWeight: 800, letterSpacing: "-.035em", textTransform: "uppercase" }}>{chunks[chunkIndex]}</div>}
-    </div>
+    </div>}
     <div style={{ position: "absolute", bottom: 118, left: 88, right: 88, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
       <div style={{ width: 18, height: 18, border: `2px solid ${accent}`, transform: "rotate(45deg)" }} />
       <div style={{ maxWidth: 660, textAlign: "right", fontSize: 22, fontWeight: 700, lineHeight: 1.3 }}>{clip.cta}</div>

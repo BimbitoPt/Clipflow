@@ -11,6 +11,7 @@ describe("registered motion family trees", () => {
     const tree = Component(defaultCompositionProps);
     const children = React.Children.toArray((tree.props as { children: React.ReactNode }).children);
     expect(tree.type).toBe(TransitionSeries);
+    if (!React.isValidElement(children[0]) || !React.isValidElement(children[1])) throw new Error("Expected scene and transition elements");
     expect(children[0]?.type).toBe(TransitionSeries.Sequence);
     expect(children[1]?.type).toBe(TransitionSeries.Transition);
     expect(children).toHaveLength(7);

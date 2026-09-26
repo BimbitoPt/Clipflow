@@ -10,7 +10,7 @@ afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recur
 
 describe("durable local voiceover queue", () => {
   it("marks jobs stale after a missing worker or a stalled inference", () => {
-    const base = { id: "job", batchId: "batch", total: 10, processed: 0, generated: 0, skipped: 0, failed: 0, errors: [], processedClipIds: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() };
+    const base = { id: "job", batchId: "batch", total: 10, processed: 0, generated: 0, skipped: 0, failed: 0, error: null, errors: [], processedClipIds: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() };
     expect(isVoiceoverJobStale({ ...base, status: "queued" }, 90_001)).toBe(true);
     expect(isVoiceoverJobStale({ ...base, status: "running" }, 10 * 60_000 + 1)).toBe(true);
     expect(isVoiceoverJobStale({ ...base, status: "complete" }, 99 * 60_000)).toBe(false);

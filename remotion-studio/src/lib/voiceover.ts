@@ -47,6 +47,18 @@ export function estimateWordTimings(text: string, durationSeconds: number): Word
   });
 }
 
+export function splitNarration(script: string, maxWords = 12): string[] {
+  const sentences = script.trim().replace(/\s+/g, " ").match(/[^.!?]+[.!?]?/g) ?? [];
+  return sentences.flatMap((sentence) => {
+    const words = sentence.trim().split(/\s+/).filter(Boolean);
+    const chunks: string[] = [];
+    for (let index = 0; index < words.length; index += maxWords) {
+      chunks.push(words.slice(index, index + maxWords).join(" "));
+    }
+    return chunks;
+  });
+}
+
 export function encodePcmWav(input: Float32Array, samplingRate: number): Buffer {
   if (!input.length || samplingRate < 8000 || samplingRate > 96000) throw new Error("Speech model returned empty or unsupported audio");
   const peak = input.reduce((largest, sample) => Math.max(largest, Math.abs(sample)), 0);
@@ -70,17 +82,48 @@ export async function generateVoiceover(text: string, clipId: string, appRoot = 
   if (!script) throw new Error("Write a narration script before generating voiceover");
   if (script.length > 900) throw new Error("Narration must be 900 characters or fewer");
   const synth = synthesize ?? await getSynth();
-  const result = await synth(script);
-  const durationSeconds = result.audio.length / result.samplingRate;
+  const chunks = splitNarration(script);
+  const segments: Float32Array[] = [];
+  const wordTimings: WordTiming[] = [];
+  let samplingRate = 0;
+  let sampleCount = 0;
+  for (const [index, chunk] of chunks.entries()) {
+    const result = await synth(chunk);
+    if (!result.audio.length || result.samplingRate < 8000 || result.samplingRate > 96000 ||
+      (samplingRate && result.samplingRate !== samplingRate)) {
+      throw new Error("Speech model returned empty or inconsistent audio");
+    }
+    samplingRate = result.samplingRate;
+    const offset = sampleCount / samplingRate;
+    wordTimings.push(...estimateWordTimings(chunk, result.audio.length / samplingRate).map((timing) => ({
+      ...timing,
+      start: timing.start + offset,
+      end: timing.end + offset,
+    })));
+    segments.push(result.audio);
+    sampleCount += result.audio.length;
+    if (index < chunks.length - 1) {
+      const pause = new Float32Array(Math.round(samplingRate * 0.18));
+      segments.push(pause);
+      sampleCount += pause.length;
+    }
+  }
+  const durationSeconds = sampleCount / samplingRate;
   if (options.maxDurationSeconds && durationSeconds > options.maxDurationSeconds - 0.25) {
     throw new Error(`Narration is ${durationSeconds.toFixed(1)}s; shorten it to fit this ${options.maxDurationSeconds}s clip.`);
   }
-  const digest = createHash("sha256").update(script).digest("hex").slice(0, 12);
+  const audio = new Float32Array(sampleCount);
+  let cursor = 0;
+  for (const segment of segments) {
+    audio.set(segment, cursor);
+    cursor += segment.length;
+  }
+  const digest = createHash("sha256").update("segmented-v1\0").update(script).digest("hex").slice(0, 12);
   const filename = `voiceovers/${clipId}-${digest}.wav`;
   const absolute = path.resolve(appRoot, "public", "local-assets", filename);
   await mkdir(path.dirname(absolute), { recursive: true });
-  const wav = encodePcmWav(result.audio, result.samplingRate);
+  const wav = encodePcmWav(audio, samplingRate);
   const { writeFile } = await import("node:fs/promises");
   await writeFile(absolute, wav);
-  return { audioPath: `local-assets/${filename}`, durationSeconds, wordTimings: estimateWordTimings(script, durationSeconds), generatedFor: digest };
+  return { audioPath: `local-assets/${filename}`, durationSeconds, wordTimings, generatedFor: digest };
 }

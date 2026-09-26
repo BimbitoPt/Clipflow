@@ -22,7 +22,7 @@ export async function enqueueApproved(batchId: string, root = appDataRoot()) {
   if (!batch) throw new Error("Batch not found");
   const jobs = await readJobs(root);
   const activeClipIds = new Set(jobs.filter((job) => job.status === "queued" || job.status === "running").map((job) => job.clipId));
-  const clips = batch.clips.filter((clip) => ["approved", "rendered"].includes(clip.status) && !activeClipIds.has(clip.id));
+  const clips = batch.clips.filter((clip) => clip.status === "approved" && !activeClipIds.has(clip.id));
   if (!clips.length) throw new Error("Approve at least one clip before rendering");
   const now = new Date().toISOString();
   const queued = clips.map((clip) => ({ id: crypto.randomUUID(), batchId, clipId: clip.id, status: "queued" as const, progress: 0, error: null, createdAt: now, updatedAt: now }));
