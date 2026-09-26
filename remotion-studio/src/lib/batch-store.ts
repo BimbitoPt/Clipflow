@@ -1,5 +1,5 @@
 import { mkdir, readdir } from "node:fs/promises";
-import { BatchSchema, ClipBriefSchema, type Batch, type ClipBrief } from "./domain";
+import { BatchSchema, ClipBriefSchema, defaultVoiceIdForBrand, type Batch, type ClipBrief } from "./domain";
 import { appDataRoot, readJson, resolveInside, writeJsonAtomic } from "./file-store";
 
 export type CreateBrief = {
@@ -25,6 +25,7 @@ export async function createBatch(name: string, briefs: CreateBrief[], root = ap
       supportingPoint: brief.supportingPoint || null, proof: brief.proof || null, cta: brief.cta || "Learn more.",
       format: brief.format || "explainer", durationSeconds: brief.durationSeconds || 25,
       sceneCopy, postCopy: brief.postCopy || `${brief.hook}\n\n${brief.keyMessage}\n\n${brief.cta || "Learn more."}`,
+      voiceover: { script: "", voiceId: defaultVoiceIdForBrand(brief.brandId), audioPath: null, wordTimings: [], generatedFor: null },
       mediaOverrides: [], status: "needs_review", progress: 0, outputPath: null, coverPath: null, renderError: null, updatedAt: now,
     });
   });

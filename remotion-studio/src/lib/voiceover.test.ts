@@ -2,28 +2,23 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { encodePcmWav, estimateWordTimings, generateVoiceover, splitNarration } from "./voiceover";
+import { encodePcmWav, estimateWordTimings, generateVoiceover } from "./voiceover";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 describe("local voiceover helpers", () => {
-  it("splits longer scripts into sentence-sized model inputs", () => {
-    expect(splitNarration("One clear idea. Another clear idea!")).toEqual(["One clear idea.", "Another clear idea!"]);
-    expect(splitNarration("one two three four five", 2)).toEqual(["one two", "three four", "five"]);
-  });
-
-  it("joins synthesized segments with a pause and offsets caption timing", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "clipflow-voice-chunks-")); roots.push(root);
-    const calls: string[] = [];
-    const result = await generateVoiceover("First sentence. Second sentence.", "clip-chunks", root, async (chunk) => {
-      calls.push(chunk);
+  it("speaks a whole short script in one pass with the selected voice", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "clipflow-voice-pass-")); roots.push(root);
+    const calls: Array<{ text: string; voice: string }> = [];
+    const result = await generateVoiceover("First sentence. Second sentence.", "clip-pass", root, async (text, voice) => {
+      calls.push({ text, voice });
       return { audio: new Float32Array(16000), samplingRate: 16000 };
-    });
-    expect(calls).toEqual(["First sentence.", "Second sentence."]);
-    expect(result.durationSeconds).toBeCloseTo(2.18);
-    expect(result.wordTimings[1].end).toBeCloseTo(1);
-    expect(result.wordTimings[2].start).toBeCloseTo(1.18);
+    }, { voiceId: "af_bella" });
+    expect(calls).toEqual([{ text: "First sentence. Second sentence.", voice: "af_bella" }]);
+    expect(result.durationSeconds).toBe(1);
+    expect(result.wordTimings).toHaveLength(4);
+    expect(result.wordTimings.at(-1)?.end).toBe(1);
   });
 
   it("produces positive non-overlapping word spans that cover the narration", () => {

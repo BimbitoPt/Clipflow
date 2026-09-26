@@ -1,29 +1,26 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
-import type { WordTiming } from "./domain";
+import { VoiceIdSchema, type VoiceId, type WordTiming } from "./domain";
 
 export type SynthesizedVoice = { audio: Float32Array; samplingRate: number };
-type Synth = (text: string) => Promise<SynthesizedVoice>;
+type Synth = (text: string, voiceId: VoiceId) => Promise<SynthesizedVoice>;
 
 let synthPromise: Promise<Synth> | null = null;
 
 function getSynth(): Promise<Synth> {
   if (!synthPromise) {
     synthPromise = (async () => {
-      const { env, pipeline } = await import("@xenova/transformers");
+      const requirePackage = createRequire(import.meta.url);
+      const { env } = requirePackage("@huggingface/transformers") as typeof import("@huggingface/transformers");
+      const { KokoroTTS } = requirePackage("kokoro-js") as typeof import("kokoro-js");
       env.localModelPath = path.resolve(process.cwd(), "..", "public", "models");
       env.allowRemoteModels = false;
       env.allowLocalModels = true;
-      env.useFSCache = false;
-      const tts = await pipeline("text-to-speech", "Xenova/speecht5_tts", { quantized: true });
-      const speakerPath = path.resolve(env.localModelPath, "speaker_embeddings.bin");
-      const raw = await readFile(speakerPath);
-      if (raw.length !== 512 * 4) throw new Error("SpeechT5 speaker embeddings are missing or invalid");
-      const speaker = new Float32Array(512);
-      for (let i = 0; i < speaker.length; i++) speaker[i] = raw.readFloatLE(i * 4);
-      return async (text: string) => {
-        const result = await tts(text, { speaker_embeddings: speaker });
+      const tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" });
+      return async (text: string, voiceId: VoiceId) => {
+        const result = await tts.generate(text, { voice: voiceId });
         return { audio: result.audio, samplingRate: result.sampling_rate };
       };
     })().catch((error) => {
@@ -47,18 +44,6 @@ export function estimateWordTimings(text: string, durationSeconds: number): Word
   });
 }
 
-export function splitNarration(script: string, maxWords = 12): string[] {
-  const sentences = script.trim().replace(/\s+/g, " ").match(/[^.!?]+[.!?]?/g) ?? [];
-  return sentences.flatMap((sentence) => {
-    const words = sentence.trim().split(/\s+/).filter(Boolean);
-    const chunks: string[] = [];
-    for (let index = 0; index < words.length; index += maxWords) {
-      chunks.push(words.slice(index, index + maxWords).join(" "));
-    }
-    return chunks;
-  });
-}
-
 export function encodePcmWav(input: Float32Array, samplingRate: number): Buffer {
   if (!input.length || samplingRate < 8000 || samplingRate > 96000) throw new Error("Speech model returned empty or unsupported audio");
   const peak = input.reduce((largest, sample) => Math.max(largest, Math.abs(sample)), 0);
@@ -77,53 +62,26 @@ export function encodePcmWav(input: Float32Array, samplingRate: number): Buffer 
   return wav;
 }
 
-export async function generateVoiceover(text: string, clipId: string, appRoot = process.cwd(), synthesize?: Synth, options: { maxDurationSeconds?: number } = {}) {
+export async function generateVoiceover(text: string, clipId: string, appRoot = process.cwd(), synthesize?: Synth, options: { maxDurationSeconds?: number; voiceId?: VoiceId } = {}) {
   const script = text.trim().replace(/\s+/g, " ");
   if (!script) throw new Error("Write a narration script before generating voiceover");
   if (script.length > 900) throw new Error("Narration must be 900 characters or fewer");
+  const voiceId = VoiceIdSchema.parse(options.voiceId ?? "af_heart");
   const synth = synthesize ?? await getSynth();
-  const chunks = splitNarration(script);
-  const segments: Float32Array[] = [];
-  const wordTimings: WordTiming[] = [];
-  let samplingRate = 0;
-  let sampleCount = 0;
-  for (const [index, chunk] of chunks.entries()) {
-    const result = await synth(chunk);
-    if (!result.audio.length || result.samplingRate < 8000 || result.samplingRate > 96000 ||
-      (samplingRate && result.samplingRate !== samplingRate)) {
-      throw new Error("Speech model returned empty or inconsistent audio");
-    }
-    samplingRate = result.samplingRate;
-    const offset = sampleCount / samplingRate;
-    wordTimings.push(...estimateWordTimings(chunk, result.audio.length / samplingRate).map((timing) => ({
-      ...timing,
-      start: timing.start + offset,
-      end: timing.end + offset,
-    })));
-    segments.push(result.audio);
-    sampleCount += result.audio.length;
-    if (index < chunks.length - 1) {
-      const pause = new Float32Array(Math.round(samplingRate * 0.18));
-      segments.push(pause);
-      sampleCount += pause.length;
-    }
+  const result = await synth(script, voiceId);
+  if (!result.audio.length || result.samplingRate < 8000 || result.samplingRate > 96000) {
+    throw new Error("Speech model returned empty or unsupported audio");
   }
-  const durationSeconds = sampleCount / samplingRate;
+  const durationSeconds = result.audio.length / result.samplingRate;
   if (options.maxDurationSeconds && durationSeconds > options.maxDurationSeconds - 0.25) {
     throw new Error(`Narration is ${durationSeconds.toFixed(1)}s; shorten it to fit this ${options.maxDurationSeconds}s clip.`);
   }
-  const audio = new Float32Array(sampleCount);
-  let cursor = 0;
-  for (const segment of segments) {
-    audio.set(segment, cursor);
-    cursor += segment.length;
-  }
-  const digest = createHash("sha256").update("segmented-v1\0").update(script).digest("hex").slice(0, 12);
+  const digest = createHash("sha256").update("kokoro-v1.0-q8\0").update(voiceId).update("\0").update(script).digest("hex").slice(0, 12);
   const filename = `voiceovers/${clipId}-${digest}.wav`;
   const absolute = path.resolve(appRoot, "public", "local-assets", filename);
   await mkdir(path.dirname(absolute), { recursive: true });
-  const wav = encodePcmWav(audio, samplingRate);
+  const wav = encodePcmWav(result.audio, result.samplingRate);
   const { writeFile } = await import("node:fs/promises");
   await writeFile(absolute, wav);
-  return { audioPath: `local-assets/${filename}`, durationSeconds, wordTimings, generatedFor: digest };
+  return { audioPath: `local-assets/${filename}`, durationSeconds, wordTimings: estimateWordTimings(script, durationSeconds), generatedFor: digest };
 }

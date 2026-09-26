@@ -18,7 +18,7 @@ describe("studio domain schemas", () => {
     const parsed = ClipBriefSchema.parse(validClip);
     expect(parsed.durationSeconds).toBe(25);
     expect(parsed.motionStyle).toBe("kinetic");
-    expect(parsed.voiceover).toEqual({ script: "", audioPath: null, wordTimings: [], generatedFor: null });
+    expect(parsed.voiceover).toEqual({ script: "", voiceId: "af_heart", audioPath: null, wordTimings: [], generatedFor: null });
     expect(ClipBriefSchema.safeParse({ ...validClip, durationSeconds: 9 }).success).toBe(false);
     expect(ClipBriefSchema.safeParse({ ...validClip, format: "viral" }).success).toBe(false);
     expect(ClipBriefSchema.safeParse({ ...validClip, mediaOverrides: ["../../secret.mp4"] }).success).toBe(false);

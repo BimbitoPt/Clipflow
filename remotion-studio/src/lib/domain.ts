@@ -26,13 +26,19 @@ export const BrandKitSchema = z.object({
 export const ClipFormatSchema = z.enum(["explainer", "demo", "proof"]);
 export const ClipStatusSchema = z.enum(["draft", "needs_review", "approved", "rendering", "rendered", "failed"]);
 export const MotionStyleSchema = z.enum(["kinetic", "float", "snap", "cinematic"]);
+export const VoiceIdSchema = z.enum(["af_heart", "af_bella", "am_michael"]);
+export type VoiceId = z.infer<typeof VoiceIdSchema>;
+export function defaultVoiceIdForBrand(brandId: string): VoiceId {
+  return brandId === "mstudio" ? "af_bella" : "af_heart";
+}
 export const WordTimingSchema = z.object({ word: z.string().min(1).max(900), start: z.number().min(0), end: z.number().positive() });
 export const VoiceoverSchema = z.object({
   script: z.string().max(900).default(""),
+  voiceId: VoiceIdSchema.default("af_heart"),
   audioPath: localPathSchema.nullable().default(null),
   wordTimings: z.array(WordTimingSchema).max(450).default([]),
   generatedFor: z.string().max(64).nullable().default(null),
-}).default({ script: "", audioPath: null, wordTimings: [], generatedFor: null });
+}).default({ script: "", voiceId: "af_heart", audioPath: null, wordTimings: [], generatedFor: null });
 
 export const ClipBriefSchema = z.object({
   id: idSchema,

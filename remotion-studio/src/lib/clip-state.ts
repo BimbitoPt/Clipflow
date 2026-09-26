@@ -11,18 +11,19 @@ export function unapproveClip(clip: ClipBrief): ClipBrief {
   return { ...clip, status: "needs_review", progress: 0, renderError: null, updatedAt: new Date().toISOString() };
 }
 
-export type ClipEdit = Pick<ClipBrief, "concept" | "hook" | "keyMessage" | "supportingPoint" | "proof" | "cta" | "format" | "durationSeconds" | "sceneCopy" | "postCopy" | "motionStyle"> & { voiceoverScript: string };
+export type ClipEdit = Pick<ClipBrief, "concept" | "hook" | "keyMessage" | "supportingPoint" | "proof" | "cta" | "format" | "durationSeconds" | "sceneCopy" | "postCopy" | "motionStyle"> & { voiceoverScript: string; voiceId: ClipBrief["voiceover"]["voiceId"] };
 
 export function editClip(clip: ClipBrief, patch: ClipEdit): ClipBrief {
   if (["rendering"].includes(clip.status)) throw new Error("A rendering clip cannot be edited");
-  const { voiceoverScript, ...fields } = patch;
-  const voiceover = voiceoverScript === clip.voiceover.script
+  const { voiceoverScript, voiceId, ...fields } = patch;
+  const voiceChanged = voiceoverScript !== clip.voiceover.script || voiceId !== clip.voiceover.voiceId;
+  const voiceover = !voiceChanged
     ? clip.voiceover
-    : { script: voiceoverScript, audioPath: null, wordTimings: [], generatedFor: null };
+    : { script: voiceoverScript, voiceId, audioPath: null, wordTimings: [], generatedFor: null };
   return {
     ...clip, ...fields, voiceover,
-    outputPath: voiceoverScript === clip.voiceover.script ? clip.outputPath : null,
-    coverPath: voiceoverScript === clip.voiceover.script ? clip.coverPath : null,
+    outputPath: voiceChanged ? null : clip.outputPath,
+    coverPath: voiceChanged ? null : clip.coverPath,
     status: "needs_review", progress: 0, renderError: null, updatedAt: new Date().toISOString(),
   };
 }

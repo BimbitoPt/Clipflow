@@ -33,10 +33,10 @@ async function runJob(job: VoiceoverJob, root: string) {
     if (!clip) break;
     const initialScript = clip.voiceover.script.trim() || defaultVoiceoverScript(clip);
     try {
-      const generated = await generateVoiceover(initialScript, clip.id, root, undefined, { maxDurationSeconds: clip.durationSeconds });
+      const generated = await generateVoiceover(initialScript, clip.id, root, undefined, { maxDurationSeconds: clip.durationSeconds, voiceId: clip.voiceover.voiceId });
       const fresh = (await getBatch(job.batchId, path.join(root, "data")))?.clips.find((item) => item.id === clip.id);
       const currentScript = fresh ? (fresh.voiceover.script.trim() || defaultVoiceoverScript(fresh)) : "";
-      if (!fresh || fresh.voiceover.audioPath || fresh.status === "rendering" || currentScript !== initialScript || fresh.durationSeconds !== clip.durationSeconds) {
+      if (!fresh || fresh.voiceover.audioPath || fresh.status === "rendering" || currentScript !== initialScript || fresh.durationSeconds !== clip.durationSeconds || fresh.voiceover.voiceId !== clip.voiceover.voiceId) {
         if (fresh?.voiceover.audioPath !== generated.audioPath) await rm(resolveInside(root, "public", generated.audioPath), { force: true });
         await recordVoiceoverResult(job.id, { clipId: clip.id, status: "skipped" }, path.join(root, "data"));
         processedClipIds.add(clip.id);

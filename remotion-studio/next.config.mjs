@@ -3,7 +3,7 @@ const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   experimental: {
-    serverComponentsExternalPackages: ["@xenova/transformers", "onnxruntime-node"],
+    serverComponentsExternalPackages: ["kokoro-js", "@huggingface/transformers", "onnxruntime-node"],
   },
 };
 

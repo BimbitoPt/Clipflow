@@ -27,13 +27,13 @@ export default function ClipEditor({ clip, brand, onChanged }: { clip: ClipBrief
     await send(`/api/batches/${clip.batchId}/clips/${clip.id}`, "PUT", {
       concept: draft.concept, hook: draft.hook, keyMessage: draft.keyMessage, supportingPoint: draft.supportingPoint,
       proof: draft.proof, cta: draft.cta, format: draft.format, durationSeconds: draft.durationSeconds,
-      sceneCopy: draft.sceneCopy, postCopy: draft.postCopy, voiceoverScript: draft.voiceover.script, motionStyle: draft.motionStyle,
+      sceneCopy: draft.sceneCopy, postCopy: draft.postCopy, voiceoverScript: draft.voiceover.script, voiceId: draft.voiceover.voiceId, motionStyle: draft.motionStyle,
     });
   }
   async function generateVoiceover() {
     setBusy(true); setMessage("Generating local voiceover… first use may take a little longer.");
     try {
-      const response = await fetch(`/api/batches/${clip.batchId}/clips/${clip.id}/voiceover`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ script: draft.voiceover.script }) });
+      const response = await fetch(`/api/batches/${clip.batchId}/clips/${clip.id}/voiceover`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ script: draft.voiceover.script, voiceId: draft.voiceover.voiceId }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error ?? "Voiceover generation failed");
       await onChanged(); setMessage(`Voiceover ready (${result.clip.voiceover.wordTimings.length} timed words).`);
@@ -55,7 +55,8 @@ export default function ClipEditor({ clip, brand, onChanged }: { clip: ClipBrief
       <label>Proof / evidence<textarea disabled={busy} rows={2} value={draft.proof ?? ""} onChange={(event) => patch({ proof: event.target.value || null })} placeholder="Required for proof/story format. Use approved facts only." /></label>
       <div className="inline-fields"><label>Format<select disabled={busy} value={draft.format} onChange={(event) => patch({ format: event.target.value as ClipBrief["format"] })}><option value="explainer">Animated explainer</option><option value="demo">Product demo</option><option value="proof">Proof / story</option></select></label><label>Duration<input disabled={busy} type="number" min={10} max={60} value={draft.durationSeconds} onChange={(event) => patch({ durationSeconds: Number(event.target.value) })} /></label></div>
       <div className="inline-fields"><label>Motion style<select disabled={busy} value={draft.motionStyle} onChange={(event) => patch({ motionStyle: event.target.value as ClipBrief["motionStyle"] })}><option value="kinetic">Kinetic type</option><option value="float">Soft float</option><option value="snap">Punchy snap</option><option value="cinematic">Cinematic drift</option></select></label><label>Voice track<small>{clip.voiceover.audioPath ? "READY" : "NOT GENERATED"}</small></label></div>
-      <label>Voiceover script <small>Local SpeechT5 · up to 900 characters</small><textarea disabled={busy} rows={5} value={draft.voiceover.script} onChange={(event) => patch({ voiceover: { ...draft.voiceover, script: event.target.value } })} placeholder="Write the narration to be spoken…" /></label>
+      <label>Voice <small>Local Kokoro</small><select disabled={busy} value={draft.voiceover.voiceId} onChange={(event) => patch({ voiceover: { ...draft.voiceover, voiceId: event.target.value as ClipBrief["voiceover"]["voiceId"] } })}><option value="af_heart">Heart · warm female</option><option value="af_bella">Bella · energetic female</option><option value="am_michael">Michael · male</option></select></label>
+      <label>Voiceover script <small>Up to 900 characters</small><textarea disabled={busy} rows={5} value={draft.voiceover.script} onChange={(event) => patch({ voiceover: { ...draft.voiceover, script: event.target.value } })} placeholder="Write the narration to be spoken…" /></label>
       <div className="voiceover-actions"><button className="button secondary" type="button" disabled={busy || clip.status === "rendering" || !draft.voiceover.script.trim()} onClick={() => void generateVoiceover()}>{busy ? "WORKING…" : clip.voiceover.audioPath ? "REGENERATE VOICEOVER" : "GENERATE VOICEOVER"}</button>{clip.voiceover.audioPath && <audio controls preload="none" src={`/${clip.voiceover.audioPath}`} />}</div>
       <label>Call to action<input disabled={busy} value={draft.cta} onChange={(event) => patch({ cta: event.target.value })} /></label>
       <label>Scene copy <small>One scene per line</small><textarea disabled={busy} rows={4} value={draft.sceneCopy.join("\n")} onChange={(event) => patch({ sceneCopy: event.target.value.split("\n").map((line) => line.trim()).filter(Boolean) })} /></label>
