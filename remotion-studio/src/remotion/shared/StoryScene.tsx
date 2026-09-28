@@ -43,7 +43,7 @@ function Captions({ props, accent, elapsed }: { props: CompositionProps; accent:
   const cue = props.clip.creative?.captionCues.find((item) => elapsed >= item.start && elapsed < item.end);
   if (!cue) return null;
   const emphasis = new Set(cue.emphasis.map((word) => word.toLowerCase().replace(/[^\p{L}\p{N}€]/gu, "")));
-  return <div aria-label="Phrase-timed captions" style={{ position: "absolute", top: 1090, left: 90, right: 90, minHeight: 95, display: "flex", justifyContent: "center", alignItems: "center", textAlign: "center" }}>
+  return <div aria-label="Phrase-timed captions" style={{ position: "absolute", top: ["proof-series", "proof-hero"].includes(props.clip.creative?.template ?? "") ? 1210 : 1090, left: 90, right: 90, minHeight: 95, display: "flex", justifyContent: "center", alignItems: "center", textAlign: "center" }}>
     <div style={{ background: "#05070bdc", boxShadow: "0 8px 40px #0008", padding: "15px 23px", borderRadius: 12, fontFamily: sans, fontSize: 47, fontWeight: 700, lineHeight: 1.12, letterSpacing: "-.04em", textTransform: "uppercase" }}>
       {cue.text.split(/\s+/).map((word, index) => <React.Fragment key={`${word}-${index}`}>{index > 0 && " "}<span style={{ color: emphasis.has(word.toLowerCase().replace(/[^\p{L}\p{N}€]/gu, "")) ? accent : "#fff" }}>{word}</span></React.Fragment>)}
     </div>
@@ -100,13 +100,32 @@ function StoryVisual({ visual, accent, frame, fps }: { visual: NonNullable<Scene
   </div>;
 }
 
+function ProofScreen({ scene, accent, frame, fps, hero, brandId }: { scene: SceneSegment; accent: string; frame: number; fps: number; hero: boolean; brandId: string }) {
+  if (!scene.screen) return null;
+  const site = brandId === "mstudio";
+  const image = scene.screen.imagePath;
+  const focus = image.includes("automation") || image.includes("speed") ? "center 58%" : image.includes("ownership") ? "center 38%" : site ? "center 22%" : "center 50%";
+  const enter = spring({ frame: frame - 7, fps, config: { damping: 19, stiffness: hero ? 75 : 105 } });
+  const push = interpolate(frame, [0, scene.durationInFrames], [1, hero ? 1.09 : 1.045], { extrapolateRight: "clamp" });
+  const tilt = hero ? interpolate(frame, [0, scene.durationInFrames], [-3.2, 0.7], { extrapolateRight: "clamp" }) : (scene.index % 2 ? 1.1 : -1.1);
+  return <div style={{ position: "absolute", top: hero ? 505 : 520, left: 86, right: 86, height: hero ? 620 : 565, opacity: enter, transform: `translateY(${(1 - enter) * 125}px) rotate(${tilt}deg)`, filter: `drop-shadow(0 28px 70px #000c)` }}>
+    <div style={{ position: "absolute", inset: -18, border: `2px solid ${accent}90`, borderRadius: 31, boxShadow: `0 0 ${hero ? 85 : 40}px ${accent}44` }} />
+    <div style={{ height: "100%", overflow: "hidden", borderRadius: 20, background: "#080a0d", border: "2px solid #ffffff66", position: "relative" }}>
+      <Img src={staticFile(scene.screen.imagePath)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: focus, transform: `scale(${push})` }} />
+      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 60px #0008" }} />
+    </div>
+    <div style={{ position: "absolute", left: 28, top: -32, background: accent, color: "#05070b", borderRadius: 7, padding: "8px 17px", fontFamily: sans, fontSize: 29, fontWeight: 800, letterSpacing: ".01em" }}>{brandId === "clipflow" ? "REAL CLIPFLOW SCREEN" : "LIVE MSTUDIO SITE"}</div>
+  </div>;
+}
+
 export function StoryScene({ props, scene }: { props: CompositionProps; scene: SceneSegment }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const { clip, brand } = props;
   const accent = brand.palette.accent;
   const isPricing = clip.creative?.template === "mstudio-pricing";
-  const isStoryboard = clip.creative?.template === "cinematic-story";
+  const isStoryboard = ["cinematic-story", "proof-series", "proof-hero"].includes(clip.creative?.template ?? "");
+  const isProofHero = clip.creative?.template === "proof-hero";
   const title = isStoryboard ? headlineFromCopy(scene.copy) : (isPricing ? mstudioTitles : clipflowTitles)[scene.index];
   const end = scene.durationInFrames;
   const scale = interpolate(frame, [0, end], [1.06, 1.15], { extrapolateRight: "clamp" });
@@ -115,7 +134,7 @@ export function StoryScene({ props, scene }: { props: CompositionProps; scene: S
   const elapsed = (scene.startFrame + frame) / fps;
   const isDiagram = !isStoryboard && !isPricing && scene.index === 2;
   const isPrices = isPricing && scene.index === 2;
-  const titleTop = isDiagram || isPrices || scene.visual ? 280 : scene.index === 3 ? (scene.motionGraphic ? 580 : 645) : 610;
+  const titleTop = scene.screen ? 280 : isDiagram || isPrices || scene.visual ? 280 : scene.index === 3 ? (scene.motionGraphic ? 580 : 645) : 610;
   const entrance = spring({ frame, fps, config: { damping: 20, stiffness: 85 } });
   return <AbsoluteFill style={{ background: brand.palette.background, color: "#fff", fontFamily: sans, overflow: "hidden" }}>
     {scene.bg && <Img src={staticFile(scene.bg.imagePath)} style={{ position: "absolute", inset: -80, width: "calc(100% + 160px)", height: "calc(100% + 160px)", objectFit: "cover", transform: `translate(${x}px, ${y}px) scale(${scale})` }} />}
@@ -123,7 +142,8 @@ export function StoryScene({ props, scene }: { props: CompositionProps; scene: S
     <AbsoluteFill style={{ background: "linear-gradient(180deg,#05070bc9 0%,#05070b72 31%,#05070b98 65%,#05070be8 100%)" }} />
     <AbsoluteFill style={{ opacity: 0.09, backgroundImage: "url('data:image/svg+xml,%3Csvg viewBox=%220 0 180 180%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%22.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22 opacity=%22.5%22/%3E%3C/svg%3E')" }} />
     <div style={{ position: "absolute", top: 180, left: 90, fontSize: 40, fontWeight: 800, letterSpacing: "-.05em", opacity: entrance }}>{brand.name.toUpperCase()}<span style={{ color: accent }}>.</span></div>
-    <div style={{ position: "absolute", top: titleTop, left: 90, right: 90 }}><Title {...title} color={accent} frame={frame} fps={fps} small={Boolean(isDiagram || isPrices || scene.visual)} /></div>
+    <div style={{ position: "absolute", top: titleTop, left: 90, right: 90 }}><Title {...title} color={accent} frame={frame} fps={fps} small={Boolean(isDiagram || isPrices || scene.visual || scene.screen)} /></div>
+    {scene.screen && <ProofScreen scene={scene} accent={accent} frame={frame} fps={fps} hero={isProofHero} brandId={brand.id} />}
     {isDiagram && <Spine accent={accent} frame={frame} fps={fps} />}
     {isPrices && <PriceCards accent={accent} frame={frame} fps={fps} />}
     {scene.visual && <StoryVisual visual={scene.visual} accent={accent} frame={frame} fps={fps} />}

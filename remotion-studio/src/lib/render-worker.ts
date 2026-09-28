@@ -24,6 +24,9 @@ async function mediaFingerprint(root: string) {
     }
   }
   await visit(assetsRoot, root);
+  await visit(resolveInside(root, "public", "proof-screens"), root);
+  await visit(resolveInside(root, "public", "scene-backgrounds"), root);
+  await visit(resolveInside(root, "public", "scene-audio"), root);
   await visit(resolveInside(root, "src", "remotion"), root);
   for (const source of ["src/lib/domain.ts", "src/lib/scene-plan.ts", "src/lib/seed-brands.ts"]) {
     const absolute = resolveInside(root, source);

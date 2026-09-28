@@ -32,6 +32,12 @@ describe("studio domain schemas", () => {
     expect(parsed.voiceover.wordTimings).toHaveLength(450);
   });
 
+  it("accepts first-party proof screens without allowing paths outside public media", () => {
+    const creative = { template: "proof-hero", sceneSeconds: [3, 3], scenes: [{ screen: { imagePath: "proof-screens/workflow.png", sourceUrl: "https://example.com/workflow" } }, {}], captionCues: [], musicPath: null, sfxPath: null };
+    expect(ClipBriefSchema.safeParse({ ...validClip, creative }).success).toBe(true);
+    expect(ClipBriefSchema.safeParse({ ...validClip, creative: { ...creative, scenes: [{ screen: { imagePath: "../private.png", sourceUrl: "https://example.com/workflow" } }, {}] } }).success).toBe(false);
+  });
+
   it("requires at least one and no more than twenty clips in a batch", () => {
     const valid = { id: "batch-001", name: "September launch", createdAt: "2026-09-24T10:00:00.000Z", updatedAt: "2026-09-24T10:00:00.000Z", clipIds: ["clip-001"] };
     expect(BatchSchema.safeParse(valid).success).toBe(true);

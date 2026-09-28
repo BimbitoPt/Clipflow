@@ -41,12 +41,13 @@ export const VoiceoverSchema = z.object({
 }).default({ script: "", voiceId: "af_heart", audioPath: null, wordTimings: [], generatedFor: null });
 
 export const CreativeTreatmentSchema = z.object({
-  template: z.enum(["clipflow-spine", "mstudio-pricing", "cinematic-story"]),
+  template: z.enum(["clipflow-spine", "mstudio-pricing", "cinematic-story", "proof-series", "proof-hero"]),
   sceneSeconds: z.array(z.number().positive().max(20)).min(2).max(8),
   scenes: z.array(z.object({
     bg: z.object({ prompt: z.string().trim().min(1).max(1000), imagePath: localPathSchema, promptHash: z.string().regex(/^[a-f0-9]{12}$/) }).optional(),
     visual: z.object({ kind: z.enum(["steps", "cards"]), items: z.array(z.string().trim().min(1).max(36)).min(2).max(5) }).optional(),
     motionGraphic: z.enum(["filmstrip", "site-network"]).optional(),
+    screen: z.object({ imagePath: localPathSchema, sourceUrl: z.string().url().max(500) }).optional(),
   })).min(2).max(8),
   captionCues: z.array(z.object({ text: z.string().trim().min(1).max(120), start: z.number().min(0), end: z.number().positive(), emphasis: z.array(z.string().trim().min(1).max(40)).max(5) })).max(30),
   musicPath: localPathSchema.nullable(),
