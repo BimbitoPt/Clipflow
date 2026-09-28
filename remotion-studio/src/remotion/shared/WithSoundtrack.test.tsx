@@ -31,4 +31,13 @@ describe("composition soundtrack", () => {
     expect(children).toHaveLength(1);
     expect((children[0] as React.ReactElement).type).toBe(Explainer);
   });
+
+  it("layers a featured clip's score, sound cues and voice while ducking the score", () => {
+    const creative = { template: "clipflow-spine" as const, sceneSeconds: [2, 2], scenes: [], captionCues: [], musicPath: "local-assets/scene-audio/bed.wav", sfxPath: "local-assets/scene-audio/sfx.wav" };
+    const clip = { ...defaultCompositionProps.clip, creative, voiceover: { ...defaultCompositionProps.clip.voiceover, audioPath: "local-assets/voiceovers/voice.wav", wordTimings: [{ word: "hello", start: 0, end: 1 }] } };
+    const tree = WithSoundtrack({ ...defaultCompositionProps, clip, Component: Explainer });
+    const children = React.Children.toArray((tree.props as { children: React.ReactNode }).children) as React.ReactElement[];
+    expect(children.map((item) => item.props.src)).toEqual(["/local-assets/scene-audio/bed.wav", "/local-assets/scene-audio/sfx.wav", "/local-assets/voiceovers/voice.wav", undefined]);
+    expect(children[0].props.volume(0)).toBeLessThan(children[0].props.volume(45));
+  });
 });

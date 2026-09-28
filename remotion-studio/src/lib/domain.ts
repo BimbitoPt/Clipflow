@@ -40,6 +40,15 @@ export const VoiceoverSchema = z.object({
   generatedFor: z.string().max(64).nullable().default(null),
 }).default({ script: "", voiceId: "af_heart", audioPath: null, wordTimings: [], generatedFor: null });
 
+export const CreativeTreatmentSchema = z.object({
+  template: z.enum(["clipflow-spine", "mstudio-pricing"]),
+  sceneSeconds: z.array(z.number().positive().max(20)).min(2).max(8),
+  scenes: z.array(z.object({ bg: z.object({ prompt: z.string().trim().min(1).max(1000), imagePath: localPathSchema, promptHash: z.string().regex(/^[a-f0-9]{12}$/) }) })).min(2).max(8),
+  captionCues: z.array(z.object({ text: z.string().trim().min(1).max(120), start: z.number().min(0), end: z.number().positive(), emphasis: z.array(z.string().trim().min(1).max(40)).max(5) })).max(30),
+  musicPath: localPathSchema.nullable(),
+  sfxPath: localPathSchema.nullable(),
+}).nullable().default(null);
+
 export const ClipBriefSchema = z.object({
   id: idSchema,
   batchId: idSchema,
@@ -56,6 +65,7 @@ export const ClipBriefSchema = z.object({
   postCopy: z.string().max(1200),
   mediaOverrides: z.array(localPathSchema).max(12),
   voiceover: VoiceoverSchema,
+  creative: CreativeTreatmentSchema,
   motionStyle: MotionStyleSchema.default("kinetic"),
   status: ClipStatusSchema,
   progress: z.number().min(0).max(1),

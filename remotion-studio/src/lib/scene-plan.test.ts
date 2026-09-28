@@ -33,6 +33,17 @@ describe("Remotion composition planning", () => {
     expect(props.clip.motionStyle).toBe("snap");
     expect(props.clip.voiceover.wordTimings).toHaveLength(2);
   });
+  it("keeps scene-specific stills attached while allocating longer time to the price reveal", () => {
+    const creative = ClipBriefSchema.parse({ ...clip, durationSeconds: 16, creative: {
+      template: "mstudio-pricing", sceneSeconds: [2, 2, 8, 2],
+      scenes: clip.sceneCopy.map((_, index) => ({ bg: { prompt: `Scene ${index + 1} without text`, imagePath: `scene-backgrounds/mstudio-pricing/scene-${index + 1}.png`, promptHash: "abcdef123456" } })),
+      captionCues: [], musicPath: null, sfxPath: null,
+    } });
+    const props = buildCompositionProps(creative, starterBrands[1]);
+    expect(props.scenes[2].durationInFrames).toBeGreaterThan(props.scenes[0].durationInFrames * 3);
+    expect(props.scenes[2].bg?.imagePath).toBe("scene-backgrounds/mstudio-pricing/scene-3.png");
+    expect(props.scenes.at(-1)!.startFrame + props.scenes.at(-1)!.durationInFrames).toBe(480);
+  });
   it("rejects empty and excessive scene plans", () => {
     expect(() => makeScenePlan({ sceneCopy: ["Only one"], durationSeconds: 25 })).toThrow("between 2 and 8");
     expect(() => makeScenePlan({ sceneCopy: Array(9).fill("Beat"), durationSeconds: 25 })).toThrow("between 2 and 8");

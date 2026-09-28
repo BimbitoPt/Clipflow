@@ -2,6 +2,7 @@ import React from "react";
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import type { CompositionProps, SceneSegment } from "../../lib/scene-plan";
 import { AnimatedBackground } from "./AnimatedBackground";
+import { StoryScene } from "./StoryScene";
 
 export function wordChunks(text: string, size: number) {
   const words = text.trim().split(/\s+/).filter(Boolean);
@@ -11,6 +12,11 @@ export function wordChunks(text: string, size: number) {
 }
 
 export function AnimatedScene({ props, scene, variant }: { props: CompositionProps; scene: SceneSegment; variant: "explainer" | "demo" | "proof" }) {
+  if (props.clip.creative && scene.bg) return <StoryScene props={props} scene={scene} />;
+  return <StandardScene props={props} scene={scene} variant={variant} />;
+}
+
+function StandardScene({ props, scene, variant }: { props: CompositionProps; scene: SceneSegment; variant: "explainer" | "demo" | "proof" }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const { clip, brand } = props;

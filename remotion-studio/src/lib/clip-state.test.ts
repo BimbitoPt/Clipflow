@@ -5,7 +5,7 @@ import { approveClip, editClip, unapproveClip } from "./clip-state";
 const base: ClipBrief = {
   id: "clip-001", batchId: "batch-001", brandId: "clipflow", concept: "Idea", hook: "Hook", keyMessage: "Message",
   supportingPoint: null, proof: null, cta: "Start", format: "explainer", durationSeconds: 25, sceneCopy: ["Hook", "End"], postCopy: "Post", mediaOverrides: [], status: "needs_review",
-  voiceover: { script: "", voiceId: "af_heart", audioPath: null, wordTimings: [], generatedFor: null }, motionStyle: "kinetic",
+  voiceover: { script: "", voiceId: "af_heart", audioPath: null, wordTimings: [], generatedFor: null }, creative: null, motionStyle: "kinetic",
   progress: 0, outputPath: null, coverPath: null, renderError: null, updatedAt: "2026-09-24T10:00:00.000Z",
 };
 
