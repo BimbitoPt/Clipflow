@@ -5,6 +5,8 @@ import { resolveInside } from "./file-store";
 import { defaultVoiceoverScript } from "./voiceover-script";
 import { completeVoiceoverJob, getQueuedVoiceoverClip, queuedVoiceoverJob, recordVoiceoverResult, recoverVoiceoverJobs, type VoiceoverJob } from "./voiceover-queue";
 import { generateVoiceover } from "./voiceover";
+import { autoCaptionCues } from "./caption-cues";
+import { normalizeVoiceover } from "./voiceover-production";
 
 async function acquireLock(root: string) {
   const lockPath = resolveInside(root, "data", "voiceover-worker.lock");
@@ -42,7 +44,9 @@ async function runJob(job: VoiceoverJob, root: string) {
         processedClipIds.add(clip.id);
         continue;
       }
-      await updateClip(fresh.batchId, fresh.id, { ...fresh, voiceover: { ...fresh.voiceover, script: initialScript, ...generated }, status: "needs_review", progress: 0, outputPath: null, coverPath: null, renderError: null, updatedAt: new Date().toISOString() }, path.join(root, "data"));
+      const normalized = await normalizeVoiceover(generated, root);
+      const creative = fresh.creative ? { ...fresh.creative, captionCues: autoCaptionCues(initialScript, normalized.wordTimings) } : null;
+      await updateClip(fresh.batchId, fresh.id, { ...fresh, creative, voiceover: { ...fresh.voiceover, script: initialScript, ...normalized }, status: "needs_review", progress: 0, outputPath: null, coverPath: null, renderError: null, updatedAt: new Date().toISOString() }, path.join(root, "data"));
       await recordVoiceoverResult(job.id, { clipId: clip.id, status: "generated" }, path.join(root, "data"));
       processedClipIds.add(clip.id);
     } catch (error) {

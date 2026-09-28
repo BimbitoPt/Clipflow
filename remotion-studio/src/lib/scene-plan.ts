@@ -1,6 +1,6 @@
 import type { BrandKit, ClipBrief, ClipFormat } from "./domain";
 
-export type SceneSegment = { copy: string; durationInFrames: number; startFrame: number; index: number; bg?: NonNullable<ClipBrief["creative"]>["scenes"][number]["bg"] };
+export type SceneSegment = { copy: string; durationInFrames: number; startFrame: number; index: number; bg?: NonNullable<ClipBrief["creative"]>["scenes"][number]["bg"]; visual?: NonNullable<ClipBrief["creative"]>["scenes"][number]["visual"] };
 export type CompositionProps = { clip: ClipBrief; brand: BrandKit; format: ClipFormat; scenes: SceneSegment[]; totalFrames: number; transitionFrames: number; coverMode?: boolean };
 
 export function makeScenePlan(clip: Pick<ClipBrief, "sceneCopy" | "durationSeconds"> & { creative?: ClipBrief["creative"] }, fps = 30) {
@@ -23,7 +23,7 @@ export function makeScenePlan(clip: Pick<ClipBrief, "sceneCopy" | "durationSecon
   for (let i = 0; remainder > 0; i = (i + 1) % durations.length) { durations[i]++; remainder--; }
   let startFrame = 0;
   const scenes = clip.sceneCopy.map((copy, index) => {
-    const scene: SceneSegment = { copy, durationInFrames: durations[index], startFrame, index, bg: clip.creative?.scenes[index]?.bg };
+    const scene: SceneSegment = { copy, durationInFrames: durations[index], startFrame, index, bg: clip.creative?.scenes[index]?.bg, visual: clip.creative?.scenes[index]?.visual };
     startFrame += durations[index] - (index < sceneCount - 1 ? transitionFrames : 0);
     return scene;
   });

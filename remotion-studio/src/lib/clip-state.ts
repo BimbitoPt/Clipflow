@@ -22,6 +22,7 @@ export function editClip(clip: ClipBrief, patch: ClipEdit): ClipBrief {
     : { script: voiceoverScript, voiceId, audioPath: null, wordTimings: [], generatedFor: null };
   return {
     ...clip, ...fields, voiceover,
+    creative: voiceChanged && clip.creative ? { ...clip.creative, captionCues: [] } : clip.creative,
     outputPath: voiceChanged ? null : clip.outputPath,
     coverPath: voiceChanged ? null : clip.coverPath,
     status: "needs_review", progress: 0, renderError: null, updatedAt: new Date().toISOString(),

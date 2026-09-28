@@ -12,7 +12,7 @@ export function wordChunks(text: string, size: number) {
 }
 
 export function AnimatedScene({ props, scene, variant }: { props: CompositionProps; scene: SceneSegment; variant: "explainer" | "demo" | "proof" }) {
-  if (props.clip.creative && scene.bg) return <StoryScene props={props} scene={scene} />;
+  if (props.clip.creative) return <StoryScene props={props} scene={scene} />;
   return <StandardScene props={props} scene={scene} variant={variant} />;
 }
 

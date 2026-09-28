@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createBatch, getBatch, listBatches, type CreateBrief } from "./batch-store";
+import { appendClips, createBatch, getBatch, listBatches, type CreateBrief } from "./batch-store";
 
 let root: string | undefined;
 afterEach(async () => { if (root) await rm(root, { recursive: true, force: true }); root = undefined; });
@@ -18,6 +18,8 @@ describe("batch persistence", () => {
     expect(created.clips).toHaveLength(10);
     expect(new Set(created.clips.map((clip) => clip.brandId))).toEqual(new Set(["clipflow", "mstudio"]));
     expect(created.clips.every((clip) => clip.status === "needs_review")).toBe(true);
+    expect(created.clips.every((clip) => clip.creative?.template === "cinematic-story")).toBe(true);
+    expect(created.clips.every((clip) => clip.creative?.scenes.length === 4)).toBe(true);
     expect((await getBatch(created.batch.id, root))?.clips).toHaveLength(10);
     expect((await listBatches(root))).toHaveLength(1);
     expect((await createBatch("Twenty", briefs(20), root)).clips).toHaveLength(20);
@@ -26,5 +28,13 @@ describe("batch persistence", () => {
     root = await mkdtemp(path.join(os.tmpdir(), "clipflow-batches-"));
     await expect(createBatch("Short", briefs(9), root)).rejects.toThrow("10–20");
     await expect(createBatch("Long", briefs(21), root)).rejects.toThrow("10–20");
+  });
+  it("appends clips to an existing batch and enforces the capacity", async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), "clipflow-batches-"));
+    const created = await createBatch("Launch week", briefs(10), root);
+    const expanded = await appendClips(created.batch.id, briefs(2), root);
+    expect(expanded.clips).toHaveLength(12);
+    expect((await getBatch(created.batch.id, root))?.clips).toHaveLength(12);
+    await expect(appendClips(created.batch.id, briefs(9), root)).rejects.toThrow("more than 20");
   });
 });
