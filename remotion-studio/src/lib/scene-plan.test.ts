@@ -44,6 +44,17 @@ describe("Remotion composition planning", () => {
     expect(props.scenes[2].bg?.imagePath).toBe("scene-backgrounds/mstudio-pricing/scene-3.png");
     expect(props.scenes.at(-1)!.startFrame + props.scenes.at(-1)!.durationInFrames).toBe(480);
   });
+  it("carries the selected motion graphic into the scene plan", () => {
+    const cinematic = ClipBriefSchema.parse({ ...clip, creative: {
+      template: "cinematic-story", sceneSeconds: [3, 3, 5, 3],
+      scenes: [{ motionGraphic: "filmstrip" }, {}, { visual: { kind: "steps", items: ["HOOK", "PAYOFF"] } }, { motionGraphic: "filmstrip" }],
+      captionCues: [], musicPath: null, sfxPath: null,
+    } });
+    const scenes = makeScenePlan(cinematic).scenes;
+    expect(scenes[0].motionGraphic).toBe("filmstrip");
+    expect(scenes[2].visual?.items).toEqual(["HOOK", "PAYOFF"]);
+    expect(scenes[2].motionGraphic).toBeUndefined();
+  });
   it("rejects empty and excessive scene plans", () => {
     expect(() => makeScenePlan({ sceneCopy: ["Only one"], durationSeconds: 25 })).toThrow("between 2 and 8");
     expect(() => makeScenePlan({ sceneCopy: Array(9).fill("Beat"), durationSeconds: 25 })).toThrow("between 2 and 8");

@@ -98,7 +98,11 @@ async function prepare(story: Story) {
     if (previous && previous.promptHash !== promptHash && !process.argv.includes("--accept-new-images") && clip.creative?.source?.url === story.source.url) {
       throw new Error(`Scene ${index + 1} prompt changed. Replace ${imagePath} and rerun with --accept-new-images.`);
     }
-    return { bg: { prompt, promptHash, imagePath }, visual: index === 2 ? { kind: story.visual.kind, items: [...story.visual.items] } : undefined };
+    return {
+      bg: { prompt, promptHash, imagePath },
+      visual: index === 2 ? { kind: story.visual.kind, items: [...story.visual.items] } : undefined,
+      motionGraphic: index === 2 ? undefined : story.brandId === "clipflow" ? "filmstrip" as const : "site-network" as const,
+    };
   }));
   const updated: ClipBrief = {
     ...clip, concept: story.concept, hook: story.hook, keyMessage: story.keyMessage, supportingPoint: story.supportingPoint, proof: story.proof,

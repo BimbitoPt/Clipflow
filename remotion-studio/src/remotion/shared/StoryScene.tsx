@@ -3,6 +3,7 @@ import { loadFont as loadManrope } from "@remotion/google-fonts/Manrope";
 import { loadFont as loadCormorant } from "@remotion/google-fonts/CormorantGaramond";
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import type { CompositionProps, SceneSegment } from "../../lib/scene-plan";
+import { MotionGraphic } from "./MotionGraphic";
 
 const sans = loadManrope("normal", { weights: ["500", "700", "800"], subsets: ["latin"] }).fontFamily;
 const serif = loadCormorant("italic", { weights: ["600"], subsets: ["latin"] }).fontFamily;
@@ -79,8 +80,10 @@ function PriceCards({ accent, frame, fps }: { accent: string; frame: number; fps
 
 function StoryVisual({ visual, accent, frame, fps }: { visual: NonNullable<SceneSegment["visual"]>; accent: string; frame: number; fps: number }) {
   const isSteps = visual.kind === "steps";
+  const lineHeight = visual.items.length * 72 + (visual.items.length - 1) * 25 - 50;
+  const litHeight = interpolate(frame, [7, 7 + visual.items.length * 12], [0, lineHeight], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   return <div style={{ position: "absolute", top: 490, left: isSteps ? 145 : 90, right: 90, display: "flex", flexDirection: "column", gap: isSteps ? 25 : 18 }}>
-    {isSteps && <div style={{ position: "absolute", left: 28, top: 25, bottom: 25, width: 5, background: `linear-gradient(${accent},${accent}33)` }} />}
+    {isSteps && <div style={{ position: "absolute", left: 28, top: 25, height: lineHeight, width: 5, background: "#ffffff40" }}><div style={{ height: litHeight, width: "100%", background: accent, boxShadow: `0 0 18px ${accent}` }} /></div>}
     {visual.items.map((item, index) => {
       const enter = spring({ frame: frame - 7 - index * (isSteps ? 12 : 16), fps, config: { damping: 17, stiffness: 105 } });
       return isSteps
@@ -88,8 +91,10 @@ function StoryVisual({ visual, accent, frame, fps }: { visual: NonNullable<Scene
           <div style={{ width: 62, height: 62, borderRadius: "50%", border: `4px solid ${accent}`, background: index <= Math.floor((frame - 5) / 12) ? accent : "#0b1014", boxShadow: `0 0 28px ${accent}66`, flex: "none" }} />
           <div style={{ fontSize: 51, fontWeight: 800, letterSpacing: "-.055em", textShadow: "0 4px 25px #000d" }}>{item.toUpperCase()}</div>
         </div>
-        : <div key={`${item}-${index}`} style={{ minHeight: 143, padding: "22px 32px", border: `2px solid ${accent}99`, borderRadius: 18, background: "#0a1323e8", boxShadow: `0 20px 70px #000a, inset 0 0 50px ${accent}18`, display: "flex", alignItems: "center", opacity: enter, transform: `translateX(${(1 - enter) * 140}px)` }}>
+        : <div key={`${item}-${index}`} style={{ position: "relative", overflow: "hidden", minHeight: 143, padding: "22px 32px", border: `2px solid ${accent}99`, borderRadius: 18, background: "#0a1323e8", boxShadow: `0 20px 70px #000a, inset 0 0 50px ${accent}18`, display: "flex", alignItems: "center", gap: 24, opacity: enter, transform: `translateX(${(1 - enter) * 140}px)` }}>
+          <div style={{ width: 9, height: 50, borderRadius: 5, background: accent, boxShadow: `0 0 18px ${accent}`, flex: "none" }} />
           <div style={{ fontSize: 47, fontWeight: 800, lineHeight: 1.04, letterSpacing: "-.055em" }}>{item.toUpperCase()}</div>
+          <div style={{ position: "absolute", left: 0, bottom: 0, width: `${Math.max(0, Math.min(100, (frame - 7 - index * 16) / 22 * 100))}%`, height: 4, background: accent, boxShadow: `0 0 18px ${accent}` }} />
         </div>;
     })}
   </div>;
@@ -110,7 +115,7 @@ export function StoryScene({ props, scene }: { props: CompositionProps; scene: S
   const elapsed = (scene.startFrame + frame) / fps;
   const isDiagram = !isStoryboard && !isPricing && scene.index === 2;
   const isPrices = isPricing && scene.index === 2;
-  const titleTop = isDiagram || isPrices || scene.visual ? 280 : scene.index === 3 ? 645 : 610;
+  const titleTop = isDiagram || isPrices || scene.visual ? 280 : scene.index === 3 ? (scene.motionGraphic ? 580 : 645) : 610;
   const entrance = spring({ frame, fps, config: { damping: 20, stiffness: 85 } });
   return <AbsoluteFill style={{ background: brand.palette.background, color: "#fff", fontFamily: sans, overflow: "hidden" }}>
     {scene.bg && <Img src={staticFile(scene.bg.imagePath)} style={{ position: "absolute", inset: -80, width: "calc(100% + 160px)", height: "calc(100% + 160px)", objectFit: "cover", transform: `translate(${x}px, ${y}px) scale(${scale})` }} />}
@@ -122,6 +127,7 @@ export function StoryScene({ props, scene }: { props: CompositionProps; scene: S
     {isDiagram && <Spine accent={accent} frame={frame} fps={fps} />}
     {isPrices && <PriceCards accent={accent} frame={frame} fps={fps} />}
     {scene.visual && <StoryVisual visual={scene.visual} accent={accent} frame={frame} fps={fps} />}
+    {scene.motionGraphic && !scene.visual && <MotionGraphic kind={scene.motionGraphic} accent={accent} frame={frame} fps={fps} sceneIndex={scene.index} />}
     <Captions props={props} accent={accent} elapsed={elapsed} />
     <div style={{ position: "absolute", bottom: 435, left: 90, right: 90, height: 3, background: "#ffffff40" }}><div style={{ height: "100%", width: `${Math.max(0, Math.min(100, frame / end * 100))}%`, background: accent }} /></div>
   </AbsoluteFill>;

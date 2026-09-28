@@ -19,7 +19,11 @@ export function defaultCreativeTreatment(brandId: string, format: ClipFormat, sc
       const prompt = `Curated text-free ${brandId} cinematic vertical scene ${index + 1}; replace with a topic-specific still during editorial review.`;
       return { prompt, promptHash: createHash("sha256").update(prompt).digest("hex").slice(0, 12), imagePath: `scene-backgrounds/${pack.folder}/scene-${index % 4 + 1}.png` };
     })() : undefined;
-    return { bg, visual: index === 2 ? { kind: "steps" as const, items: visualLabels[format] } : undefined };
+    return {
+      bg,
+      visual: index === 2 ? { kind: brandId === "mstudio" ? "cards" as const : "steps" as const, items: visualLabels[format] } : undefined,
+      motionGraphic: index === 2 ? undefined : brandId === "clipflow" ? "filmstrip" as const : brandId === "mstudio" ? "site-network" as const : undefined,
+    };
   });
   return {
     template: "cinematic-story", sceneSeconds: Array.from({ length: sceneCount }, (_, index) => index === sceneCount - 2 ? 4.5 : 3),
