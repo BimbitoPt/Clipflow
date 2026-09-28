@@ -31,6 +31,6 @@ The Rust renderer in [`../native/README.md`](../native/README.md) has a separate
 
 ## Brand and media rules
 
-Clipflow and MStudio starter kits use the brand material in the repository. Add Sabre's real logo, colors, claims and voice through its kit before producing a Sabre clip. Use only owned or explicitly approved footage, music and proof; record provenance in the kit. Do not add customer results, testimonials or product claims without operator-supplied evidence.
+The Remotion starter kits use lime green (`#CFFF47`) on near-black (`#080A0D`) for Clipflow, and electric blue (`#246BFD`) for MStudio Web. The saved kits in `data/brands` take precedence over these source defaults, so update an existing workspace kit in the Brand kits screen when changing a color. Re-render existing clips after a kit change so their MP4s and covers match the live preview. Add Sabre's real logo, colors, claims and voice through its kit before producing a Sabre clip. Use only owned or explicitly approved footage, music and proof; record provenance in the kit. Do not add customer results, testimonials or product claims without operator-supplied evidence.
 
 Remotion's license eligibility depends on company size and the intended automated rendering workflow. Confirm that eligibility before using the studio for production batches.

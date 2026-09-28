@@ -15,8 +15,14 @@ describe("Remotion composition planning", () => {
     expect(makeScenePlan(clip)).toEqual(makeScenePlan(clip));
   });
   it("applies the selected brand and resolves the correct template family", () => {
-    const props = buildCompositionProps(clip, starterBrands[0]);
-    expect(props.brand.palette.accent).toBe("#246BFD");
+    const clipflowProps = buildCompositionProps(clip, starterBrands[0]);
+    const mstudioProps = buildCompositionProps({ ...clip, brandId: "mstudio" }, starterBrands[1]);
+    expect(clipflowProps.brand.palette.accent).toBe("#CFFF47");
+    expect(clipflowProps.brand.palette.accentAlt).toBe("#CFFF47");
+    expect(clipflowProps.brand.captionStyle.highlightColor).toBe("#CFFF47");
+    expect(mstudioProps.brand.palette.accent).toBe("#246BFD");
+    expect(mstudioProps.brand.palette.accentAlt).toBe("#246BFD");
+    expect(mstudioProps.brand.captionStyle.highlightColor).toBe("#246BFD");
     expect(compositionId("explainer")).toBe("ClipExplainer");
     expect(compositionId("demo")).toBe("ClipProductDemo");
     expect(compositionId("proof")).toBe("ClipProofStory");
