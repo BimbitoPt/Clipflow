@@ -1,6 +1,7 @@
 import React from "react";
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import type { CompositionProps, SceneSegment } from "../../lib/scene-plan";
+import { AnimatedBackground } from "./AnimatedBackground";
 
 export function wordChunks(text: string, size: number) {
   const words = text.trim().split(/\s+/).filter(Boolean);
@@ -34,7 +35,7 @@ export function AnimatedScene({ props, scene, variant }: { props: CompositionPro
 
   return <AbsoluteFill style={{ backgroundColor: brand.palette.background, color: brand.palette.foreground, fontFamily: `"${family}", Arial, system-ui, sans-serif`, overflow: "hidden", opacity }}>
     {customFont && <style>{`@font-face{font-family:'${family}';src:url('${staticFile(customFont.path)}') format('woff2');font-display:swap}`}</style>}
-    <AbsoluteFill style={{ background: `radial-gradient(ellipse at ${variant === "demo" ? "18% 22%" : "82% 18%"}, ${accent}30 0%, transparent 42%)`, transform: motion === "float" ? `scale(${1.06 + Math.sin(frame / 40) * 0.025})` : `translate(${Math.sin(frame / 42) * 18}px, ${bob}px)` }} />
+    <AnimatedBackground props={props} scene={scene} variant={variant} />
     <div style={{ position: "absolute", top: 105, left: 88, right: 88, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
       {brand.logoPath ? <Img src={staticFile(brand.logoPath)} style={{ width: 84, height: 56, objectFit: "contain", objectPosition: "left center" }} /> : <div style={{ fontSize: 16, fontWeight: 800, letterSpacing: ".05em" }}>{brand.name.toUpperCase()}</div>}
       <div style={{ color: accent, fontSize: 17, letterSpacing: ".16em", fontWeight: 700 }}>{String(scene.index + 1).padStart(2, "0")} <span style={{ color: "#8793a3" }}>/ {String(props.scenes.length).padStart(2, "0")}</span></div>
