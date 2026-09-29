@@ -39,6 +39,12 @@ export default function BatchCreator() {
     setIssues((current) => current.filter((issue) => issue.index !== index));
   }
 
+  function chooseMode(next: Mode) {
+    setMode(next);
+    setError("");
+    setIssues([]);
+  }
+
   async function createBatch() {
     setError("");
     if (!name.trim()) { setError("Give this batch a name before continuing."); return; }
@@ -68,8 +74,8 @@ export default function BatchCreator() {
     <aside className="sidebar"><a className="brand-mark" href="/"><span className="brand-glyph">▶</span><span>CLIPFLOW <span className="brand-submark">REMOTION</span></span></a><nav className="nav-list"><a className="nav-item" href="/">Studio</a><a className="nav-item" href="/brands">Brand kits</a></nav><div className="sidebar-foot">LOCAL PRODUCTION</div></aside>
     <main className="main creator-main">
       <div className="topline"><a className="eyebrow" href="/">← STUDIO</a><span className="status-pill">NEW BATCH · 10–20 CLIPS</span></div>
-      <header className="creator-heading"><div><span className="eyebrow">START A PRODUCTION RUN</span><h1>Build the next batch.</h1><p className="subtle">Give each idea a clear hook. You can refine the story, voice, and visuals before anything renders.</p></div><div className="creator-count"><strong>{complete}<span> / {rows.length}</span></strong><small>BRIEFS READY</small></div></header>
-      <div className="creator-topbar"><label className="creator-name">Batch name<input value={name} maxLength={100} onChange={(event) => setName(event.target.value)} /></label><div className="mode-switch" role="group" aria-label="Brief entry mode"><button type="button" className={mode === "guided" ? "active" : ""} onClick={() => setMode("guided")}>GUIDED</button><button type="button" className={mode === "csv" ? "active" : ""} onClick={() => setMode("csv")}>CSV IMPORT</button></div></div>
+      <header className="creator-heading"><div><span className="eyebrow">START A PRODUCTION RUN</span><h1>Build the next batch.</h1><p className="subtle">Give each idea a clear hook. You can refine the story, voice, and visuals before anything renders.</p></div>{mode === "guided" && <div className="creator-count"><strong>{complete}<span> / {rows.length}</span></strong><small>BRIEFS READY</small></div>}</header>
+      <div className="creator-topbar"><label className="creator-name">Batch name<input value={name} maxLength={100} onChange={(event) => setName(event.target.value)} /></label><div className="mode-switch" role="group" aria-label="Brief entry mode"><button type="button" className={mode === "guided" ? "active" : ""} onClick={() => chooseMode("guided")}>GUIDED</button><button type="button" className={mode === "csv" ? "active" : ""} onClick={() => chooseMode("csv")}>CSV IMPORT</button></div></div>
       {mode === "guided" ? <section className="guided-creator" aria-label="Clip briefs">
         <div className="guided-intro"><div><h2>Clip briefs</h2><p>Start with the essentials. Open a brief to add proof, format, and publishing copy.</p></div><span className="status-pill">{rows.length} OF 20 SLOTS</span></div>
         <div className="brief-list">{rows.map((row, index) => {
