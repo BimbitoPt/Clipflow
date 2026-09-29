@@ -4,7 +4,7 @@
 
 **Goal:** Replace CSV-first creation and crowded batch review with a guided, readable production workspace.
 
-**Architecture:** Keep the existing API and renderer. Serialize structured briefs to the existing CSV endpoint; reorganize client components around a persistent preview, focused inspector tabs, and state-aware actions. No clip schema migration.
+**Architecture:** Keep the existing API and renderer. Submit structured `briefs` to the existing batch endpoint and preserve CSV as an alternate mode; reorganize client components around a persistent preview, focused inspector tabs, and state-aware actions. No clip schema migration.
 
 **Tech Stack:** Next.js 14, React 18, TypeScript, CSS, Vitest, Remotion Player.
 
@@ -18,12 +18,12 @@
 
 ### Task 1: Guided batch entry
 
-**Files:** `remotion-studio/src/lib/csv.ts`, `remotion-studio/src/lib/csv.test.ts`, `remotion-studio/components/BatchCreator.tsx`, `remotion-studio/app/globals.css`.
+**Files:** `remotion-studio/components/BatchCreator.tsx`, `remotion-studio/src/lib/guided-briefs.ts`, `remotion-studio/src/lib/guided-briefs.test.ts`, `remotion-studio/app/globals.css`.
 
-**Interfaces:** Add `stringifyCsv(headers: string[], records: Record<string, string>[]): string`. The guided form uses the existing `/api/batches` POST `{name,csv}`.
+**Interfaces:** Add `validateGuidedBriefs(briefs: GuidedBrief[]): string[]`. The guided form uses the existing `/api/batches` POST `{name,briefs}`; CSV mode uses `{name,csv}`.
 
-- [ ] Add a CSV round-trip test with commas, quotes and line breaks; verify it fails before implementation.
-- [ ] Implement `stringifyCsv` with RFC-style double quote escaping and run the focused test.
+- [ ] Add a validation test for missing required fields and proof requirements; verify it fails before implementation.
+- [ ] Implement `validateGuidedBriefs` and run the focused test.
 - [ ] Build a 10-row guided brief form, expandable details, row counts, inline missing-field indicators, and a CSV import toggle. Preserve the existing CSV validation response.
 - [ ] Verify 10/20 limits and creation through a browser smoke check, then commit.
 
