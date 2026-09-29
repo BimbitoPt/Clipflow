@@ -10,6 +10,10 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: "autoUpdate",
+      workbox: {
+        globPatterns: ["**/*.{js,css,html,png,svg,webp,jpg,jpeg}"],
+        maximumFileSizeToCacheInBytes: 3_000_000,
+      },
       manifest: {
         background_color: "#080A0D",
         display: "standalone",

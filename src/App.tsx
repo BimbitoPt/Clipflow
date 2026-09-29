@@ -4,26 +4,21 @@ import { MSTUDIO_PROFILE, loadProfile, saveProfile, type Profile } from "./lib/p
 import { buildScript } from "./lib/script";
 import { planFrames, planWordsTimed, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
 import { drawFrame, type DrawCtx, type RenderExtra } from "./lib/render";
-import { applyAssetOverride, assignCueAssets, preloadCueAssets, type PoolEntry, type StockAsset } from "./lib/broll";
+import { preloadAsset, STOCK_POOL, type StockAsset } from "./lib/broll";
+import { AI_BACKGROUNDS, assignAiBackgrounds } from "./lib/ai-backgrounds";
+import { resolveSceneChoices, type ResolvedSceneChoice, type SceneChoice } from "./lib/scene-assets";
+import { applyScriptOverrides, hasScriptOverrides, type ScriptOverrides } from "./lib/script-draft";
 import { previewSpeak } from "./lib/tts";
 import { createSpeechT5Loader } from "./lib/tts-local";
+import ProfileSettings from "./components/ProfileSettings";
+import ScriptBeats from "./components/ScriptBeats";
+import SceneTray from "./components/SceneTray";
+import ExportPanel from "./components/ExportPanel";
 
 const pack = loadPack("mstudio");
 const theme: Theme = pack.themes[0]!;
 
 const OUT_W = 720, OUT_H = 1280, OUT_BITRATE = 5_000_000, OUT_NAME = "clipflow-916.mp4";
-
-const STARTER = [
-  "/broll/1.jpg",
-  "/broll/2.jpg",
-  "/broll/3.jpg",
-  "/broll/4.jpg",
-  "/broll/5.jpg",
-  "/broll/6.jpg",
-  "/broll/7.jpg",
-  "/broll/8.jpg",
-  "/broll/9.jpg",
-];
 
 function store() {
   return { getItem: (k: string) => localStorage.getItem(k), setItem: (k: string, v: string) => localStorage.setItem(k, v) };
@@ -171,22 +166,23 @@ export function App() {
   const [idea, setIdea] = useState("fixed-price websites that ship in two weeks");
   const [err, setErr] = useState("");
   const [status, setStatus] = useState<"idle" | "working" | "exported" | "error">("idle");
-  const [broll, setBroll] = useState<ImageBitmap | null>(null);
-  const [starterSrc, setStarterSrc] = useState<string | null>(null);
+  const [scriptOverrides, setScriptOverrides] = useState<ScriptOverrides>({});
+  const [sceneChoices, setSceneChoices] = useState<SceneChoice[]>(() => Array.from({ length: 5 }, () => ({ kind: "auto-ai" })));
+  const [selectedScene, setSelectedScene] = useState(0);
+  const [sceneAssets, setSceneAssets] = useState<Array<StockAsset | null>>([]);
+  const [assetLoading, setAssetLoading] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
   const [exportMsg, setExportMsg] = useState("");
   const [exportProgress, setExportProgress] = useState(0);
-  const [autoMsg, setAutoMsg] = useState("");
-  const [autoAssets, setAutoAssets] = useState<Array<StockAsset | null>>([]);
   const [voiceWarn, setVoiceWarn] = useState("");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const busyRef = useRef(false);
-  const brollRef = useRef<ImageBitmap | null>(null);
+  const uploadsRef = useRef<Map<string, StockAsset>>(new Map());
 
   useEffect(() => {
     return () => {
       try {
-        brollRef.current?.close();
+        for (const asset of uploadsRef.current.values()) if (asset.kind === "image") (asset.el as ImageBitmap).close();
       } catch {
         // close on unmount is best-effort; never throw.
       }
@@ -194,129 +190,58 @@ export function App() {
   }, []);
 
   const profile = useMemo(() => ({ niche, audience, offer, tone, proof }), [niche, audience, offer, tone, proof]);
-  const { script, err: scriptErr } = useMemo(() => {
+  const { generatedScript, err: generatedErr } = useMemo(() => {
     try {
-      return { script: buildScript(idea, profile, pack), err: "" };
+      return { generatedScript: buildScript(idea, profile, pack), err: "" };
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
-      return { script: null, err: m.includes("E_EMPTY_IDEA") ? "E_EMPTY_IDEA: enter your idea above." : m };
+      return { generatedScript: null, err: m.includes("E_EMPTY_IDEA") ? "Enter your idea above." : m };
     }
   }, [idea, profile]);
+  const { script, err: editErr } = useMemo(() => {
+    if (!generatedScript) return { script: null, err: "" };
+    try { return { script: applyScriptOverrides(generatedScript, scriptOverrides), err: "" }; }
+    catch (e) { return { script: null, err: e instanceof Error ? e.message : String(e) }; }
+  }, [generatedScript, scriptOverrides]);
+  const scriptErr = generatedErr || editErr;
 
   useEffect(() => {
     setErr(scriptErr);
-  }, [script]);
+  }, [scriptErr]);
 
-  const timing = useMemo(() => readWordTiming(idea, profile), [idea, profile]);
+  const timing = useMemo(() => hasScriptOverrides(scriptOverrides) ? null : readWordTiming(idea, profile), [idea, profile, scriptOverrides]);
   const words = useMemo(
     () => (script ? planWordsTimed(script, timing?.cues ?? null) : undefined),
     [script, timing],
   );
 
-  // Auto mode: on idea/profile/script change, auto assign + preload 1 stock
-  // asset per cue (hook/beat1/beat2/beat3/cta). Debounced, no click needed.
-  useEffect(() => {
-    if (!script) {
-      setAutoAssets([]);
-      return;
-    }
-    let cancelled = false;
-    setAutoMsg("Auto casting stock…");
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const cueTexts = script.cues.map((c) => c.text);
-          const entries: PoolEntry[] = applyAssetOverride(
-            assignCueAssets(idea, profile, cueTexts),
-            timing?.assets ?? null,
-          );
-          const loaded = await preloadCueAssets(entries);
-          if (!cancelled) {
-            setAutoAssets(loaded);
-            const ok = loaded.filter(Boolean).length;
-            setAutoMsg(ok === loaded.length ? `Auto stock ready (${ok}/5).` : `Auto stock ready (${ok}/5, rest gradient).`);
-          }
-        } catch {
-          if (!cancelled) {
-            setAutoAssets([]);
-            setAutoMsg("");
-          }
-        }
-      })();
-    }, 400);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [script, idea, profile, timing]);
+  const aiSuggestions = useMemo(() => assignAiBackgrounds(idea, profile, (script ?? generatedScript)?.cues.map((cue) => cue.text) ?? []), [idea, profile, script, generatedScript]);
+  const resolvedChoices = useMemo(() => resolveSceneChoices(sceneChoices, aiSuggestions, STOCK_POOL), [sceneChoices, aiSuggestions]);
 
-  function assetForCue(cue: { start: number; kind: string }): StockAsset | null {
-    // Manual override wins: single user-picked b-roll covers every cue.
-    if (broll) {
-      return {
-        kind: "image",
-        src: starterSrc ?? "upload",
-        el: broll,
-        keywords: [],
-      };
-    }
-    if (!script) return null;
-    const idx = cueIndexOf(script, cue);
-    return autoAssets[idx] ?? null;
+  async function loadSceneAsset(choice: ResolvedSceneChoice): Promise<StockAsset | null> {
+    if (choice.kind === "upload") return uploadsRef.current.get(choice.id) ?? null;
+    if (choice.kind === "fallback") return null;
+    try { return await preloadAsset(choice.entry); } catch { return null; }
   }
 
-  async function onBrollFile(file: File | undefined) {
-    if (!file) return;
+  useEffect(() => {
+    let cancelled = false;
+    setAssetLoading(true);
+    void Promise.all(resolvedChoices.map(loadSceneAsset)).then((assets) => {
+      if (!cancelled) { setSceneAssets(assets); setAssetLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [resolvedChoices]);
+
+  async function onUpload(file: File) {
     try {
       const bmp = await createImageBitmap(file);
-      const prev = brollRef.current;
-      brollRef.current = bmp;
-      setBroll(bmp);
-      setStarterSrc(null);
-      if (prev) {
-        try {
-          prev.close();
-        } catch {
-          // close on closed bitmap throws; never propagate.
-        }
-      }
+      const id = crypto.randomUUID();
+      uploadsRef.current.set(id, { kind: "image", src: `upload:${id}`, el: bmp, keywords: [] });
+      setSceneChoices((choices) => choices.map((choice, index) => index === selectedScene ? { kind: "upload", id } : choice));
       setErr("");
     } catch {
       setErr("Could not load that image — try another file.");
-    }
-  }
-
-  async function onStarterSelect(src: string) {
-    try {
-      const bmp = await createImageBitmap(await (await fetch(src)).blob());
-      const prev = brollRef.current;
-      brollRef.current = bmp;
-      setBroll(bmp);
-      setStarterSrc(src);
-      if (prev) {
-        try {
-          prev.close();
-        } catch {
-          // close on closed bitmap throws; never propagate.
-        }
-      }
-      setErr("");
-    } catch {
-      setErr("Could not load that image — try another file.");
-    }
-  }
-
-  function onRemoveBroll() {
-    const cur = brollRef.current;
-    brollRef.current = null;
-    setBroll(null);
-    setStarterSrc(null);
-    if (cur) {
-      try {
-        cur.close();
-      } catch {
-        // close is best-effort; never throw.
-      }
     }
   }
 
@@ -330,18 +255,19 @@ export function App() {
       return;
     }
     try {
-      const frame = planFrames(script, 30, timing?.windows ?? null)[0];
+      const frames = planFrames(script, 30, timing?.windows ?? null);
+      const cueFrames = frames.filter((frame) => cueIndexOf(script, frame.cue) === selectedScene);
+      const frame = cueFrames[Math.floor(cueFrames.length / 2)] ?? frames[0];
       if (!frame) return;
       const extra: RenderExtra = {};
       if (words) extra.words = words;
-      const asset = assetForCue(frame.cue);
+      const asset = sceneAssets[selectedScene];
       if (asset) extra.asset = asset;
       drawFrame(ctx as DrawCtx, frame, theme, 360, 640, extra, timing?.total ?? VIDEO_SECS);
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [script, words, broll, autoAssets]);
+  }, [script, words, timing, selectedScene, sceneAssets]);
 
   function onSave() {
     try {
@@ -373,18 +299,9 @@ export function App() {
       setExportProgress(10);
       setVoiceWarn("");
       try {
-        // Assets: ensure 5 auto assets are loaded (script -> assets step).
-        let cueAssets: Array<StockAsset | null> = autoAssets;
-        if (cueAssets.length !== script.cues.length) {
-          setExportMsg("Casting stock…");
-          setExportProgress(25);
-          const entries = applyAssetOverride(
-            assignCueAssets(idea, profile, script.cues.map((c) => c.text)),
-            timing?.assets ?? null,
-          );
-          cueAssets = await preloadCueAssets(entries);
-          setAutoAssets(cueAssets);
-        }
+        setExportMsg("Loading selected scene visuals…");
+        setExportProgress(25);
+        const cueAssets = await Promise.all(resolveSceneChoices([...sceneChoices], aiSuggestions, STOCK_POOL).map(loadSceneAsset));
         setExportProgress(35);
         let pcm: Float32Array | null = null;
         if (voiceOn) {
@@ -444,13 +361,7 @@ export function App() {
         if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
         const frames: PlannedFrame[] = planFrames(script, 30, timing?.windows ?? null);
         const assetByCue = new Map<number, StockAsset | null>();
-        script.cues.forEach((c, i) => {
-          if (broll) {
-            assetByCue.set(i, { kind: "image", src: starterSrc ?? "upload", el: broll, keywords: [] });
-          } else {
-            assetByCue.set(i, cueAssets[i] ?? null);
-          }
-        });
+        script.cues.forEach((_cue, i) => assetByCue.set(i, cueAssets[i] ?? null));
         // Deterministic video start: seek each cue's video once before its frames.
         let encErr: unknown = null;
         const encoder = new VideoEncoder({
@@ -553,225 +464,79 @@ export function App() {
   const tiktok = script ? `${script.hook} ${pack.hashtags.join(" ")}` : "";
   const xpost = script ? `${script.hook} ${script.cta}`.slice(0, 280) : "";
 
+  const sceneLabels = ["HOOK", "BEAT 01", "BEAT 02", "BEAT 03", "CTA"];
+  const isWorking = status === "working";
+  const sceneThumb = (index: number): string | undefined => {
+    const choice = sceneChoices[index];
+    if (choice?.kind === "auto-ai") return aiSuggestions[index]?.src;
+    if (choice?.kind === "ai") return AI_BACKGROUNDS.find((item) => item.id === choice.id)?.src;
+    if (choice?.kind === "stock") return choice.src;
+    return undefined;
+  };
+
   return (
-    <main className="min-h-screen bg-[#080A0D] text-gray-100">
-      <div className="mx-auto max-w-6xl space-y-6 px-6 py-10">
-        <h1 className="font-mono text-3xl uppercase tracking-widest">Clipflow</h1>
-        <section className="space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-6">
-          <h2 className="font-mono text-sm uppercase tracking-widest text-gray-300">Context</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <label className="block font-mono text-xs uppercase tracking-widest text-gray-400">
-              Niche
-              <input
-                className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm normal-case tracking-normal text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
-                value={niche}
-                onChange={(e) => setNiche(e.target.value)}
-              />
-            </label>
-            <label className="block font-mono text-xs uppercase tracking-widest text-gray-400">
-              Audience
-              <input
-                className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm normal-case tracking-normal text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
-                value={audience}
-                onChange={(e) => setAudience(e.target.value)}
-              />
-            </label>
-            <label className="block font-mono text-xs uppercase tracking-widest text-gray-400">
-              Offer
-              <input
-                className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm normal-case tracking-normal text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
-                value={offer}
-                onChange={(e) => setOffer(e.target.value)}
-              />
-            </label>
-            <label className="block font-mono text-xs uppercase tracking-widest text-gray-400">
-              Tone
-              <input
-                className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm normal-case tracking-normal text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
-                value={tone}
-                onChange={(e) => setTone(e.target.value)}
-              />
-            </label>
-            <label className="block font-mono text-xs uppercase tracking-widest text-gray-400">
-              Proof
-              <input
-                className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-sm normal-case tracking-normal text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
-                value={proof}
-                onChange={(e) => setProof(e.target.value)}
-              />
-            </label>
+    <main className="cf-app">
+      <div className="cf-shell">
+        <header className="cf-header">
+          <a href="/" className="cf-brand" aria-label="Clipflow home"><span className="cf-brand-mark">C</span><span>CLIPFLOW</span></a>
+          <span className="cf-header-label">IDEA → VIDEO STUDIO</span>
+          <span className="cf-local-pill"><span /> LOCAL-FIRST</span>
+        </header>
+
+        <section className="cf-hero" aria-label="Clipflow studio">
+          <div className="cf-hero-copy">
+            <span className="cf-kicker">A SMALL STUDIO FOR BIG IDEAS</span>
+            <h1>Your idea.<br /><em>A video worth posting.</em></h1>
+            <p>Shape the story, choose a visual world, then export a vertical video. All in one focused flow.</p>
           </div>
-          <button
-            className="rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90 disabled:opacity-50"
-            onClick={onSave}
-          >
-            Save
-          </button>
-          {saved ? <p className="text-sm text-gray-400">{saved}</p> : null}
+          <div className="cf-hero-index">01 / 04 <span>FROM IDEA TO FILE</span></div>
         </section>
-        <section className="space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-6">
-          <h2 className="font-mono text-sm uppercase tracking-widest text-gray-300">Idea</h2>
-          <input
-            className="w-full rounded-lg border border-white/15 bg-white/5 px-4 py-3 text-gray-100 placeholder-gray-500 outline-none focus:border-[#246BFD]"
-            value={idea}
-            onChange={(e) => setIdea(e.target.value)}
-            placeholder="Your video idea"
-          />
-          {autoMsg ? <p className="text-sm text-gray-400">{autoMsg}</p> : null}
-          {err ? (
-            <p role="alert" className="text-sm text-red-400">
-              {err}
-            </p>
-          ) : null}
-        </section>
-        {script ? (
-          <>
-            <section className="space-y-3 rounded-xl border border-white/10 bg-white/[0.03] p-6">
-              <h2 className="font-mono text-sm uppercase tracking-widest text-gray-300">Script</h2>
-              <p className="text-gray-100">{script.hook}</p>
-              {script.beats.map((b) => (
-                <p key={b} className="text-gray-300">
-                  {b}
-                </p>
-              ))}
-              <p className="text-gray-100">{script.cta}</p>
+
+        <nav className="cf-flow-nav" aria-label="Workflow steps">
+          <a href="#idea"><span>01</span> IDEA</a><a href="#script"><span>02</span> SCRIPT</a><a href="#visuals"><span>03</span> VISUALS</a><a href="#export"><span>04</span> EXPORT</a>
+        </nav>
+
+        <div className="cf-workspace">
+          <div className="cf-editor-column">
+            <section className="cf-idea-panel" id="idea">
+              <div className="cf-panel-heading"><span className="cf-kicker">START HERE / 01</span><h2>What's the idea?</h2><p>One sentence is enough. We'll turn it into five editable beats.</p></div>
+              <label className="cf-idea-label">YOUR VIDEO IDEA
+                <textarea value={idea} disabled={isWorking} rows={3} onChange={(e) => { setIdea(e.target.value); setScriptOverrides({}); }} placeholder="What should this video say?" />
+              </label>
+              <ProfileSettings profile={profile} disabled={isWorking} saved={saved} onSave={onSave} onChange={(field, value) => {
+                ({ niche: setNiche, audience: setAudience, offer: setOffer, tone: setTone, proof: setProof })[field](value);
+                setScriptOverrides({});
+              }} />
+              {err && <p role="alert" className="cf-error">{err}</p>}
             </section>
-            <div className="flex justify-center">
-              <canvas
-                ref={canvasRef}
-                width={360}
-                height={640}
-                className="aspect-[9/16] h-auto w-full max-w-xs rounded-xl border border-white/10 bg-black"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="w-full space-y-2">
-                <p className="font-mono text-xs uppercase tracking-widest text-gray-400">Starter visuals (override auto stock)</p>
-                <div className="flex flex-wrap gap-2">
-                  {STARTER.map((src, i) => (
-                    <button
-                      key={src}
-                      type="button"
-                      title={`Unsplash starter photo ${i + 1}`}
-                      onClick={() => void onStarterSelect(src)}
-                      className={`overflow-hidden rounded-lg border ${
-                        starterSrc === src ? "border-transparent ring-2 ring-[#246BFD]" : "border-white/15"
-                      }`}
-                    >
-                      <img src={src} alt={`Starter visual ${i + 1}`} loading="lazy" className="h-16 w-10 object-cover" />
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label className="font-mono text-xs uppercase tracking-widest text-gray-400">
-                B-roll
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="mt-2 block text-sm normal-case tracking-normal text-gray-300"
-                  onChange={(e) => void onBrollFile(e.target.files?.[0])}
-                />
-              </label>
-              {broll ? (
-                <button
-                  className="rounded-full border border-white/15 px-6 py-2 font-mono text-xs uppercase tracking-widest text-gray-200 hover:opacity-90"
-                  onClick={onRemoveBroll}
-                >
-                  Use auto stock
-                </button>
-              ) : null}
-              <label className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-gray-400">
-                <input type="checkbox" checked={voiceOn} onChange={(e) => setVoiceOn(e.target.checked)} />
-                Voiceover + captions (first render downloads voice ~200MB, cached)
-              </label>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <button
-                className="rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90 disabled:opacity-50"
-                onClick={() => previewSpeak(script.hook)}
-              >
-                Preview voice
-              </button>
-              <button
-                className="rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90 disabled:opacity-50"
-                onClick={onExport}
-                disabled={status === "working"}
-              >
-                {status === "working" ? "Exporting…" : "Export clipflow-916.mp4"}
-              </button>
-            </div>
-            {status === "working" ? (
-              <div className="space-y-2">
-                <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-                  <div className="h-full rounded-full bg-[#246BFD] transition-all" style={{ width: `${exportProgress}%` }} />
-                </div>
-                {exportMsg ? <p className="text-sm text-gray-300">{exportMsg}</p> : null}
-              </div>
-            ) : null}
-            {exportMsg && status !== "working" ? <p className="text-sm text-gray-300">{exportMsg}</p> : null}
-            {voiceWarn ? <p className="text-sm text-gray-300">{voiceWarn}</p> : null}
-            {status === "exported" ? <p className="text-sm text-gray-300">Exported clipflow-916.mp4.</p> : null}
-            <details className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-              <summary className="cursor-pointer font-mono text-xs uppercase tracking-widest text-gray-400">
-                TikTok caption
-              </summary>
-              <p className="mt-3 text-gray-300">{tiktok}</p>
-              <button
-                className="mt-3 rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90"
-                onClick={() => void copyText(tiktok)}
-              >
-                Copy
-              </button>
-            </details>
-            <details className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-              <summary className="cursor-pointer font-mono text-xs uppercase tracking-widest text-gray-400">
-                X post
-              </summary>
-              <p className="mt-3 text-gray-300">{xpost}</p>
-              <button
-                className="mt-3 rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90"
-                onClick={() => void copyText(xpost)}
-              >
-                Copy
-              </button>
-            </details>
-            <details className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-              <summary className="cursor-pointer font-mono text-xs uppercase tracking-widest text-gray-400">
-                LinkedIn
-              </summary>
-              <p className="mt-3 text-gray-300">{script.linkedin.body}</p>
-              <button
-                className="mt-3 rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90"
-                onClick={() => void copyText(script.linkedin.body)}
-              >
-                Copy
-              </button>
-            </details>
-          </>
-        ) : null}
-        <section className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-          <h2 className="font-mono text-sm uppercase tracking-widest text-gray-300">Clipflow Managed</h2>
-          <div className="mt-4 grid gap-4 md:grid-cols-3">
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-              <p className="font-mono text-xs uppercase tracking-widest text-gray-400">DIY Free</p>
-              <p className="mt-3 text-gray-300">Free local-first tool, self-serve.</p>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-              <p className="font-mono text-xs uppercase tracking-widest text-gray-400">Clipflow Managed €500 setup + €300/mo</p>
-              <p className="mt-3 text-gray-300">Niche setup, video pipeline, posting calendar, monthly report.</p>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
-              <p className="font-mono text-xs uppercase tracking-widest text-gray-400">Rev-share €500 + 20%</p>
-              <p className="mt-3 text-gray-300">€500 + 20%, 90-day min.</p>
-            </div>
+            {generatedScript && <section className="cf-script-panel" id="script">
+              <div className="cf-panel-heading"><span className="cf-kicker">STORY STRUCTURE / 02</span><h2>Make every beat count.</h2><p>Edit a line, then select it to inspect its frame. This script drives the narration, captions, and post copy.</p></div>
+              <ScriptBeats generated={generatedScript} overrides={scriptOverrides} selected={selectedScene} disabled={isWorking} onSelect={setSelectedScene}
+                onEdit={(index, value) => setScriptOverrides((current) => ({ ...current, [index]: value }))}
+                onReset={(index) => setScriptOverrides((current) => { const next = { ...current }; delete next[index]; return next; })} />
+            </section>}
           </div>
-          <a
-            href="mailto:hello@mstudioweb.pt?subject=Clipflow%20Managed"
-            className="mt-4 inline-block rounded-full bg-[#246BFD] px-6 py-2 font-mono text-xs uppercase tracking-widest text-white hover:opacity-90"
-          >
-            Contact about Clipflow Managed
-          </a>
-        </section>
+
+          <section className="cf-preview-panel" aria-label="Video frame preview">
+            <div className="cf-preview-heading"><div><span className="cf-kicker">LIVE FRAME</span><h2>{sceneLabels[selectedScene]}</h2></div><span className="cf-preview-ratio">9:16 / 720P</span></div>
+            <div className="cf-canvas-wrap"><canvas ref={canvasRef} width={360} height={640} aria-label={`Scene ${selectedScene + 1} preview`} /></div>
+            <div className="cf-scene-strip" aria-label="Select a scene">
+              {sceneLabels.map((label, index) => <button key={label} type="button" disabled={isWorking} title={`${label}: ${sceneThumb(index) ? "visual selected" : sceneChoices[index]?.kind ?? "AI visual"}`} className={selectedScene === index ? "active" : ""} aria-pressed={selectedScene === index} onClick={() => setSelectedScene(index)}><span className="cf-scene-thumb" style={sceneThumb(index) ? { backgroundImage: `url('${sceneThumb(index)}')` } : undefined}>{String(index + 1).padStart(2, "0")}</span><b>{label}</b></button>)}
+            </div>
+            <p className="cf-preview-note">The selected frame uses the same scene image and drawing engine as the MP4.</p>
+          </section>
+
+          {generatedScript && aiSuggestions[selectedScene] && <div id="visuals">
+            <SceneTray selected={selectedScene} choice={sceneChoices[selectedScene]!} suggestion={aiSuggestions[selectedScene]!} asset={sceneAssets[selectedScene] ?? null} loading={assetLoading} disabled={isWorking}
+              onChoice={(choice) => setSceneChoices((choices) => choices.map((current, index) => index === selectedScene ? choice : current))}
+              onUpload={(file) => void onUpload(file)} />
+          </div>}
+        </div>
+
+        {script && <ExportPanel script={script} tiktok={tiktok} xpost={xpost} voiceOn={voiceOn} onVoiceChange={setVoiceOn} onPreviewVoice={() => previewSpeak(script.hook)}
+          onExport={() => void onExport()} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} />}
+
+        <footer className="cf-footer"><span>CLIPFLOW / BUILT TO KEEP IDEAS MOVING</span><a href="mailto:hello@mstudioweb.pt?subject=Clipflow%20Managed">NEED A MANAGED VIDEO PIPELINE? ↗</a></footer>
       </div>
     </main>
   );

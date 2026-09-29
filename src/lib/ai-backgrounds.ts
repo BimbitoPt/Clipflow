@@ -23,6 +23,9 @@ export const AI_BACKGROUNDS: AiBackground[] = [
   { id: "blue-blueprint", src: "/ai-backgrounds/blue-blueprint.png", label: "Website blueprint", keywords: ["website", "design", "build", "plan", "business"], focalY: 0.5 },
   { id: "blue-glass-cards", src: "/ai-backgrounds/blue-glass-cards.png", label: "Offer cards", keywords: ["offer", "proof", "choice", "business", "website"], focalY: 0.5 },
   { id: "blue-door", src: "/ai-backgrounds/blue-door.png", label: "Open door", keywords: ["cta", "action", "next", "launch", "outcome"], focalY: 0.5 },
+  { id: "blue-search-path", src: "/ai-backgrounds/blue-search-path.png", label: "The path forward", keywords: ["hook", "website", "search", "discovery", "start"], focalY: 0.5 },
+  { id: "blue-search-signal", src: "/ai-backgrounds/blue-search-signal.png", label: "Signal in the dark", keywords: ["proof", "signal", "business", "growth", "search"], focalY: 0.5 },
+  { id: "blue-search-result", src: "/ai-backgrounds/blue-search-result.png", label: "Find the answer", keywords: ["result", "outcome", "website", "search", "cta"], focalY: 0.5 },
 ];
 
 function tokens(value: string): Set<string> {
@@ -35,10 +38,12 @@ const sceneIntent = ["hook start idea", "story script frame", "system process bu
 export function assignAiBackgrounds(idea: string, profile: Profile, cueTexts: string[]): AiBackground[] {
   const context = tokens([idea, profile.niche, profile.audience, profile.offer, profile.tone, profile.proof].join(" "));
   const used = new Set<string>();
+  const studioBrand = /web|website|mstudio|automation|site|design/i.test(`${profile.niche} ${profile.offer}`);
+  const brandPool = AI_BACKGROUNDS.filter((item) => studioBrand ? item.id.startsWith("blue-") : !item.id.startsWith("blue-"));
   return cueTexts.map((cue, index) => {
     const local = tokens(`${cue} ${sceneIntent[index % sceneIntent.length]}`);
-    const choices = AI_BACKGROUNDS.filter((item) => !used.has(item.id));
-    const pool = choices.length ? choices : AI_BACKGROUNDS;
+    const choices = brandPool.filter((item) => !used.has(item.id));
+    const pool = choices.length ? choices : brandPool;
     const ranked = pool.map((item, order) => ({ item, order, score: item.keywords.reduce((score, keyword) => score + (local.has(keyword) ? 3 : 0) + (context.has(keyword) ? 1 : 0), 0) }));
     ranked.sort((a, b) => b.score - a.score || a.order - b.order);
     const selected = ranked[0]!.item;

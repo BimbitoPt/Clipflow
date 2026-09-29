@@ -22,10 +22,10 @@ The user selected the preview-first studio layout over a step wizard and a curat
 
 ## AI image library
 
-- Ship twelve original, dark cinematic stills under `public/ai-backgrounds/`, accompanied by a typed manifest with stable ID, path, short label, keywords, and focal/text-safe metadata. Scenes cover ideas, making, systems, proof, and outcomes without claiming to depict a real product or client.
+- Ship fifteen original, dark cinematic stills under `public/ai-backgrounds/`, accompanied by a typed manifest with stable ID, path, short label, keywords, and focal/text-safe metadata. The library includes Clipflow lime scenes and MStudio electric-blue scenes, including three stills from the MStudio AI-search series.
 - Use deterministic matching from idea, profile, cue kind, and cue text to select distinct stills where possible. A stable input produces a stable scene plan; the operator can override each selection.
 - Images favor dark, mostly neutral negative space around central copy and caption zones. The Clipflow interface uses lime; finished videos retain the selected pack's accent color (the current MStudio pack is blue). Use subtle push/drift through the existing canvas transform, a dark scrim, and legible text at phone size.
-- Generated artwork used in the app chrome comes from this same library; do not introduce a separate visual theme or large image downloads.
+- Generated artwork used in the app chrome comes from this same library; do not introduce a separate visual theme or large image downloads. Match a profile's MStudio/web-production context to the blue collection and other profiles to the Clipflow collection.
 - Keep all library assets local and cacheable by the PWA. Missing images preserve a usable gradient preview/export.
 
 ## Data and state
