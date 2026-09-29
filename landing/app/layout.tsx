@@ -1,13 +1,6 @@
 import type { Metadata } from "next";
-import { Archivo_Black, Inter } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
-
-const archivo = Archivo_Black({
-  subsets: ["latin"],
-  weight: "400",
-  variable: "--font-display",
-  display: "swap",
-});
 
 const inter = Inter({
   subsets: ["latin"],
@@ -27,7 +20,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en">
-      <body className={`${archivo.variable} ${inter.variable}`}>
+      <body className={inter.variable}>
         {children}
       </body>
     </html>

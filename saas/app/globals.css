@@ -5,13 +5,32 @@
 :root {
   --background: #080A0D;
   --foreground: #F7F8FA;
+  --lime: #CFFF47;
+  --surface: #0D1016;
+  --muted: rgba(247, 248, 250, 0.6);
 }
+
+* { box-sizing: border-box; }
 
 body {
   color: var(--foreground);
   background: var(--background);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
+
+:focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; }
+
+#waitlist { width: min(540px, calc(100% - 32px)); margin: 0 auto; }
+#waitlist form { display: flex; gap: 10px; }
+#waitlist input { min-width: 0; flex: 1; height: 52px; padding: 0 16px; border: 1px solid rgba(247, 248, 250, .16); border-radius: 8px; background: var(--surface); color: var(--foreground); font: inherit; }
+#waitlist input:focus { outline: 0; border-color: var(--lime); box-shadow: 0 0 0 3px rgba(207, 255, 71, .16); }
+#waitlist input::placeholder { color: var(--muted); }
+#waitlist button { min-height: 52px; padding: 0 22px; border: 0; border-radius: 8px; background: var(--lime); color: #0A1206; font: inherit; font-weight: 700; cursor: pointer; }
+#waitlist button:disabled { opacity: .65; cursor: wait; }
+#waitlist [role="status"] { color: var(--lime); }
+#waitlist [role="alert"] { color: #ff9f8c; }
+
+@media (max-width: 520px) { #waitlist form { flex-direction: column; } }
 
 @layer utilities {
   .text-balance {

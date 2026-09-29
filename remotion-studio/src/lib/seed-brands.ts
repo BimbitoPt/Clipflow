@@ -9,7 +9,7 @@ export const starterBrands: BrandKit[] = [
     name: "Clipflow",
     palette: { background: "#080A0D", foreground: "#F7F8FA", accent: "#CFFF47", accentAlt: "#CFFF47" },
     fonts: { heading: "System UI", body: "System UI" },
-    logoPath: null,
+    logoPath: "brand/mark.png",
     audioPath: null,
     toneNotes: "Direct and confident. No fluff. Captions use short chunks of up to three words. Use lime green on black for motion, captions, calls to action and wins.",
     defaultCta: "Make your next video with Clipflow.",

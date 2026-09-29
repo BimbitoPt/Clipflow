@@ -508,7 +508,7 @@ export function App() {
     <main className="cf-app">
       <div className="cf-shell">
         <header className="cf-header">
-          <a href="/" className="cf-brand" aria-label="Clipflow home"><span className="cf-brand-mark">C</span><span>CLIPFLOW</span></a>
+          <a href="/" className="cf-brand" aria-label="Clipflow home"><img className="cf-brand-mark" src="/brand/mark.png" alt="" /><span>CLIPFLOW</span></a>
           <span className="cf-header-label">IDEA → VIDEO STUDIO</span>
           <span className="cf-local-pill"><span /> LOCAL-FIRST</span>
         </header>

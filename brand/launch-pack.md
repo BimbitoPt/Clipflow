@@ -34,7 +34,7 @@ Save this for your next edit. #contenttips
 
 **All platforms:**
 Nobody reads paragraphs on Reels.
-3 words. Punch word blue. Fit guaranteed.
+3 words. Punch word lime. Fit guaranteed.
 That's the Clipflow caption engine. #contenttips
 
 ## 5. CTA / waitlist

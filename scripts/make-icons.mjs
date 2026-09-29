@@ -1,5 +1,5 @@
 // Writes public/icon-192.png + public/icon-512.png with zero dependencies.
-// 5x7 pixel "C" glyph scaled onto a SIZE x SIZE canvas (bg #080A0D, glyph #246BFD).
+// Legacy compact "C" glyph fallback. The app manifest now points at brand/mark.png.
 import { deflateSync } from "node:zlib";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const GLYPH = ["01110", "10000", "10000", "10000", "10000", "10000", "01110"];
 const BG = [0x08, 0x0a, 0x0d];
-const FG = [0x24, 0x6b, 0xfd];
+const FG = [0xcf, 0xff, 0x47];
 
 const CRC_TABLE = (() => {
   const t = new Uint32Array(256);

@@ -7,9 +7,9 @@ function blankBrand(): BrandKit {
   const now = new Date().toISOString();
   return {
     schemaVersion: 1, id: `brand-${crypto.randomUUID().slice(0, 8)}`, name: "New brand",
-    palette: { background: "#080A0D", foreground: "#F7F8FA", accent: "#246BFD", accentAlt: "#CFFF47" },
+    palette: { background: "#080A0D", foreground: "#F7F8FA", accent: "#CFFF47", accentAlt: "#CFFF47" },
     fonts: { heading: "System UI", body: "System UI" }, logoPath: null, audioPath: null, toneNotes: "",
-    defaultCta: "Learn more.", captionStyle: { wordsPerChunk: 3, highlightColor: "#246BFD", safeAreaPercent: 10 },
+    defaultCta: "Learn more.", captionStyle: { wordsPerChunk: 3, highlightColor: "#CFFF47", safeAreaPercent: 10 },
     approvedAssets: [], updatedAt: now,
   };
 }

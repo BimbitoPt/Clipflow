@@ -18,8 +18,7 @@ export default defineConfig({
         background_color: "#080A0D",
         display: "standalone",
         icons: [
-          { sizes: "192x192", src: "icon-192.png", type: "image/png" },
-          { sizes: "512x512", src: "icon-512.png", type: "image/png" },
+          { sizes: "any", src: "brand/mark.png", type: "image/png" },
         ],
         name: "Clipflow",
         short_name: "Clipflow",

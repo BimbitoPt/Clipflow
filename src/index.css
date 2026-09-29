@@ -19,7 +19,7 @@ button:disabled { cursor: not-allowed; opacity: .52; }
 .cf-shell { width: min(1560px, 100% - 48px); margin: 0 auto; }
 .cf-header { height: 72px; display: flex; align-items: center; gap: 26px; border-bottom: 1px solid #263029; }
 .cf-brand { display: flex; align-items: center; gap: 10px; color: #f2f5ed; text-decoration: none; font-size: 19px; font-weight: 900; letter-spacing: -.08em; }
-.cf-brand-mark { display: grid; place-items: center; width: 29px; height: 29px; border: 4px solid #b8f36b; border-right-color: transparent; border-radius: 50%; color: transparent; transform: rotate(-28deg); }
+.cf-brand-mark { display: block; width: 34px; height: 34px; object-fit: contain; }
 .cf-header-label, .cf-local-pill, .cf-kicker, .cf-flow-nav, .cf-preview-ratio, .cf-hero-index, .cf-idea-label, .cf-beat-top, .cf-profile-action, .cf-scene-strip, .cf-library-tabs, .cf-current-look small, .cf-auto-choice small, .cf-stock-select, .cf-upload, .cf-button, .cf-post-copy summary, .cf-footer { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .1em; font-size: 11px; }
 .cf-header-label { color: #788477; }
 .cf-local-pill { margin-left: auto; color: #a8b8a7; border: 1px solid #344535; padding: 8px 12px; border-radius: 30px; }

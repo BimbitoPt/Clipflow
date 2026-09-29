@@ -15,7 +15,7 @@ export default function StudioDashboard() {
   const clips = batches.flatMap((batch) => batch.clips);
   const counts = { production: clips.filter((clip) => ["approved", "rendering", "failed"].includes(clip.status)).length, review: clips.filter((clip) => clip.status === "needs_review").length };
   return <div className="studio-shell">
-    <aside className="sidebar"><div className="brand-mark"><span className="brand-glyph">▶</span><span>CLIPFLOW <span style={{ color: "#8d98a6", fontWeight: 500 }}>REMOTION</span></span></div><nav className="nav-list" aria-label="Main navigation"><a className="nav-item active" href="/">Studio</a><a className="nav-item" href="/brands">Brand kits</a></nav><div style={{ marginTop: "auto" }} className="eyebrow">LOCAL PRODUCTION</div></aside>
+    <aside className="sidebar"><div className="brand-mark"><img className="brand-glyph" src="/brand/mark.png" alt="" /><span>CLIPFLOW <span style={{ color: "#a8b6a5", fontWeight: 500 }}>REMOTION</span></span></div><nav className="nav-list" aria-label="Main navigation"><a className="nav-item active" href="/">Studio</a><a className="nav-item" href="/brands">Brand kits</a></nav><div style={{ marginTop: "auto" }} className="eyebrow">LOCAL PRODUCTION</div></aside>
     <main className="main">
       <div className="topline"><span className="eyebrow">CONTENT OPERATIONS / 01</span><span className="status-pill">● LOCAL WORKSPACE</span></div>
       <section className="hero"><div><div className="eyebrow">DAILY VIDEO FACTORY</div><h1>Make the next<br />good post move.</h1><p className="subtle">Plan a mixed-brand batch, shape each story, then preview and approve every clip before it renders.</p></div><a className="button" href="/batches/new">＋ &nbsp; CREATE A BATCH</a></section>

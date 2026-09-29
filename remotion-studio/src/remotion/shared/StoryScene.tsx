@@ -142,6 +142,7 @@ export function StoryScene({ props, scene }: { props: CompositionProps; scene: S
     {!scene.bg && <AbsoluteFill style={{ background: `radial-gradient(circle at ${65 + x / 2}% ${35 + y / 2}%, ${accent}55 0%, transparent 40%),linear-gradient(145deg,${brand.palette.background},#05070b)` }} />}
     <AbsoluteFill style={{ background: "linear-gradient(180deg,#05070bc9 0%,#05070b72 31%,#05070b98 65%,#05070be8 100%)" }} />
     <AbsoluteFill style={{ opacity: 0.09, backgroundImage: "url('data:image/svg+xml,%3Csvg viewBox=%220 0 180 180%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%22.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22 opacity=%22.5%22/%3E%3C/svg%3E')" }} />
+    {brand.logoPath && <Img src={staticFile(brand.logoPath)} style={{ position: "absolute", top: 76, left: 90, width: 78, height: 78, objectFit: "contain", opacity: entrance }} />}
     <div style={{ position: "absolute", top: 180, left: 90, fontSize: 40, fontWeight: 800, letterSpacing: "-.05em", opacity: entrance }}>{brand.name.toUpperCase()}<span style={{ color: accent }}>.</span></div>
     <div style={{ position: "absolute", top: titleTop, left: 90, right: 90 }}><Title {...title} color={accent} frame={frame} fps={fps} small={Boolean(isDiagram || isPrices || scene.visual || scene.screen)} /></div>
     {scene.screen && <ProofScreen scene={scene} accent={accent} frame={frame} fps={fps} hero={isProofHero} brandId={brand.id} />}

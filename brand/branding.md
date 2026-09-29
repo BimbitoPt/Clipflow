@@ -1,7 +1,12 @@
 # Clipflow social branding
 
-Brand: dark `#080A0D`, blue `#246BFD`, lime `#CFFF47`, off-white `#F7F8FA`.
+Brand: charcoal `#080A0D`, lime `#CFFF47`, off-white `#F7F8FA`, and muted sage `#A8B6A5`.
 Voice: direct, confident, zero fluff. Tagline: **idea in, video out.**
+
+Logo: keep the forward-swept ribbon/play mark with its lime inner arrow. Use
+off-white for the primary form and lime for the forward motion. Electric blue
+is reserved for MStudio Web.
+Typography: Inter for display and body copy; monospace for compact interface labels.
 
 ## Handles (target — claim in this order)
 
@@ -42,7 +47,7 @@ AI video engine for creators and digital businesses — idea in, video out.
 
 ## Visual rules
 
-- 9:16 everything; captions chunked ≤3 words, punch word in blue.
-- Dark backgrounds, blue accent bar, lime reserved for CTAs and wins.
+- 9:16 everything; captions chunked ≤3 words, punch word in lime.
+- Dark backgrounds, lime accents for captions, motion, CTAs and wins.
 - Never: em-dashes in copy, pill labels, off-topic stock (every asset
   visually audited before entering the pool).

@@ -125,7 +125,7 @@ export default function SignupForm({ variant, id }: Props) {
         />
         <button
           type="submit"
-          className={variant === "closing" ? "btn-lime" : "btn-blue"}
+          className="btn-lime"
           disabled={loading}
         >
           {loading
