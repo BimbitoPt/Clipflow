@@ -23,7 +23,8 @@ async function main() {
     await copyFile(path.join(process.cwd(), clip.outputPath!), path.join(directory, mp4));
     await copyFile(path.join(process.cwd(), clip.coverPath!), path.join(directory, cover));
     const brandName = brand === "clipflow" ? "Clipflow" : "MStudio Web";
-    const youtubeBody = clip.postCopy.replace(/#YouTubeShorts|#TikTok/g, "").replace(/\s+$/g, "");
+    const destination = brand === "clipflow" ? "" : clip.concept.includes("brief") ? "https://www.mstudioweb.pt/contact" : "https://www.mstudioweb.pt/pricing";
+    const youtubeBody = clip.postCopy.replace(/#YouTubeShorts|#TikTok/g, "").replace(/Link in bio\.?/gi, destination ? `Details: ${destination}` : "Follow Clipflow for updates.").replace(/\s+$/g, "");
     await writeFile(path.join(directory, youtube), `TITLE: ${clip.hook} | ${brandName} #Shorts\n\nDESCRIPTION:\n${youtubeBody}\n#Shorts\n`, "utf8");
     const tiktokTags = brand === "clipflow" ? "#Clipflow #TikTok #VideoCreation" : "#MStudioWeb #TikTok #WebDesign";
     await writeFile(path.join(directory, tiktok), `${clip.hook}\n\n${clip.keyMessage}\n\n${clip.cta}\n\n${tiktokTags}\n`, "utf8");

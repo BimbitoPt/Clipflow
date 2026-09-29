@@ -12,8 +12,8 @@ const appUrl = "http://localhost:8081/";
 const siteUrl = "https://www.mstudioweb.pt/";
 const pricingUrl = `${siteUrl}pricing`;
 const screens = {
-  context: "clipflow-context", idea: "clipflow-idea", script: "clipflow-script", preview: "clipflow-preview", export: "clipflow-export", caption: "clipflow-caption",
-  home: "mstudio-home-hero", pricing: "mstudio-pricing-hero", speed: "mstudio-speed", automation: "mstudio-automation", ownership: "mstudio-ownership", services: "mstudio-services-hero", contact: "mstudio-contact-hero",
+  context: "clipflow-context", idea: "clipflow-idea", script: "clipflow-script-top", scriptBottom: "clipflow-script-bottom", preview: "clipflow-preview", export: "clipflow-export", caption: "clipflow-caption",
+  home: "mstudio-home-hero", pricing: "mstudio-pricing-hero", speed: "mstudio-speed", automation: "mstudio-automation", ownership: "mstudio-ownership", ownershipDetail: "mstudio-ownership-detail", services: "mstudio-services-hero", contact: "mstudio-contact-hero", contactForm: "mstudio-contact-form",
 } as const;
 type Screen = keyof typeof screens;
 type Episode = {
@@ -29,13 +29,13 @@ const episodes: Episode[] = [
     sceneCopy: ["ONE IDEA.", "TYPE IT IN.", "A SCRIPT APPEARS.", "SEE THE FRAME."], shots: ["idea", "idea", "script", "preview"] },
   { brandId: "clipflow", number: 2, title: "The five-part spine", hook: "A short needs a spine.", keyMessage: "Clipflow structures an idea into a hook, three beats and CTA.", proof: "Real generated script in Clipflow.", cta: "Follow Clipflow for updates.",
     phrases: [{ text: "A short is more than one good line." }, { text: "Give it a hook." }, { text: "Three beats that move the story." }, { text: "Then one clear next step.", emphasis: ["next"] }, { text: "That's the structure you see in Clipflow." }, { text: "Follow for the next episode." }],
-    sceneCopy: ["ONE LINE ISN'T ENOUGH.", "START WITH A HOOK.", "BUILD THREE BEATS.", "LAND THE NEXT STEP."], shots: ["idea", "script", "script", "preview"] },
+    sceneCopy: ["ONE LINE ISN'T ENOUGH.", "START WITH A HOOK.", "BUILD THREE BEATS.", "LAND THE NEXT STEP."], shots: ["idea", "script", "scriptBottom", "preview"] },
   { brandId: "clipflow", number: 3, title: "Preview before export", hook: "See the frame first.", keyMessage: "Clipflow shows a vertical preview alongside the generated script.", proof: "Real preview canvas and script panel.", cta: "Follow Clipflow for updates.",
     phrases: [{ text: "A script can sound good in a document." }, { text: "But will it work in a vertical frame?" }, { text: "Clipflow puts the plan beside a preview.", emphasis: ["preview"] }, { text: "Check the message before you export." }, { text: "Follow Clipflow for updates." }],
-    sceneCopy: ["WORDS ON A PAGE?", "TRY A VERTICAL FRAME.", "SCRIPT + PREVIEW.", "CHECK BEFORE EXPORT."], shots: ["script", "preview", "script", "export"] },
+    sceneCopy: ["WORDS ON A PAGE?", "TRY A VERTICAL FRAME.", "SCRIPT + PREVIEW.", "CHECK BEFORE EXPORT."], shots: ["script", "preview", "scriptBottom", "export"] },
   { brandId: "clipflow", number: 4, title: "From idea to MP4", hook: "The last step is a file.", keyMessage: "Clipflow exports a vertical MP4 from the local workflow.", proof: "Real Clipflow preview and export control.", cta: "Follow Clipflow for updates.",
     phrases: [{ text: "An idea becomes a script." }, { text: "The script becomes a vertical preview." }, { text: "Then you export an MP4.", emphasis: ["MP4"] }, { text: "One local workflow, from first thought to video file." }, { text: "Follow Clipflow for updates." }],
-    sceneCopy: ["START WITH THE IDEA.", "SHAPE THE SCRIPT.", "PREVIEW THE FORMAT.", "EXPORT AN MP4."], shots: ["idea", "script", "preview", "export"] },
+    sceneCopy: ["START WITH THE IDEA.", "SHAPE THE SCRIPT.", "PREVIEW THE FORMAT.", "EXPORT AN MP4."], shots: ["idea", "scriptBottom", "preview", "export"] },
   { brandId: "clipflow", number: 5, title: "One video, two feeds", hook: "Make once. Post twice.", keyMessage: "A 9:16 MP4 can be used as a YouTube Short or TikTok post; Clipflow provides TikTok caption copy.", proof: "Real Clipflow export and TikTok caption controls.", cta: "Follow Clipflow for updates.",
     phrases: [{ text: "Your vertical video can work in two feeds." }, { text: "Export the MP4 from Clipflow." }, { text: "Use it for Shorts or TikTok." }, { text: "There is even TikTok caption copy to start from.", emphasis: ["caption"] }, { text: "Follow Clipflow for updates." }],
     sceneCopy: ["ONE VERTICAL VIDEO.", "EXPORT THE MP4.", "SHORTS OR TIKTOK.", "START WITH CAPTION COPY."], shots: ["preview", "export", "preview", "caption"] },
@@ -50,10 +50,10 @@ const episodes: Episode[] = [
     sceneCopy: ["SAME TASK. EVERY DAY?", "MAP ONE WORKFLOW.", "AUTOMATION · €449.", "SEE THE BUILD."], shots: ["services", "automation", "automation", "contact"] },
   { brandId: "mstudio", number: 4, title: "You own the result", hook: "A handoff should actually hand off.", keyMessage: "MStudio's pricing page says code, docs, hosting and content remain with the customer.", proof: "Live ownership section on the MStudio pricing page.", cta: "Read the ownership terms. Link in bio.",
     phrases: [{ text: "A new website should not trap you with its maker." }, { text: "MStudio says the code, documentation, domain and content are yours.", emphasis: ["yours"] }, { text: "The pricing page spells out the handoff." }, { text: "Read the ownership terms. Link in bio." }],
-    sceneCopy: ["WHO OWNS THE SITE?", "YOU DO.", "CODE + DOCS + ACCESS.", "READ THE HANDOFF."], shots: ["pricing", "ownership", "ownership", "contact"] },
+    sceneCopy: ["WHO OWNS THE SITE?", "YOU DO.", "CODE + DOCS + ACCESS.", "READ THE HANDOFF."], shots: ["pricing", "ownership", "ownershipDetail", "contact"] },
   { brandId: "mstudio", number: 5, title: "The two-minute brief", hook: "You don't need a polished deck.", keyMessage: "MStudio offers a short project brief as the first step.", proof: "Live contact form and pricing process section on MStudio site.", cta: "Send the brief. Link in bio.",
     phrases: [{ text: "You do not need a perfect project deck." }, { text: "Start with a short brief." }, { text: "Tell MStudio what you're building, and get a written scope and timeline." }, { text: "The form is on the site." }, { text: "Send the brief. Link in bio." }],
-    sceneCopy: ["NO POLISHED DECK.", "START WITH A BRIEF.", "SCOPE + TIMELINE.", "SEND IT FROM THE SITE."], shots: ["home", "contact", "pricing", "contact"] },
+    sceneCopy: ["NO POLISHED DECK.", "START WITH A BRIEF.", "SCOPE + TIMELINE.", "SEND IT FROM THE SITE."], shots: ["home", "contact", "pricing", "contactForm"] },
 ];
 
 async function main() {
@@ -72,9 +72,14 @@ async function main() {
     console.log(`QUEUED ${jobs.length}`);
     return;
   }
+  if (process.argv.includes("--refresh-proof")) {
+    const active = [0, 1, 2, 3, 8, 9].map((index) => created.clips[index]).filter((clip) => clip.status === "rendering");
+    if (active.length) throw new Error(`Wait for active proof renders before refreshing: ${active.map((clip) => clip.id).join(", ")}`);
+  }
   for (const [index, episode] of episodes.entries()) {
+    if (process.argv.includes("--refresh-proof") && ![0, 1, 2, 3, 8, 9].includes(index)) continue;
     const clip = created.clips[index];
-    if (clip.status === "rendered" || clip.status === "rendering") { console.log(`SKIP ${episode.title}: ${clip.status}`); continue; }
+    if (clip.status === "rendering" || (clip.status === "rendered" && !process.argv.includes("--refresh-proof"))) { console.log(`SKIP ${episode.title}: ${clip.status}`); continue; }
     const script = episode.phrases.map(({ text }) => text).join(" ");
     let voice: Pick<ClipBrief["voiceover"], "audioPath" | "wordTimings" | "generatedFor"> & { durationSeconds: number };
     if (clip.voiceover.script === script && clip.voiceover.audioPath && clip.voiceover.wordTimings.length) {
@@ -85,7 +90,7 @@ async function main() {
     }
     for (const key of episode.shots) await access(`public/proof-screens/${screens[key]}.png`);
     const scenes = episode.shots.map((key, sceneIndex) => ({
-      screen: { imagePath: `proof-screens/${screens[key]}.png`, sourceUrl: episode.brandId === "clipflow" ? appUrl : key === "home" || key === "services" || key === "contact" ? `${siteUrl}${key === "home" ? "" : key}` : pricingUrl },
+      screen: { imagePath: `proof-screens/${screens[key]}.png`, sourceUrl: episode.brandId === "clipflow" ? appUrl : key === "home" || key === "services" || key === "contact" || key === "contactForm" ? `${siteUrl}${key === "home" ? "" : key === "contactForm" ? "contact" : key}` : pricingUrl },
       bg: { prompt: `Existing approved ${episode.brandId} text-free cinematic background ${sceneIndex + 1}.`, promptHash: "000000000000", imagePath: `scene-backgrounds/${episode.brandId === "clipflow" ? "clipflow-spine" : "mstudio-pricing"}/scene-${sceneIndex + 1}.png` },
     }));
     const updated: ClipBrief = { ...clip, concept: `${episode.brandId.toUpperCase()} / ${episode.number.toString().padStart(2, "0")} / ${episode.title}`, hook: episode.hook, keyMessage: episode.keyMessage, proof: episode.proof, cta: episode.cta,

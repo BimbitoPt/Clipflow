@@ -104,14 +104,15 @@ function ProofScreen({ scene, accent, frame, fps, hero, brandId }: { scene: Scen
   if (!scene.screen) return null;
   const site = brandId === "mstudio";
   const image = scene.screen.imagePath;
-  const focus = image.includes("automation") || image.includes("speed") ? "center 58%" : image.includes("ownership") ? "center 38%" : site ? "center 22%" : "center 50%";
+  const wideScriptCrop = image.includes("clipflow-script-");
+  const focus = image.includes("automation") || image.includes("speed") ? "center 58%" : image.includes("ownership-detail") ? "center 56%" : image.includes("ownership") ? "center 38%" : image.includes("contact-form") ? "center 68%" : site ? "center 22%" : "center 50%";
   const enter = spring({ frame: frame - 7, fps, config: { damping: 19, stiffness: hero ? 75 : 105 } });
   const push = interpolate(frame, [0, scene.durationInFrames], [1, hero ? 1.09 : 1.045], { extrapolateRight: "clamp" });
   const tilt = hero ? interpolate(frame, [0, scene.durationInFrames], [-3.2, 0.7], { extrapolateRight: "clamp" }) : (scene.index % 2 ? 1.1 : -1.1);
   return <div style={{ position: "absolute", top: hero ? 505 : 520, left: 86, right: 86, height: hero ? 620 : 565, opacity: enter, transform: `translateY(${(1 - enter) * 125}px) rotate(${tilt}deg)`, filter: `drop-shadow(0 28px 70px #000c)` }}>
     <div style={{ position: "absolute", inset: -18, border: `2px solid ${accent}90`, borderRadius: 31, boxShadow: `0 0 ${hero ? 85 : 40}px ${accent}44` }} />
     <div style={{ height: "100%", overflow: "hidden", borderRadius: 20, background: "#080a0d", border: "2px solid #ffffff66", position: "relative" }}>
-      <Img src={staticFile(scene.screen.imagePath)} style={{ width: "100%", height: "100%", objectFit: "cover", objectPosition: focus, transform: `scale(${push})` }} />
+      <Img src={staticFile(scene.screen.imagePath)} style={{ width: "100%", height: "100%", objectFit: wideScriptCrop ? "contain" : "cover", objectPosition: focus, transform: `scale(${push})` }} />
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 60px #0008" }} />
     </div>
     <div style={{ position: "absolute", left: 28, top: -32, background: accent, color: "#05070b", borderRadius: 7, padding: "8px 17px", fontFamily: sans, fontSize: 29, fontWeight: 800, letterSpacing: ".01em" }}>{brandId === "clipflow" ? "REAL CLIPFLOW SCREEN" : "LIVE MSTUDIO SITE"}</div>
