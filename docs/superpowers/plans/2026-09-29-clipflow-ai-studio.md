@@ -63,6 +63,6 @@
 
 **Files:** Tests and docs touched only if verification reveals a specific defect.
 
-- [ ] Run `npm test` and `npm run build` at the repository root. Fix failures, rerun affected checks, and run `git diff --check`.
+- [x] Run `npm test` and `npm run build` at the repository root. Fix failures, rerun affected checks, and run `git diff --check`.
 - [ ] Export one short local sample and inspect frames/audio so the chosen AI still in preview is the still in the MP4. Verify no generated text/logos in the image assets and no text obscured by the background.
 - [ ] Review the branch diff against the spec, commit any final fixes, fast-forward local `master`, and leave the PWA running at port 8081 for inspection.

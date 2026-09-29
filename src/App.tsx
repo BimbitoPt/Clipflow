@@ -178,11 +178,14 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const busyRef = useRef(false);
   const uploadsRef = useRef<Map<string, StockAsset>>(new Map());
+  const uploadThumbsRef = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     return () => {
       try {
         for (const asset of uploadsRef.current.values()) if (asset.kind === "image") (asset.el as ImageBitmap).close();
+        uploadsRef.current.clear();
+        uploadThumbsRef.current.clear();
       } catch {
         // close on unmount is best-effort; never throw.
       }
@@ -215,7 +218,7 @@ export function App() {
     [script, timing],
   );
 
-  const aiSuggestions = useMemo(() => assignAiBackgrounds(idea, profile, (script ?? generatedScript)?.cues.map((cue) => cue.text) ?? []), [idea, profile, script, generatedScript]);
+  const aiSuggestions = useMemo(() => assignAiBackgrounds(idea, profile, generatedScript?.cues.map((cue) => cue.text) ?? []), [idea, profile, generatedScript]);
   const resolvedChoices = useMemo(() => resolveSceneChoices(sceneChoices, aiSuggestions, STOCK_POOL), [sceneChoices, aiSuggestions]);
 
   async function loadSceneAsset(choice: ResolvedSceneChoice): Promise<StockAsset | null> {
@@ -232,6 +235,18 @@ export function App() {
     });
     return () => { cancelled = true; };
   }, [resolvedChoices]);
+
+  useEffect(() => {
+    const liveUploads = new Set(sceneChoices.flatMap((choice) => choice.kind === "upload" ? [choice.id] : []));
+    for (const [id, asset] of uploadsRef.current) {
+      if (liveUploads.has(id)) continue;
+      const stillInPreview = sceneAssets.some((sceneAsset) => sceneAsset?.kind === "image" && sceneAsset.src === `upload:${id}`);
+      if (stillInPreview) continue;
+      if (asset.kind === "image") (asset.el as ImageBitmap).close();
+      uploadsRef.current.delete(id);
+      uploadThumbsRef.current.delete(id);
+    }
+  }, [sceneChoices, sceneAssets]);
 
   async function onUpload(file: File) {
     try {
@@ -470,7 +485,22 @@ export function App() {
     const choice = sceneChoices[index];
     if (choice?.kind === "auto-ai") return aiSuggestions[index]?.src;
     if (choice?.kind === "ai") return AI_BACKGROUNDS.find((item) => item.id === choice.id)?.src;
-    if (choice?.kind === "stock") return choice.src;
+    if (choice?.kind === "stock") return STOCK_POOL.find((item) => item.src === choice.src)?.kind === "image" ? choice.src : undefined;
+    if (choice?.kind === "upload") {
+      const cached = uploadThumbsRef.current.get(choice.id);
+      if (cached) return cached;
+      const asset = uploadsRef.current.get(choice.id);
+      if (!asset || asset.kind !== "image") return undefined;
+      const canvas = document.createElement("canvas");
+      canvas.width = 48;
+      canvas.height = 64;
+      canvas.getContext("2d")?.drawImage(asset.el as ImageBitmap, 0, 0, 48, 64);
+      try {
+        const preview = canvas.toDataURL("image/jpeg", 0.72);
+        uploadThumbsRef.current.set(choice.id, preview);
+        return preview;
+      } catch { return undefined; }
+    }
     return undefined;
   };
 
