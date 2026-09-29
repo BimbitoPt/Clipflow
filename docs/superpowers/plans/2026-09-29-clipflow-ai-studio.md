@@ -25,7 +25,7 @@
 
 **Interfaces:** Export `AiBackground` with `id`, `src`, `label`, `keywords`, `focalY`; export `AI_BACKGROUNDS: AiBackground[]` and `assignAiBackgrounds(idea: string, profile: Profile, cueTexts: string[]): AiBackground[]`.
 
-- [ ] Generate twelve dark, cinematic, text-free images. Use a consistent visual brief: 9:16, realistic depth, mostly neutral dark palette, generous central negative space, no text/letters/logos. Subjects: lone spark, blank desk, storyboard wall, film frames, branching workflow, illuminated keyboard, glass layers, proof document, product interface silhouette, horizon, opening door, finished creation. Save locally and record paths in the manifest.
+- [ ] Curate twelve existing original AI stills from `remotion-studio/public/scene-backgrounds/`: four each from `clipflow-spine`, `clipflow-series`, and `mstudio-pricing`. These already use the approved 9:16 cinematic, text-free style. Copy them to `public/ai-backgrounds/` with stable descriptive filenames and record paths in the manifest; do not edit the Remotion source assets.
 - [ ] Write a failing test that calls `assignAiBackgrounds` twice with the same idea/profile/cues and expects the same five IDs, five distinct IDs, and existing manifest paths. Run `npx vitest run src/lib/ai-backgrounds.test.ts` and confirm failure.
 - [ ] Implement a pure keyword scorer with stable tie-breaking by manifest order; diversify by excluding already selected IDs until the library is exhausted. Return one entry per cue. Run the focused test and commit assets/manifest.
 
