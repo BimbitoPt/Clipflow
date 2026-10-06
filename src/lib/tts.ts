@@ -32,7 +32,7 @@ export function previewSpeak(text: string, synth?: SpeechLike): void {
 export async function synthesizeLocal(text: string, loader?: TtsLoader): Promise<Float32Array> {
   if (!loader) {
     throw new Error(
-      "E_TTS_BACKEND: install @xenova/transformers SpeechT5 loader and pass it in (free, on-device).",
+      "E_TTS_BACKEND: run `npm run model:install` to stage the local Kokoro voice model and pass its loader in (free, on-device).",
     );
   }
   return loader(text);

@@ -10,7 +10,7 @@ import { AI_BACKGROUNDS, assignAiBackgrounds } from "./lib/ai-backgrounds";
 import { resolveSceneChoices, type ResolvedSceneChoice, type SceneChoice } from "./lib/scene-assets";
 import { applyScriptOverrides, hasScriptOverrides, type ScriptOverrides } from "./lib/script-draft";
 import { previewSpeak } from "./lib/tts";
-import { createSpeechT5Loader, resampleLinear } from "./lib/tts-local";
+import { createKokoroLoader, KOKORO_SAMPLE_RATE, resampleLinear } from "./lib/tts-local";
 import ProfileSettings from "./components/ProfileSettings";
 import ScriptBeats from "./components/ScriptBeats";
 import SceneTray from "./components/SceneTray";
@@ -586,15 +586,15 @@ export function App() {
         setExportProgress(35);
         let pcm: Float32Array | null = null;
         if (voiceOn) {
-          const loader = createSpeechT5Loader();
+          const loader = createKokoroLoader();
           const fullText = [script.hook, ...script.beats, script.cta].join(". ");
           setExportMsg("Rendering voice…");
           setExportProgress(50);
           try {
             const raw = await loader(fullText);
-            const target = Math.round((timing?.total ?? VIDEO_SECS) * 16000);
+            const target = Math.round((timing?.total ?? VIDEO_SECS) * KOKORO_SAMPLE_RATE);
             if (raw.length > target) {
-              const secs = (raw.length / 16000).toFixed(1);
+              const secs = (raw.length / KOKORO_SAMPLE_RATE).toFixed(1);
               setVoiceWarn(`Voice ran ${secs}s — trimmed to ${VIDEO_SECS}s video. Shorten the idea for a perfect fit.`);
               pcm = raw.slice(0, target);
             } else if (raw.length < target) {
@@ -604,8 +604,8 @@ export function App() {
             } else {
               pcm = raw;
             }
-            // Normalize: SpeechT5 peaks near 0.1 (whisper-quiet) — peak to
-            // 0.89 so the export is audible without cranking device volume.
+            // Normalize: local TTS runs quiet-to-moderate (Kokoro peaks ~0.5)
+            // — peak to 0.89 so every export is loud and consistent.
             if (pcm) {
               let peak = 0;
               for (let i = 0; i < pcm.length; i++) {
@@ -627,6 +627,9 @@ export function App() {
         }
         if (desktop) {
           exportAbortRef.current.signal.throwIfAborted();
+          // The Rust WAV sink is pinned to 16 kHz (src-tauri/src/render.rs);
+          // Kokoro speaks 24 kHz — downsample once here, FFmpeg muxes it.
+          if (pcm) pcm = resampleLinear(pcm, KOKORO_SAMPLE_RATE, 16000);
           const baseDuration = timing?.total ?? VIDEO_SECS;
           const totalDuration = baseDuration + (creditOn ? CREDIT_SECS : 0);
           const baseFrames = planFrames(script, 30, timing?.windows ?? null, approvedProofByCue, cueAssets);
@@ -779,10 +782,10 @@ export function App() {
                   }
                 }
                 if (withAudio && pcm) {
-                  // Chrome only encodes AAC at 44.1/48 kHz — the model speaks
-                  // 16 kHz, so upsample here. The desktop FFmpeg path keeps
-                  // the 16 kHz original untouched.
-                  const voice = resampleLinear(pcm, 16000, AUDIO_CONFIG.sampleRate);
+                  // Chrome only encodes AAC at 44.1/48 kHz — Kokoro speaks
+                  // 24 kHz, so upsample here. The desktop FFmpeg path gets a
+                  // 16 kHz downsample instead (Rust sink is pinned).
+                  const voice = resampleLinear(pcm, KOKORO_SAMPLE_RATE, AUDIO_CONFIG.sampleRate);
                   const CHUNK = 1_000_000;
                   for (let off = 0; off < voice.length; off += CHUNK) {
                     exportAbortRef.current?.signal.throwIfAborted();

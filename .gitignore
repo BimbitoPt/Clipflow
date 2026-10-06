@@ -8,6 +8,7 @@ public/.broll-usage.json
 # Local weights, databases and render/debug output
 /public/models/*
 !/public/models/.gitkeep
+/public/ort/
 /data/
 /temp/
 /C

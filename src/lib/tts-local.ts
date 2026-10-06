@@ -1,29 +1,50 @@
 import type { TtsLoader } from "./tts";
 import { desktop } from "./desktop";
 
-const MODEL_ID = "Xenova/speecht5_tts";
-// Default speaker voice (float32 mono embeddings). Passed as URL string so the
-// pipeline fetches it lazily on first synthesis — never at import/factory time.
-// Source: @xenova/transformers@2.17.2 src/pipelines.js TextToAudioPipeline docs
-// (speaker_embeddings: Tensor | Float32Array | string | URL).
-// NOTE: first synthesis needs network — the model weights AND the
-// speaker_embeddings URL below (pinned to a mutable `main` ref on
-// huggingface.co). Offline reuse works only if the browser HTTP cache has
-// retained both artifacts from a previous run.
-const SPEAKER_EMBEDDINGS_URL =
-  "https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/speaker_embeddings.bin";
+/**
+ * Kokoro 82M (Apache-2.0) — the same free local model the batch studio
+ * ships. Replaces SpeechT5, which needed a runtime huggingface.co fetch for
+ * a speaker-embedding file pinned to a mutable `main` ref (rate-limited us)
+ * and sounded robotic anyway. Kokoro ships voice bins inside the npm package
+ * and never needs speaker embeddings — style comes from the voice id.
+ *
+ * Model weights stage into public/models via `npm run model:install`
+ * (pinned revision); synthesis runs fully offline from /models.
+ */
+const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
+/** Kokoro's native output rate. Both export paths resample from here. */
+export const KOKORO_SAMPLE_RATE = 24000;
+/** Clipflow brand voice — matches remotion-studio's Clipflow default. */
+export const DEFAULT_VOICE = "af_heart" as const;
 
-const TARGET_SAMPLE_RATE = 16000;
+// kokoro-js loads voice bins from huggingface's mutable `main` ref when its
+// CacheStorage entry is missing — that runtime fetch is what got rate-limited
+// before. We pre-seed the exact cache key kokoro-js checks from our own
+// /models/voices copy so synthesis never leaves the origin.
+const VOICE_CACHE = "kokoro-voices";
+const voiceCdnUrl = (voice: string) =>
+  `https://huggingface.co/${MODEL_ID}/resolve/main/voices/${voice}.bin`;
 
-type SpeechT5Pipeline = (
-  text: string,
-  options: { speaker_embeddings: string },
-) => Promise<{ audio: Float32Array; sampling_rate: number }>;
+type KokoroInstance = Awaited<ReturnType<typeof import("kokoro-js").KokoroTTS.from_pretrained>>;
 
-let cached: SpeechT5Pipeline | null = null;
+async function seedVoiceCache(voice: string): Promise<void> {
+  if (typeof caches === "undefined") return;
+  try {
+    const cache = await caches.open(VOICE_CACHE);
+    const key = voiceCdnUrl(voice);
+    if (await cache.match(key)) return;
+    const local = await fetch(`/models/voices/${voice}.bin`);
+    if (!local.ok) return; // Let kokoro-js fall back to its own fetch.
+    await cache.put(key, new Response(await local.arrayBuffer(), { headers: { "Content-Type": "application/octet-stream" } }));
+  } catch {
+    // Cache seeding is best-effort; synthesis falls back to upstream.
+  }
+}
+
+let cached: KokoroInstance | null = null;
 // Promise memoization: concurrent loader() calls share one init. Reset to
 // null on failure so a later call retries instead of sticking to rejection.
-let pending: Promise<SpeechT5Pipeline> | null = null;
+let pending: Promise<KokoroInstance> | null = null;
 
 export function resampleLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
   if (input.length === 0 || fromRate === toRate) return input;
@@ -40,21 +61,28 @@ export function resampleLinear(input: Float32Array, fromRate: number, toRate: nu
   return out;
 }
 
-async function getOrCreatePipeline(): Promise<SpeechT5Pipeline> {
+async function getOrCreatePipeline(): Promise<KokoroInstance> {
   if (cached) return cached;
   if (pending) return pending;
-  pending = (async (): Promise<SpeechT5Pipeline> => {
+  pending = (async () => {
     try {
-      // LAZY import: module import must never touch network.
-      const { pipeline, env } = await import("@xenova/transformers");
-      if (desktop) {
-        env.backends.onnx.wasm.wasmPaths = new URL("/desktop-runtime/", window.location.href).href;
-        env.backends.onnx.wasm.numThreads = 1;
-      }
-      const created = (await pipeline(
-        "text-to-speech",
-        MODEL_ID,
-      )) as unknown as SpeechT5Pipeline;
+      // LAZY import: module import must never touch network or the main bundle.
+      const [{ KokoroTTS }, { env }] = await Promise.all([
+        import("kokoro-js"),
+        import("@huggingface/transformers"),
+      ]);
+      // Local-only: weights live in /models (web: public/models, desktop:
+      // staged by prepare-desktop). A missing model must fail with a named
+      // error, never silently download at export time.
+      env.allowLocalModels = true;
+      env.allowRemoteModels = false;
+      env.localModelPath = "/models/";
+      // wasm config is always initialized by transformers at module load.
+      const wasm = env.backends.onnx.wasm!;
+      wasm.wasmPaths = "/ort/";
+      if (desktop) wasm.numThreads = 1;
+      await seedVoiceCache(DEFAULT_VOICE);
+      const created = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: "q8" });
       cached = created;
       return created;
     } catch (err) {
@@ -65,26 +93,25 @@ async function getOrCreatePipeline(): Promise<SpeechT5Pipeline> {
   return pending;
 }
 
-export function createSpeechT5Loader(): TtsLoader {
+export function createKokoroLoader(): TtsLoader {
   return async (text: string): Promise<Float32Array> => {
     try {
       const synth = await getOrCreatePipeline();
-      // Output shape in @xenova/transformers@2.17.2: { audio: Float32Array, sampling_rate: number }
-      // (see TextToAudioPipeline._call_text_to_spectrogram returning { audio: waveform.data, sampling_rate }).
-      const out = await synth(text, {
-        speaker_embeddings: SPEAKER_EMBEDDINGS_URL,
-      });
+      const out = await synth.generate(text, { voice: DEFAULT_VOICE });
       const audio = out.audio;
-      if (out.sampling_rate !== TARGET_SAMPLE_RATE) {
-        return resampleLinear(audio, out.sampling_rate, TARGET_SAMPLE_RATE);
+      if (out.sampling_rate !== KOKORO_SAMPLE_RATE) {
+        return resampleLinear(audio, out.sampling_rate, KOKORO_SAMPLE_RATE);
       }
       // Defensive copy: callers must not be able to mutate the cached
-      // pipeline's backing buffer through the returned view.
+      // model's backing buffer through the returned view.
       return audio.slice();
     } catch (err) {
-      throw new Error("E_TTS_MODEL: " + (err as Error).message, {
-        cause: err,
-      });
+      throw new Error(
+        "E_TTS_MODEL: " + (err as Error).message +
+          " — if the model is missing run `npm run model:install`.",
+        { cause: err },
+      );
     }
   };
 }
+
