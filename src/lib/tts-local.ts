@@ -79,7 +79,6 @@ async function getOrCreatePipeline(): Promise<KokoroInstance> {
       env.localModelPath = "/models/";
       // wasm config is always initialized by transformers at module load.
       const wasm = env.backends.onnx.wasm!;
-      wasm.wasmPaths = "/ort/";
       if (desktop) wasm.numThreads = 1;
       await seedVoiceCache(DEFAULT_VOICE);
       const created = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: "q8" });
