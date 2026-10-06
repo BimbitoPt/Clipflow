@@ -68,6 +68,11 @@ a {
   justify-content: space-between;
   height: 64px;
 }
+.topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
 
 .brand {
   display: inline-flex;
@@ -641,5 +646,104 @@ footer {
     flex-direction: column;
     align-items: flex-start;
     gap: 12px;
+  }
+}
+
+/* ---------- roadmap ---------- */
+.roadmap {
+  padding-top: 72px;
+  padding-bottom: 24px;
+}
+.roadmap h1 {
+  font-size: clamp(44px, 6vw, 84px);
+  max-width: 14ch;
+  margin: 18px 0 16px;
+}
+.roadmap .accent {
+  color: var(--lime);
+}
+.roadmap-lede {
+  color: var(--muted);
+  font-size: 18px;
+  max-width: 60ch;
+  margin: 0 0 48px;
+}
+.roadmap-list {
+  list-style: none;
+  margin: 0 0 64px;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+.roadmap-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 28px;
+}
+.roadmap-card h2 {
+  font-size: 30px;
+  margin: 12px 0 8px;
+}
+.roadmap-card p {
+  color: var(--muted);
+  margin: 0 0 16px;
+  max-width: 62ch;
+}
+.roadmap-card ul {
+  margin: 0;
+  padding-left: 20px;
+  color: var(--ink);
+  display: grid;
+  gap: 6px;
+}
+.roadmap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.roadmap-range {
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.roadmap-pill {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+.roadmap-pill-shipped,
+.roadmap-pill-now {
+  color: var(--lime);
+  border-color: rgba(207, 255, 71, 0.4);
+}
+.roadmap-pill-planned {
+  color: var(--ink);
+}
+.roadmap-pill-exploring {
+  color: var(--muted);
+  border-style: dashed;
+}
+.roadmap-now {
+  border-color: rgba(207, 255, 71, 0.35);
+}
+.roadmap-never {
+  margin-bottom: 64px;
+}
+.roadmap-never .chips-row {
+  margin-top: 20px;
+}
+@media (max-width: 640px) {
+  .roadmap {
+    padding-top: 48px;
+  }
+  .roadmap-card {
+    padding: 20px;
   }
 }

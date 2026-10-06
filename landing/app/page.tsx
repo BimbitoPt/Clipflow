@@ -40,9 +40,14 @@ export default async function Home() {
             <Image src="/brand/mark.png" alt="" width={28} height={28} className="brand-mark" priority />
             <span className="brand-word">Clipflow</span>
           </a>
-          <a className="topbar-link" href="#join">
-            join the waitlist
-          </a>
+          <nav className="topbar-nav" aria-label="Site">
+            <a className="topbar-link" href="/roadmap">
+              roadmap
+            </a>
+            <a className="topbar-link" href="#join">
+              join the waitlist
+            </a>
+          </nav>
         </div>
       </header>
 
@@ -178,7 +183,8 @@ export default async function Home() {
             <Image src="/brand/mark.png" alt="" width={22} height={22} className="brand-mark" />
             <span className="brand-word">Clipflow</span>
           </a>
-          <nav className="footer-links" aria-label="Social links">
+          <nav className="footer-links" aria-label="Site links">
+            <a href="/roadmap">Roadmap</a>
             <a href="https://www.tiktok.com/@clipflowapp" rel="noopener noreferrer" target="_blank">
               TikTok
             </a>
