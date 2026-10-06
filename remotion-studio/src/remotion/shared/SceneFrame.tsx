@@ -13,6 +13,24 @@ export function wordChunks(text: string, size: number) {
   return chunks.length ? chunks : [""];
 }
 
+/** Karaoke emphasis: first occurrence of the sounding word in accent. */
+export function EmphasizedPhrase({ text, active, accent }: { text: string; active?: string; accent: string }) {
+  if (!active) return <>{text}</>;
+  const tokens = text.split(" ");
+  const hit = tokens.indexOf(active);
+  if (hit < 0) return <>{text}</>;
+  return (
+    <>
+      {tokens.map((token, index) => (
+        <span key={index}>
+          {index === hit ? <span style={{ color: accent }}>{token}</span> : token}
+          {index < tokens.length - 1 ? " " : ""}
+        </span>
+      ))}
+    </>
+  );
+}
+
 export function AnimatedScene({ props, scene, variant }: { props: CompositionProps; scene: SceneSegment; variant: "explainer" | "demo" | "proof" }) {
   const effect = props.clip.visualEffect;
   const content = props.clip.creative ? <StoryScene props={props} scene={scene} /> : <StandardScene props={props} scene={scene} variant={variant} />;
@@ -41,6 +59,9 @@ function StandardScene({ props, scene, variant }: { props: CompositionProps; sce
   const motion = clip.motionStyle;
   const elapsedSeconds = (frame + scene.startFrame) / fps;
   const captionPhrase = speechPhrases(clip.voiceover.wordTimings).find(item => elapsedSeconds >= item.start && elapsedSeconds < item.end);
+  const activeWord = clip.voiceover.audioPath
+    ? clip.voiceover.wordTimings.find((word) => elapsedSeconds >= word.start && elapsedSeconds < word.end)?.word
+    : undefined;
   const bob = motion === "float" ? Math.sin(frame / 18) * 13 : 0;
   const tilt = motion === "cinematic" ? interpolate(frame, [0, scene.durationInFrames], [-1.8, 1.8], { extrapolateRight: "clamp" }) : motion === "snap" ? (1 - entrance) * -2.5 : 0;
   const titleOffset = motion === "snap" ? 86 : motion === "cinematic" ? 26 : 48;
@@ -61,9 +82,12 @@ function StandardScene({ props, scene, variant }: { props: CompositionProps; sce
       </div>}
       {variant === "proof" && scene.index === props.scenes.length - 2 && <div style={{ marginTop: 28, padding: "18px 22px", borderLeft: `5px solid ${accent}`, background: "#ffffff0b", fontSize: 27, fontWeight: 600, lineHeight: 1.25 }}>{clip.proof}</div>}
     </div>
-    {!props.coverMode && <div style={{ position: "absolute", left: 88, right: 88, bottom: 300 }}>
+    {/* Caption block sits in the platform safe zone (~0.60-0.75H): platform
+        UI covers the top ~9% and bottom ~18%, so bottom-anchored captions
+        get covered on cross-posts. */}
+    {!props.coverMode && <div style={{ position: "absolute", left: 88, right: 88, bottom: 480 }}>
       <div style={{ color: "#9aa6b3", textTransform: "uppercase", letterSpacing: ".22em", fontSize: 15, marginBottom: 16 }}>{variant === "proof" ? "WHAT CHANGED" : variant === "demo" ? "WATCH THIS" : "THE TAKEAWAY"}</div>
-      {(!clip.voiceover.audioPath || captionPhrase) && <div aria-label="Phrase captions" style={{ display: "inline-block", padding: "13px 19px", maxWidth: 840, color: brand.palette.foreground, background: `${brand.palette.background}cc`, fontSize: 42, lineHeight: 1.22, fontWeight: 700, textAlign: "center" }}>{clip.voiceover.audioPath ? captionPhrase?.text : chunks[chunkIndex]}</div>}
+      {(!clip.voiceover.audioPath || captionPhrase) && <div aria-label="Phrase captions" style={{ display: "inline-block", padding: "13px 19px", maxWidth: 840, color: brand.palette.foreground, background: `${brand.palette.background}cc`, fontSize: 42, lineHeight: 1.22, fontWeight: 700, textAlign: "center" }}>{clip.voiceover.audioPath ? <EmphasizedPhrase text={captionPhrase?.text ?? ""} active={activeWord} accent={accent} /> : chunks[chunkIndex]}</div>}
     </div>}
     <div style={{ position: "absolute", bottom: 118, left: 88, right: 88, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
       <div style={{ width: 18, height: 18, border: `2px solid ${accent}`, transform: "rotate(45deg)" }} />

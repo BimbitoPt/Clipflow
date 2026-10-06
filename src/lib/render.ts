@@ -103,7 +103,28 @@ function wrapMeasured(text: string, maxW: number, measure: (s: string) => number
   return kept;
 }
 
-function drawPhraseCaption(ctx: DrawCtx, phrase: CaptionPhrase, time: number, W: number, H: number, accent: string) {
+/**
+ * Caption baseline anchor as a fraction of frame height. 0.64 keeps the
+ * caption block (~0.60-0.75H) clear of the platform UI danger zone:
+ * TikTok/Reels/Shorts overlays cover roughly the bottom 18-20% and the
+ * top 9%, so captions must never sit at the old 0.79H baseline.
+ */
+export const CAPTION_ANCHOR_RATIO = 0.64;
+
+/** Latest word sounding at time t (karaoke hold: keeps the last started word). */
+export function findActiveWord(wordList: readonly WordCue[], t: number): string | undefined {
+  let cur: string | undefined;
+  let curStart = -Infinity;
+  for (const w of wordList) {
+    if (w.start <= t && w.start >= curStart) {
+      cur = w.word;
+      curStart = w.start;
+    }
+  }
+  return cur;
+}
+
+function drawPhraseCaption(ctx: DrawCtx, phrase: CaptionPhrase, time: number, W: number, H: number, accent: string, activeWord?: string) {
   const value = phrase.kind === "scene" ? phrase.text.toUpperCase() : phrase.text;
   const maxWidth = W * .78;
   let size = W * (phrase.kind === "scene" ? .065 : .07);
@@ -115,7 +136,7 @@ function drawPhraseCaption(ctx: DrawCtx, phrase: CaptionPhrase, time: number, W:
     if (lines.length <= 2 && lines.every(line => measure(line) <= maxWidth)) break;
   }
   const lineHeight = size * 1.22;
-  const y = H * .79;
+  const y = H * CAPTION_ANCHOR_RATIO;
   const fade = Math.max(0, Math.min(1, (time - phrase.start) / .12, (phrase.end - time) / .12));
   const previousAlpha = ctx.globalAlpha ?? 1;
   try {
@@ -128,6 +149,26 @@ function drawPhraseCaption(ctx: DrawCtx, phrase: CaptionPhrase, time: number, W:
     ctx.globalAlpha = fade;
     ctx.fillStyle = "#F7F8FA";
     lines.forEach((line,index) => ctx.fillText(line, (W - measure(line)) / 2, y + index * lineHeight));
+    // Karaoke emphasis: overdraw the sounding word in accent at 1.15x.
+    // Only for speech phrases — scene labels are whole-cue text with no
+    // word timing, so there is nothing truthful to highlight.
+    if (phrase.kind === "speech" && activeWord) {
+      try {
+        const lineIndex = lines.findIndex((line) => line.split(" ").includes(activeWord));
+        if (lineIndex >= 0) {
+          const line = lines[lineIndex]!;
+          const tokens = line.split(" ");
+          const hit = tokens.indexOf(activeWord);
+          const before = tokens.slice(0, hit).join(" ");
+          const x = (W - measure(line)) / 2 + (hit > 0 ? measure(`${before} `) : 0);
+          ctx.font = `700 ${Math.round(size * 1.15)}px system-ui, sans-serif`;
+          ctx.fillStyle = accent;
+          ctx.fillText(activeWord, x, y + lineIndex * lineHeight);
+        }
+      } catch {
+        // Emphasis is decorative; the base phrase already painted.
+      }
+    }
     if (phrase.kind === "scene") {
       ctx.fillStyle = accent;
       ctx.fillRect((W - boxW) / 2, y - size, W * .004, lineHeight * lines.length + W * .03);
@@ -548,7 +589,9 @@ export function drawFrame(
   ctx.fillStyle = theme.accent;
   ctx.fillRect(0, 0, W, 12);
   const maxW = W - 96;
-  const captionY = footage ? H * 0.79 : H / 2;
+  // No-captions fallback position: centered for procedural backgrounds,
+  // safe-zone anchored over real footage (faces/UI live at the edges).
+  const captionY = footage ? H * CAPTION_ANCHOR_RATIO : H / 2;
   // Headroom for the 1.15x pop word: fit lines against maxW/1.15 so the
   // popped word can never overflow the frame.
   const fitW = maxW / 1.15;
@@ -597,7 +640,10 @@ export function drawFrame(
   const captionPlan = extra?.captions ?? (extra?.words ? speechPhrases(extra.words) : null);
   if (captionPlan !== null) {
     const phrase = captionPlan.find(item => frame.t >= item.start && frame.t < item.end);
-    if (phrase) drawPhraseCaption(ctx, phrase, frame.t, W, H, theme.accent);
+    if (phrase) {
+      const activeWord = phrase.kind === "speech" && extra?.words ? findActiveWord(extra.words, frame.t) : undefined;
+      drawPhraseCaption(ctx, phrase, frame.t, W, H, theme.accent, activeWord);
+    }
   } else {
     ctx.fillStyle = "#F7F8FA";
     lines.forEach((line, index) => ctx.fillText(line, 48, captionY + index * 110));

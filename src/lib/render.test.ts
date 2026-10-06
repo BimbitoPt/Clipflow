@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { drawFrame, drawScene, type DrawCtx } from "./render";
+import { drawFrame, drawScene, findActiveWord, CAPTION_ANCHOR_RATIO, type DrawCtx } from "./render";
 import { planFrames, type SceneVariant } from "./planner";
 import type { VideoScript } from "./script";
 import type { Theme } from "./packs";
@@ -198,7 +198,10 @@ describe("render", () => {
       { words },
     );
     expect(ctx.texts.join(" ")).toMatch(/niche/);
-    expect(ctx.texts).toEqual(["Hello niche"]);
+    expect(ctx.texts[0]).toEqual("Hello niche");
+    // Karaoke emphasis: the sounding word is overdrawn in accent.
+    expect(ctx.texts.at(-1)).toEqual("niche");
+    expect(ctx.accents.at(-1)).toEqual(theme.accent);
   });
 
   it("shows a stable phrase instead of a sliding neighbor window", () => {
@@ -218,7 +221,9 @@ describe("render", () => {
       1280,
       { words },
     );
-    expect(ctx.texts).toEqual(["a b c d e"]);
+    expect(ctx.texts[0]).toEqual("a b c d e");
+    expect(ctx.texts.at(-1)).toEqual("c");
+    expect(ctx.accents.at(-1)).toEqual(theme.accent);
   });
 
   it("follows voice-timed words outside their cue window", () => {
@@ -239,8 +244,88 @@ describe("render", () => {
       1280,
       { words },
     );
-    expect(ctx.texts).toEqual(["slow sites kill"]);
+    expect(ctx.texts[0]).toEqual("slow sites kill");
     expect(ctx.texts.join(" ")).not.toContain("beat");
+    expect(ctx.texts.at(-1)).toEqual("kill");
+    expect(ctx.accents.at(-1)).toEqual(theme.accent);
+  });
+
+  it("keeps phrase captions inside the platform safe zone", () => {
+    const ctx = stubCtx();
+    const words = [
+      { word: "slow", start: 5.0, end: 5.5, cueKind: "hook" as const },
+      { word: "sites", start: 5.5, end: 6.0, cueKind: "hook" as const },
+      { word: "kill", start: 6.0, end: 6.5, cueKind: "hook" as const },
+    ];
+    drawFrame(
+      ctx,
+      { t: 6.2, cue: { start: 4, end: 16, kind: "beat", text: "beat words here" } },
+      theme,
+      720,
+      1280,
+      { words },
+    );
+    // Platform UI covers the top ~9% and bottom ~18%: no caption text
+    // may sit outside the safe band.
+    expect(ctx.textArgs.length).toBeGreaterThan(0);
+    for (const [, , y] of ctx.textArgs) {
+      expect(y).toBeGreaterThanOrEqual(1280 * 0.09);
+      expect(y).toBeLessThan(1280 * 0.82);
+    }
+    // The caption scrim box must also end above the bottom danger zone.
+    const boxes = ctx.rects.filter(([, y, w, h]) => w > 100 && h > 10 && y > 1280 * 0.3);
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const [, y, , h] of boxes) expect(y + h).toBeLessThan(1280 * 0.82);
+  });
+
+  it("never highlights scene labels — only word-timed speech", () => {
+    const ctx = stubCtx();
+    drawFrame(
+      ctx,
+      { t: 2, cue: { start: 0, end: 4, kind: "hook", text: "hook copy here" } },
+      theme,
+      720,
+      1280,
+      {
+        words: [{ word: "hook", start: 1, end: 2, cueKind: "hook" as const }],
+        captions: [{ text: "Custom Scene Label", start: 0, end: 4, kind: "scene" as const }],
+      },
+    );
+    expect(ctx.texts).toEqual(["CUSTOM SCENE LABEL"]);
+  });
+
+  it("anchors the no-caption fallback in the safe zone over footage", () => {
+    const ctx = stubCtx();
+    drawFrame(
+      ctx,
+      { t: 1, cue: { start: 0, end: 4, kind: "hook", text: "Hello niche" } },
+      theme,
+      720,
+      1280,
+      {
+        asset: {
+          kind: "video",
+          src: "/broll/clips/clip-1.mp4",
+          el: { videoWidth: 720, videoHeight: 1280 } as unknown as HTMLVideoElement,
+          keywords: [],
+        },
+      },
+    );
+    expect(ctx.textArgs.length).toBeGreaterThan(0);
+    expect(ctx.textArgs[0]![2]).toEqual(1280 * CAPTION_ANCHOR_RATIO);
+  });
+
+  it("findActiveWord holds the last started word", () => {
+    const words = [
+      { word: "a", start: 0, end: 1, cueKind: "hook" as const },
+      { word: "b", start: 1, end: 2, cueKind: "hook" as const },
+      { word: "c", start: 2, end: 3, cueKind: "hook" as const },
+    ];
+    expect(findActiveWord(words, 0.5)).toEqual("a");
+    expect(findActiveWord(words, 2.9)).toEqual("c");
+    expect(findActiveWord(words, 9)).toEqual("c");
+    expect(findActiveWord(words, -1)).toBeUndefined();
+    expect(findActiveWord([], 1)).toBeUndefined();
   });
 
   it("dips to brand dark across cue boundaries, never mid-cue", () => {

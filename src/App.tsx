@@ -19,12 +19,59 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import DesktopToolbar from "./components/DesktopToolbar";
 import { desktop, importNativeMedia, openDesktopProject, initialDesktopProject, saveDesktopProject, nativeMediaUrl, showInFolder, confirmDiscard, projectFingerprint, type DesktopProjectV1 } from "./lib/desktop";
 import { renderDesktop } from "./lib/desktop-render";
+import { deleteUpload, gcUploads, loadUploadBlob, saveUpload, touchUpload } from "./lib/upload-store";
+import { markMilestone, recordExport, SAMPLE_IDEA } from "./lib/activation";
 import type { VisualEffect } from "../shared/visual-effects";
 
 const pack = loadPack("mstudio");
 const theme: Theme = pack.themes[1]!;
 
 const OUT_W = 720, OUT_H = 1280, OUT_BITRATE = 5_000_000, OUT_NAME = "clipflow-916.mp4";
+
+// Browser session snapshot: React state (idea, beats, scene choices) dies
+// with the tab while uploads/timing/profile already persist — without this,
+// a browser reload orphaned persisted uploads. Desktop skips it entirely:
+// the native `.clipflow` project is the source of truth there.
+const SESSION_KEY = "clipflow.session";
+
+function validSceneChoice(choice: unknown): choice is SceneChoice {
+  if (!choice || typeof choice !== "object") return false;
+  const kind = (choice as { kind?: unknown }).kind;
+  return kind === "auto-ai" || kind === "ai" || kind === "stock" || kind === "upload" || kind === "native";
+}
+
+function readSession(): {
+  idea: string; scriptOverrides: ScriptOverrides; sceneChoices: SceneChoice[];
+  captionMode: CaptionMode; captionOverrides: Record<number, string>;
+  voiceOn: boolean; visualEffect: VisualEffect;
+} | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      version?: unknown; idea?: unknown; scriptOverrides?: unknown; sceneChoices?: unknown;
+      captionMode?: unknown; captionOverrides?: unknown; voiceOn?: unknown; visualEffect?: unknown;
+    };
+    if (!parsed || parsed.version !== 1 || typeof parsed.idea !== "string") return null;
+    if (!Array.isArray(parsed.sceneChoices) || parsed.sceneChoices.length !== 5 || !parsed.sceneChoices.every(validSceneChoice)) return null;
+    if (parsed.scriptOverrides === null || typeof parsed.scriptOverrides !== "object" || Array.isArray(parsed.scriptOverrides)) return null;
+    if (!["auto", "scene", "speech", "off"].includes(parsed.captionMode as string)) return null;
+    if (parsed.captionOverrides === null || typeof parsed.captionOverrides !== "object") return null;
+    if (typeof parsed.voiceOn !== "boolean") return null;
+    if (!["none", "cinematic", "mono", "vivid", "analog"].includes(parsed.visualEffect as string)) return null;
+    return {
+      idea: parsed.idea,
+      scriptOverrides: parsed.scriptOverrides as ScriptOverrides,
+      sceneChoices: parsed.sceneChoices,
+      captionMode: parsed.captionMode as CaptionMode,
+      captionOverrides: parsed.captionOverrides as Record<number, string>,
+      voiceOn: parsed.voiceOn,
+      visualEffect: parsed.visualEffect as VisualEffect,
+    };
+  } catch {
+    return null;
+  }
+}
 
 function store() {
   return { getItem: (k: string) => localStorage.getItem(k), setItem: (k: string, v: string) => localStorage.setItem(k, v) };
@@ -268,6 +315,40 @@ export function App() {
     void initialDesktopProject().then(result => { if (result) restoreProject(result.project, result.path); }).catch(error => setProjectError(String(error)));
   }, []);
 
+  // Browser-only: collect stale uploads, then restore the last session so a
+  // reload returns to the exact editor state (persisted uploads rehydrate
+  // through loadSceneAsset on the resolved-choices effect below).
+  useEffect(() => {
+    if (desktop) return;
+    void gcUploads().catch(() => {});
+    try {
+      markMilestone(store(), "firstVisit");
+    } catch {
+      // Instrumentation never breaks the editor.
+    }
+    const session = readSession();
+    if (!session) return;
+    setIdea(session.idea);
+    setScriptOverrides(session.scriptOverrides);
+    setSceneChoices(session.sceneChoices);
+    setCaptionMode(session.captionMode);
+    setCaptionOverrides(session.captionOverrides);
+    setVoiceOn(session.voiceOn);
+    setVisualEffect(session.visualEffect);
+  }, []);
+
+  useEffect(() => {
+    if (desktop) return;
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        version: 1, idea, scriptOverrides, sceneChoices,
+        captionMode, captionOverrides, voiceOn, visualEffect,
+      }));
+    } catch {
+      // Session restore is convenience; the editor works without it.
+    }
+  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect]);
+
   useEffect(() => {
     if (!desktop) return;
     const key = (event: KeyboardEvent) => {
@@ -312,7 +393,23 @@ export function App() {
   const resolvedChoices = useMemo(() => resolveSceneChoices(sceneChoices, aiSuggestions, STOCK_POOL), [sceneChoices, aiSuggestions]);
 
   async function loadSceneAsset(choice: ResolvedSceneChoice): Promise<StockAsset | null> {
-    if (choice.kind === "upload") return uploadsRef.current.get(choice.id) ?? null;
+    if (choice.kind === "upload") {
+      const cached = uploadsRef.current.get(choice.id);
+      if (cached) return cached;
+      // Rehydrate: uploads persist in OPFS, so a reload or a reopened
+      // project recovers its media instead of silently losing footage.
+      try {
+        const blob = await loadUploadBlob(choice.id);
+        if (!blob) return null;
+        const bmp = await createImageBitmap(blob);
+        const asset: StockAsset = { kind: "image", src: `upload:${choice.id}`, el: bmp, keywords: [] };
+        uploadsRef.current.set(choice.id, asset);
+        touchUpload(choice.id);
+        return asset;
+      } catch {
+        return null;
+      }
+    }
     if (choice.kind === "fallback") return null;
     try { return await preloadAsset(choice.entry); } catch { return null; }
   }
@@ -335,6 +432,7 @@ export function App() {
       if (asset.kind === "image") (asset.el as ImageBitmap).close();
       uploadsRef.current.delete(id);
       uploadThumbsRef.current.delete(id);
+      void deleteUpload(id);
     }
   }, [sceneChoices, sceneAssets]);
 
@@ -343,6 +441,14 @@ export function App() {
       const bmp = await createImageBitmap(file);
       const id = crypto.randomUUID();
       uploadsRef.current.set(id, { kind: "image", src: `upload:${id}`, el: bmp, keywords: [] });
+      // Write-through persist: the upload survives reloads. Best-effort —
+      // the session keeps working from memory if storage is unavailable.
+      touchUpload(id);
+      try {
+        if (!(await saveUpload(id, file))) console.warn("Clipflow: upload runs session-only, device storage unavailable.");
+      } catch {
+        console.warn("Clipflow: upload runs session-only, persist failed.");
+      }
       setSceneChoices((choices) => choices.map((choice, index) => index === selectedScene ? { kind: "upload", id, approvedProof: false } : choice));
       setErr("");
     } catch {
@@ -371,6 +477,11 @@ export function App() {
       const asset = sceneAssets[selectedScene];
       if (asset) extra.asset = asset;
       drawFrame(ctx as DrawCtx, frame, theme, 360, 640, extra, timing?.total ?? VIDEO_SECS);
+      try {
+        markMilestone(store(), "firstPreview");
+      } catch {
+        // Instrumentation never breaks the editor.
+      }
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
@@ -465,7 +576,7 @@ export function App() {
             cueIndex: frame => cueIndexOf(script, frame.cue), seek: seekVideo,
             progress: (percent,message) => { setExportProgress(percent); setExportMsg(message); },
           });
-          if (output) { setNativeOutput(output); setStatus("exported"); setExportMsg(""); }
+          if (output) { setNativeOutput(output); setStatus("exported"); setExportMsg(""); try { recordExport(store(), Date.now()); } catch { /* instrumentation never breaks export */ } }
           else { setStatus("idle"); setExportMsg(""); }
           return;
         }
@@ -572,6 +683,11 @@ export function App() {
         const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         setExportUrl(url);
+        try {
+          recordExport(store(), Date.now());
+        } catch {
+          // Activation stamp is instrumentation; the download already fired.
+        }
         const a = document.createElement("a");
         a.href = url;
         a.download = OUT_NAME;
@@ -648,6 +764,11 @@ export function App() {
               <label className="cf-idea-label">YOUR VIDEO IDEA
                 <textarea value={idea} disabled={isWorking} rows={3} onChange={(e) => { setIdea(e.target.value); setScriptOverrides({}); }} placeholder="What should this video say?" />
               </label>
+              {!idea.trim() && !isWorking && (
+                <button type="button" className="cf-button cf-button-secondary cf-sample-idea" onClick={() => { setIdea(SAMPLE_IDEA); setScriptOverrides({}); }}>
+                  TRY A SAMPLE IDEA IN ONE CLICK
+                </button>
+              )}
               <ProfileSettings profile={profile} disabled={isWorking} saved={saved} onSave={onSave} onChange={(field, value) => {
                 ({ niche: setNiche, audience: setAudience, offer: setOffer, tone: setTone, proof: setProof })[field](value);
                 setScriptOverrides({});
