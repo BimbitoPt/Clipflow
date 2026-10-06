@@ -30,6 +30,12 @@ export function headlineFromCopy(copy: string) {
   return { lead: words.slice(0, pivot).join(" ").toUpperCase(), accent: words.slice(pivot).join(" ").toUpperCase() || "→" };
 }
 
+function motionLabels(copy: string) {
+  const ignored = new Set(["about", "after", "again", "also", "and", "are", "because", "been", "before", "being", "but", "can", "could", "each", "for", "from", "get", "give", "has", "have", "how", "into", "its", "just", "make", "made", "more", "most", "not", "one", "our", "out", "over", "same", "that", "the", "their", "them", "then", "there", "these", "they", "this", "those", "through", "too", "turn", "turns", "use", "using", "very", "was", "were", "what", "when", "where", "which", "will", "with", "you", "your"]);
+  const unique = new Set<string>();
+  return (copy.toLowerCase().match(/[\p{L}]+/gu) ?? []).filter((word) => word.length > 2 && !ignored.has(word) && !unique.has(word) && Boolean(unique.add(word))).slice(0, 3);
+}
+
 function Title({ lead, accent, color, frame, fps, small = false }: { lead: string; accent: string; color: string; frame: number; fps: number; small?: boolean }) {
   const reveal = spring({ frame: frame - 5, fps, config: { damping: 18, stiffness: 100, mass: 0.75 } });
   return <div style={{ overflow: "hidden", maxWidth: 930, fontSize: small ? 72 : 90, lineHeight: 0.98, fontWeight: 800, letterSpacing: "-.075em", textShadow: "0 8px 40px #000b" }}>
@@ -78,20 +84,37 @@ function PriceCards({ accent, frame, fps }: { accent: string; frame: number; fps
   </div>;
 }
 
-function StoryVisual({ visual, accent, frame, fps }: { visual: NonNullable<SceneSegment["visual"]>; accent: string; frame: number; fps: number }) {
+function StoryVisual({ visual, accent, frame, fps, motionIntent }: { visual: NonNullable<SceneSegment["visual"]>; accent: string; frame: number; fps: number; motionIntent?: SceneSegment["motionIntent"] }) {
   const isSteps = visual.kind === "steps";
+  if (!isSteps && motionIntent === "comparison" && visual.items.length >= 2) {
+    const reveal = spring({ frame: frame - 8, fps, config: { damping: 18, stiffness: 100 } });
+    const wipe = interpolate(frame, [8, 34], [0, 100], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
+    return <div style={{ position: "absolute", top: 535, left: 90, right: 90, height: 260, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+      {visual.items.slice(0, 2).map((item, index) => {
+        const enter = spring({ frame: frame - 8 - index * 7, fps, config: { damping: 17, stiffness: 105 } });
+        return <div key={`${item}-${index}`} style={{ position: "relative", overflow: "hidden", padding: "24px 27px", border: `2px solid ${accent}99`, borderRadius: 18, background: "#0a1323e8", boxShadow: `0 20px 70px #000a, inset 0 0 50px ${accent}18`, display: "flex", alignItems: "center", gap: 20, opacity: enter, transform: `translateX(${(1 - enter) * (index === 0 ? -100 : 100)}px)` }}>
+          <div style={{ width: 9, height: 50, borderRadius: 5, background: accent, boxShadow: `0 0 18px ${accent}`, flex: "none" }} />
+          <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1.04, letterSpacing: "-.055em" }}>{item.toUpperCase()}</div>
+          <div style={{ position: "absolute", left: 0, bottom: 0, width: `${wipe}%`, height: 4, background: accent, boxShadow: `0 0 18px ${accent}` }} />
+        </div>;
+      })}
+      <div style={{ position: "absolute", left: "50%", top: 18, bottom: 18, width: 2, background: accent, opacity: reveal * .65, transform: `scaleY(${reveal})`, transformOrigin: "top" }} />
+    </div>;
+  }
   const lineHeight = visual.items.length * 72 + (visual.items.length - 1) * 25 - 50;
   const litHeight = interpolate(frame, [7, 7 + visual.items.length * 12], [0, lineHeight], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
   return <div style={{ position: "absolute", top: 490, left: isSteps ? 145 : 90, right: 90, display: "flex", flexDirection: "column", gap: isSteps ? 25 : 18 }}>
     {isSteps && <div style={{ position: "absolute", left: 28, top: 25, height: lineHeight, width: 5, background: "#ffffff40" }}><div style={{ height: litHeight, width: "100%", background: accent, boxShadow: `0 0 18px ${accent}` }} /></div>}
     {visual.items.map((item, index) => {
-      const enter = spring({ frame: frame - 7 - index * (isSteps ? 12 : 16), fps, config: { damping: 17, stiffness: 105 } });
+      const delay = motionIntent === "sequence" ? index * 12 : motionIntent === "transform" ? index * 16 : index * (isSteps ? 12 : 16);
+      const direction = motionIntent === "comparison" && index % 2 === 1 ? 1 : -1;
+      const enter = spring({ frame: frame - 7 - delay, fps, config: { damping: 17, stiffness: 105 } });
       return isSteps
         ? <div key={`${item}-${index}`} style={{ height: 72, display: "flex", alignItems: "center", gap: 27, opacity: enter, transform: `translateX(${(1 - enter) * 110}px)` }}>
           <div style={{ width: 62, height: 62, borderRadius: "50%", border: `4px solid ${accent}`, background: index <= Math.floor((frame - 5) / 12) ? accent : "#0b1014", boxShadow: `0 0 28px ${accent}66`, flex: "none" }} />
           <div style={{ fontSize: 51, fontWeight: 800, letterSpacing: "-.055em", textShadow: "0 4px 25px #000d" }}>{item.toUpperCase()}</div>
         </div>
-        : <div key={`${item}-${index}`} style={{ position: "relative", overflow: "hidden", minHeight: 143, padding: "22px 32px", border: `2px solid ${accent}99`, borderRadius: 18, background: "#0a1323e8", boxShadow: `0 20px 70px #000a, inset 0 0 50px ${accent}18`, display: "flex", alignItems: "center", gap: 24, opacity: enter, transform: `translateX(${(1 - enter) * 140}px)` }}>
+        : <div key={`${item}-${index}`} style={{ position: "relative", overflow: "hidden", minHeight: 143, padding: "22px 32px", border: `2px solid ${accent}99`, borderRadius: 18, background: "#0a1323e8", boxShadow: `0 20px 70px #000a, inset 0 0 50px ${accent}18`, display: "flex", alignItems: "center", gap: 24, opacity: enter, transform: `translateX(${(1 - enter) * 140 * direction}px)` }}>
           <div style={{ width: 9, height: 50, borderRadius: 5, background: accent, boxShadow: `0 0 18px ${accent}`, flex: "none" }} />
           <div style={{ fontSize: 47, fontWeight: 800, lineHeight: 1.04, letterSpacing: "-.055em" }}>{item.toUpperCase()}</div>
           <div style={{ position: "absolute", left: 0, bottom: 0, width: `${Math.max(0, Math.min(100, (frame - 7 - index * 16) / 22 * 100))}%`, height: 4, background: accent, boxShadow: `0 0 18px ${accent}` }} />
@@ -115,7 +138,7 @@ function ProofScreen({ scene, accent, frame, fps, hero, brandId }: { scene: Scen
       <Img src={staticFile(scene.screen.imagePath)} style={{ width: "100%", height: "100%", objectFit: wideScriptCrop ? "contain" : "cover", objectPosition: focus, transform: `scale(${push})` }} />
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none", boxShadow: "inset 0 0 60px #0008" }} />
     </div>
-    <div style={{ position: "absolute", left: 28, top: -32, background: accent, color: "#05070b", borderRadius: 7, padding: "8px 17px", fontFamily: sans, fontSize: 29, fontWeight: 800, letterSpacing: ".01em" }}>{brandId === "clipflow" ? "REAL CLIPFLOW SCREEN" : "LIVE MSTUDIO SITE"}</div>
+    <div style={{ position: "absolute", left: 28, top: -32, background: accent, color: "#05070b", borderRadius: 7, padding: "8px 17px", fontFamily: sans, fontSize: 29, fontWeight: 800, letterSpacing: ".01em" }}>{scene.evidenceApproved ? "APPROVED EVIDENCE" : brandId === "clipflow" ? "CLIPFLOW PRODUCT SCREEN" : "MSTUDIO SITE CAPTURE"}</div>
   </div>;
 }
 
@@ -133,9 +156,10 @@ export function StoryScene({ props, scene }: { props: CompositionProps; scene: S
   const x = interpolate(frame, [0, end], [-18, 18], { extrapolateRight: "clamp" });
   const y = interpolate(frame, [0, end], [8, -14], { extrapolateRight: "clamp" });
   const elapsed = (scene.startFrame + frame) / fps;
-  const isDiagram = !isStoryboard && !isPricing && scene.index === 2;
+  const isDiagram = !scene.motionIntent && !isStoryboard && !isPricing && scene.index === 2;
   const isPrices = isPricing && scene.index === 2;
-  const titleTop = scene.screen ? 280 : isDiagram || isPrices || scene.visual ? 280 : scene.index === 3 ? (scene.motionGraphic ? 580 : 645) : 610;
+  const hasDiagram = scene.motionIntent && !["kinetic-type", "focus", "none"].includes(scene.motionIntent);
+  const titleTop = hasDiagram ? 270 : scene.screen ? 280 : isDiagram || isPrices || scene.visual ? 280 : scene.index === 3 ? (scene.motionGraphic ? 580 : 645) : 440;
   const entrance = spring({ frame, fps, config: { damping: 20, stiffness: 85 } });
   return <AbsoluteFill style={{ background: brand.palette.background, color: "#fff", fontFamily: sans, overflow: "hidden" }}>
     {scene.bg && <Img src={staticFile(scene.bg.imagePath)} style={{ position: "absolute", inset: -80, width: "calc(100% + 160px)", height: "calc(100% + 160px)", objectFit: "cover", transform: `translate(${x}px, ${y}px) scale(${scale})` }} />}
@@ -144,12 +168,13 @@ export function StoryScene({ props, scene }: { props: CompositionProps; scene: S
     <AbsoluteFill style={{ opacity: 0.09, backgroundImage: "url('data:image/svg+xml,%3Csvg viewBox=%220 0 180 180%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%22.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22 opacity=%22.5%22/%3E%3C/svg%3E')" }} />
     {brand.logoPath && <Img src={staticFile(brand.logoPath)} style={{ position: "absolute", top: 76, left: 90, width: 78, height: 78, objectFit: "contain", opacity: entrance }} />}
     <div style={{ position: "absolute", top: 180, left: 90, fontSize: 40, fontWeight: 800, letterSpacing: "-.05em", opacity: entrance }}>{brand.name.toUpperCase()}<span style={{ color: accent }}>.</span></div>
-    <div style={{ position: "absolute", top: titleTop, left: 90, right: 90 }}><Title {...title} color={accent} frame={frame} fps={fps} small={Boolean(isDiagram || isPrices || scene.visual || scene.screen)} /></div>
+    <div style={{ position: "absolute", top: titleTop, left: 90, right: 90 }}><Title {...title} color={accent} frame={frame} fps={fps} small={Boolean(hasDiagram || isDiagram || isPrices || scene.visual || scene.screen)} /></div>
     {scene.screen && <ProofScreen scene={scene} accent={accent} frame={frame} fps={fps} hero={isProofHero} brandId={brand.id} />}
     {isDiagram && <Spine accent={accent} frame={frame} fps={fps} />}
     {isPrices && <PriceCards accent={accent} frame={frame} fps={fps} />}
-    {scene.visual && <StoryVisual visual={scene.visual} accent={accent} frame={frame} fps={fps} />}
-    {scene.motionGraphic && !scene.visual && <MotionGraphic kind={scene.motionGraphic} accent={accent} frame={frame} fps={fps} sceneIndex={scene.index} />}
+    {scene.visual && <StoryVisual visual={scene.visual} accent={accent} frame={frame} fps={fps} motionIntent={scene.motionIntent} />}
+    {!scene.visual && scene.motionIntent && <MotionGraphic intent={scene.motionIntent} accent={accent} frame={frame} fps={fps} sceneIndex={scene.index} sceneDurationInFrames={scene.durationInFrames} hasScreen={Boolean(scene.screen)} labels={scene.motionLabels ?? motionLabels(scene.copy)} />}
+    {!scene.visual && !scene.motionIntent && scene.motionGraphic && <MotionGraphic kind={scene.motionGraphic} accent={accent} frame={frame} fps={fps} sceneIndex={scene.index} />}
     <Captions props={props} accent={accent} elapsed={elapsed} />
     <div style={{ position: "absolute", bottom: 435, left: 90, right: 90, height: 3, background: "#ffffff40" }}><div style={{ height: "100%", width: `${Math.max(0, Math.min(100, frame / end * 100))}%`, background: accent }} /></div>
   </AbsoluteFill>;

@@ -1,0 +1,116 @@
+{
+  "batchName": "Octane Archive — First Stories",
+  "brandId": "octane-archive",
+  "clips": [
+    {
+      "concept": "The Porsche 911's rear-engine decision",
+      "hook": "Why put the engine behind the rear axle?",
+      "keyMessage": "Porsche retained the rear-engine layout through the 911's evolution, turning a technical choice into a recognizable identity.",
+      "supportingPoint": "Porsche's first-generation history says the original 911 kept the rear-engined layout and air-cooled engine; the rear-mounted engine remains today.",
+      "cta": "Follow Octane Archive for the story behind the machine.",
+      "format": "explainer",
+      "durationSeconds": 25,
+      "script": "Why put the engine behind the rear axle? The Porsche 911 did, and kept that layout as the car evolved. The first generation paired a rear-mounted, air-cooled flat-six with a shape Porsche has carefully refined for decades. That engineering choice became part of the car's identity. A layout can be more than packaging. It can become the signature.",
+      "source": "https://newsroom.porsche.com/en/press-kits/911-s-t/60-years-of-the-Porsche-911.html"
+    },
+    {
+      "concept": "The Porsche 911 Targa's safety hoop",
+      "hook": "This open-top Porsche kept a wide rollover bar.",
+      "keyMessage": "The 1967 911 Targa paired open-air driving with a prominent rollover bar, positioning itself as a safety-conscious cabriolet.",
+      "supportingPoint": "Porsche's model history dates the Targa to 1967 and describes it as a safety-conscious cabriolet with a wide rollover bar.",
+      "cta": "Follow Octane Archive for the story behind the machine.",
+      "format": "explainer",
+      "durationSeconds": 25,
+      "script": "This open-top Porsche kept a wide rollover bar. When Porsche added the 911 Targa in 1967, it was described as a safety-conscious cabriolet, with the bar sitting behind the cabin. The shape was not just a styling flourish. It was part of the car's design answer to open-air motoring. That bar became one of the Targa's most recognizable details.",
+      "source": "https://newsroom.porsche.com/en/press-kits/911-s-t/60-years-of-the-Porsche-911.html"
+    },
+    {
+      "concept": "How the moving assembly line changed Model T production",
+      "hook": "A Model T could be assembled in about 90 minutes.",
+      "keyMessage": "Ford's moving assembly line brought the work to each station and cut the Model T assembly time to about 90 minutes.",
+      "supportingPoint": "Ford says the moving line began at Highland Park in 1913; the vehicle moved step by step and the Model T could then be built in 90 minutes.",
+      "cta": "Follow Octane Archive for the story behind the machine.",
+      "format": "explainer",
+      "durationSeconds": 25,
+      "script": "A Model T could be assembled in about ninety minutes. The big change was movement: instead of workers walking around a stationary car, the car moved from one task to the next. Ford began using its moving assembly line at Highland Park in 1913. The idea reshaped production by breaking one enormous job into a sequence of smaller ones. Manufacturing changed the car, too.",
+      "source": "https://corporate.ford.com/articles/history/moving-assembly-line/"
+    },
+    {
+      "concept": "The Honda engine tested inside a Nissan",
+      "hook": "Honda tested its breakthrough engine in a Nissan.",
+      "keyMessage": "Honda's CVCC engine cleared a major emissions test before Honda had a suitably large car, so its EPA test used a Nissan Sunny body.",
+      "supportingPoint": "Honda's official history says the CVCC engine was installed in a Nissan Sunny for the 1972 EPA test because Honda did not yet have a car large enough to accommodate it.",
+      "cta": "Follow Octane Archive for the story behind the machine.",
+      "format": "explainer",
+      "durationSeconds": 25,
+      "script": "Honda tested its breakthrough engine in a Nissan. In 1972, the CVCC engine went through EPA testing inside a Nissan Sunny because Honda did not yet have a car large enough to fit it. The engine became the first to clear the stringent 1975 emissions requirements. The surprising part is how the test car tells the story: engineering was ready before the right Honda body was.",
+      "source": "https://global.honda/en/about/history-digest/75years-history/chapter3/section2_3/"
+    },
+    {
+      "concept": "The first Prius development sprint",
+      "hook": "Toyota took a hybrid from uncertain idea to production in about two years.",
+      "keyMessage": "Toyota developed the first Prius from an uncertain technology into mass production on an approximately two-year official development schedule.",
+      "supportingPoint": "Toyota's 75-year history describes the first Prius as moving an unproven technology to mass production in approximately two years from the official start of development.",
+      "cta": "Follow Octane Archive for the story behind the machine.",
+      "format": "explainer",
+      "durationSeconds": 25,
+      "script": "Toyota took a hybrid from uncertain idea to production in about two years. The company says the first Prius project moved a basically unknown technology into mass production in approximately two years from the official start of development. Engineers combined teams across disciplines and planned production alongside the powertrain. It was not only a new car project. It was a race to make a new kind of car buildable.",
+      "source": "https://www.toyota-global.com/company/history_of_toyota/75years/text/leaping_forward_as_a_global_corporation/chapter4/section8/item1_a.html"
+    },
+    {
+      "concept": "Mazda's rotary-engine challenge",
+      "hook": "Mazda spent six years fighting one tiny engine problem.",
+      "keyMessage": "Rotary engine seals suffered wear marks Mazda engineers nicknamed the Devil's nail marks; a new seal material helped make the Cosmo Sport possible.",
+      "supportingPoint": "Mazda's history says rotary development began in 1961, engineers struggled with rotor-housing chatter marks, then developed aluminum-infused carbon seals; Cosmo Sport launched in 1967.",
+      "cta": "Follow Octane Archive for the story behind the machine.",
+      "format": "explainer",
+      "durationSeconds": 25,
+      "script": "Mazda spent years fighting marks inside a rotary engine. Engineers called them the Devil's nail marks. The damage appeared on the rotor housing after operation, threatening the whole idea. Mazda says a stronger seal made from carbon infused with aluminum helped solve the problem. The Cosmo Sport launched in 1967. Sometimes an iconic engine story turns on a tiny material detail.",
+      "source": "https://www.mazda.com/en/about/history/greatcar/cosmo-sport/"
+    },
+    {
+      "concept": "The BMW kidney grille's long life",
+      "hook": "BMW's signature grille dates back to 1933.",
+      "keyMessage": "The kidney grille was established as an iconic BMW feature in 1933 and became a fixture across model lines from 1935.",
+      "supportingPoint": "BMW Group's design history dates the grille's iconic status to 1933 and its use across all model series to 1935.",
+      "cta": "Follow Octane Archive for the story behind the machine.",
+      "format": "explainer",
+      "durationSeconds": 25,
+      "script": "BMW's signature grille dates back to 1933. The two rounded sections became known as the kidney grille, and BMW says the design was established as an icon that year. By 1935, it appeared across the brand's model series. A front end can work like a visual signature: recognizable before you read the badge. One design detail, repeated carefully, becomes brand memory.",
+      "source": "https://www.press.bmwgroup.com/usa/article/detail/T0125233EN_US/bmw-design-icons?showMedia=photo"
+    },
+    {
+      "concept": "The Corolla's '80 points plus alpha' idea",
+      "hook": "Toyota designed the Corolla around one unusual scorecard.",
+      "keyMessage": "The first Corolla aimed for strong all-around performance, quality, economy, and comfort, plus an extra feature to delight buyers.",
+      "supportingPoint": "Toyota's history describes the '80 points plus alpha' doctrine as averaging at least 80 points across criteria, with additional features to exceed customer expectations.",
+      "cta": "Follow Octane Archive for the story behind the machine.",
+      "format": "explainer",
+      "durationSeconds": 25,
+      "script": "Toyota designed the Corolla around one unusual scorecard: eighty points, plus alpha. The idea was not to make one feature perfect while everything else suffered. The car needed to perform well across comfort, economy, quality, and performance, then add something extra to surprise the buyer. That balanced brief helped define the first Corolla. Sometimes the best engineering target is not a single number.",
+      "source": "https://global.toyota/en/detail/13944261"
+    },
+    {
+      "concept": "Bertha Benz's 1888 road trip",
+      "hook": "The first long-distance car trip was a secret family road trip.",
+      "keyMessage": "In 1888, Bertha Benz and her sons drove about 180 kilometers round trip to demonstrate that the motor car could work beyond a short test run.",
+      "supportingPoint": "Mercedes-Benz Group's history says Bertha Benz and her sons made the first long-distance journey in automotive history in 1888, covering 180 km including the return.",
+      "cta": "Follow Octane Archive for the story behind the machine.",
+      "format": "explainer",
+      "durationSeconds": 25,
+      "script": "The first long-distance car trip was a secret family road trip. In 1888, Bertha Benz and her two sons set out in an improved version of the Patent Motor Car and drove from Mannheim to Pforzheim. The round trip covered about 180 kilometers. The journey showed the public that a motor vehicle could do more than move around the workshop. A real trip became the proof.",
+      "source": "https://group.mercedes-benz.com/company/tradition/company-history/1885-1886.html"
+    },
+    {
+      "concept": "The first production car ABS launch",
+      "hook": "Mercedes introduced electronic ABS on the S-Class in 1978.",
+      "keyMessage": "The electronically controlled anti-lock braking system, developed with Bosch, entered Mercedes S-Class models in 1978.",
+      "supportingPoint": "Mercedes-Benz Group's 1979 annual report says the electronically controlled ABS, jointly developed with Bosch, was introduced in 1978, first in S-Class models.",
+      "cta": "Follow Octane Archive for the story behind the machine.",
+      "format": "explainer",
+      "durationSeconds": 25,
+      "script": "Mercedes introduced electronically controlled ABS in S-Class models in 1978. The system was developed jointly with Bosch and was designed to help keep a car steerable during emergency braking. Today the letters are familiar, but the original rollout was a major change in how a car could manage a hard stop. A safety system can become so normal that its debut disappears from view.",
+      "source": "https://group.mercedes-benz.com/documents/investors/berichte/geschaeftsberichte/daimler-benz/daimler-ir-annualreport-1979.pdf"
+    }
+  ]
+}

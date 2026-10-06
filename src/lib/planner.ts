@@ -1,8 +1,10 @@
 import type { TimedCue, VideoScript } from "./script";
+import { resolveMotionDirection, type MotionIntent } from "./motion-intent";
+import type { StockAsset } from "./broll";
 
 export type SceneVariant = "rays" | "blobs" | "grid" | "waves" | "pulse";
 
-export interface PlannedFrame { t: number; cue: TimedCue; variant?: SceneVariant; }
+export interface PlannedFrame { t: number; cue: TimedCue; variant?: SceneVariant; motionIntent?: MotionIntent; motionLabels?: string[]; progress?: number; }
 
 export const VIDEO_SECS = 45;
 
@@ -10,6 +12,8 @@ export function planFrames(
   script: VideoScript,
   fps: 30 | 60 = 30,
   spans?: Array<{ start: number; end: number }> | null,
+  approvedProofByCue: readonly boolean[] = [],
+  mediaByCue: readonly (Pick<StockAsset, "kind" | "keywords"> | null | undefined)[] = [],
 ): PlannedFrame[] {
   // Voice-driven grid: when the VO pipeline measured real cue spans, the
   // render follows them (total = last span end) instead of the fixed 45s
@@ -46,17 +50,32 @@ export function planFrames(
   }
   const fallbackFor = (kind: TimedCue["kind"]): SceneVariant =>
     kind === "hook" ? "rays" : kind === "cta" ? "pulse" : "blobs";
-  let prev = script.cues[0]!;
+  let previousCueIndex = 0;
+  const fullText = script.cues.map((cue) => cue.text).join(" ");
+  const directions = script.cues.map((cue, cueIndex) => resolveMotionDirection({
+    cue, cueIndex, approvedProof: approvedProofByCue[cueIndex] === true,
+    context: { fullText, medium: mediaByCue[cueIndex]?.kind, assetKeywords: mediaByCue[cueIndex]?.keywords },
+  }));
   for (let i = 0; i < n; i++) {
     const t = i / fps;
     const fi = i;
-    const found = script.cues.find((_, ci) => {
+    const foundIndex = script.cues.findIndex((_, ci) => {
       const [sb0, sb1] = sb(ci);
       return fi >= sb0 && fi < sb1;
     });
-    const cue = found ?? prev;
-    prev = cue;
-    out.push({ t, cue, variant: variantByCue.get(cue) ?? fallbackFor(cue.kind) });
+    const cueIndex = foundIndex >= 0 ? foundIndex : previousCueIndex;
+    const cue = script.cues[cueIndex]!;
+    previousCueIndex = cueIndex;
+    const span = bounds(cueIndex);
+    const progress = Math.max(0, Math.min(1, (t - span.start) / Math.max(0.001, span.end - span.start)));
+    out.push({
+      t,
+      cue,
+      variant: variantByCue.get(cue) ?? fallbackFor(cue.kind),
+      motionIntent: directions[cueIndex]!.intent,
+      motionLabels: directions[cueIndex]!.labels,
+      progress,
+    });
   }
   return out;
 }
@@ -66,6 +85,7 @@ export interface WordCue {
   start: number;
   end: number;
   cueKind: "hook" | "beat" | "cta";
+  cueIndex?: number;
 }
 
 export interface TimedWord {
@@ -112,6 +132,7 @@ export function planWordsTimed(
           start: w.start,
           end: Math.max(w.end, w.start + 0.05),
           cueKind: cue.kind,
+          cueIndex: i,
         });
       });
       return;
@@ -124,6 +145,7 @@ export function planWordsTimed(
         start: s0 + ((s1 - s0) * k) / tokens.length,
         end: s0 + ((s1 - s0) * (k + 1)) / tokens.length,
         cueKind: cue.kind,
+        cueIndex: i,
       });
     });
   });
@@ -138,7 +160,7 @@ export function planWordsTimed(
  */
 export function planWords(script: VideoScript): WordCue[] {
   const out: WordCue[] = [];
-  for (const cue of script.cues) {
+  for (const [cueIndex, cue] of script.cues.entries()) {
     const tokens = cue.text.split(/\s+/).filter(Boolean);
     if (tokens.length === 0) continue;
     const span = cue.end - cue.start;
@@ -148,6 +170,7 @@ export function planWords(script: VideoScript): WordCue[] {
         start: cue.start + (span * i) / tokens.length,
         end: cue.start + (span * (i + 1)) / tokens.length,
         cueKind: cue.kind,
+        cueIndex,
       });
     });
   }

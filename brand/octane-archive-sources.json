@@ -1,0 +1,13 @@
+{
+  "license": "Pexels License",
+  "licenseUrl": "https://www.pexels.com/license/",
+  "items": [
+    { "file": "audio/trap-electro-vibes-mixkit-126.mp3", "creator": "Alejandro Magaña (A.M.)", "page": "https://mixkit.co/free-stock-music/drum-and-bass/", "asset": "https://assets.mixkit.co/music/126/126.mp3", "description": "Trap Electro Vibes; aggressive, propulsive drum and bass for motorsport edits.", "license": "Mixkit License" },
+    { "file": "race-aerial-pexels-3774642.mp4", "id": 3774642, "creator": "Taryn Elliott", "page": "https://www.pexels.com/video/racing-cars-running-on-a-race-track-3774642/", "description": "Aerial footage of cars racing on a winding outdoor track." },
+    { "file": "race-rain-pexels-12330982.mp4", "id": 12330982, "creator": "Leonardo Muñoz", "page": "https://www.pexels.com/video/cars-on-racetrack-12330982/", "description": "Rain-soaked cars speed around a racetrack." },
+    { "file": "drift-night-pexels-29408199.mp4", "id": 29408199, "creator": "Djimmer Koster", "page": "https://www.pexels.com/video/high-speed-night-drift-racing-event-29408199/", "description": "Night-time drift racing with smoke and speed." },
+    { "file": "vintage-track-pexels-9767834.mp4", "id": 9767834, "creator": "Philipp Fahlbusch", "page": "https://www.pexels.com/video/vintage-racecar-driving-along-speedway-9767834/", "description": "Vintage sports car on a race track." },
+    { "file": "supercar-track-pexels-32068488.mp4", "id": 32068488, "creator": "CALI_ MEDIA _", "page": "https://www.pexels.com/video/vibrant-supercar-on-race-track-close-up-32068488/", "description": "Close-up of a supercar navigating a race track." },
+    { "file": "burnout-vertical-pexels-26261436.mp4", "id": 26261436, "creator": "Videas", "page": "https://www.pexels.com/video/a-car-is-doing-a-burnout-on-a-track-26261436/", "description": "High-energy car drift with a cheering crowd." }
+  ]
+}

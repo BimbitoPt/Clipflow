@@ -18,9 +18,9 @@ describe("broll pool", () => {
       vi.useRealTimers();
     }
   });
-  it("keeps 26 shipped images + 6 clip slots + 2 site case-study takes", () => {
+  it("keeps 26 shipped images + 7 clip slots + 2 site case-study takes", () => {
     expect(STOCK_POOL.filter((e) => e.kind === "image").length).toBe(26);
-    expect(STOCK_POOL.filter((e) => e.kind === "video").length).toBe(8);
+    expect(STOCK_POOL.filter((e) => e.kind === "video").length).toBe(9);
   });
 
   it("tokenizes queries lowercase", () => {

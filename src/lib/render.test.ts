@@ -183,7 +183,7 @@ describe("render", () => {
     expect(full.length).toBeGreaterThan(0);
   });
 
-  it("pops current word in accent", () => {
+  it("holds the complete speech phrase without word-size jumps", () => {
     const ctx = stubCtx();
     const words = [
       { word: "Hello", start: 0, end: 2, cueKind: "hook" as const },
@@ -198,12 +198,10 @@ describe("render", () => {
       { words },
     );
     expect(ctx.texts.join(" ")).toMatch(/niche/);
-    const nicheIdx = ctx.texts.findIndex((t) => t === "niche");
-    expect(nicheIdx).toBeGreaterThanOrEqual(0);
-    expect(ctx.accents[nicheIdx]).toBe(theme.accent);
+    expect(ctx.texts).toEqual(["Hello niche"]);
   });
 
-  it("shows a max 3-word karaoke window, never the full cue", () => {
+  it("shows a stable phrase instead of a sliding neighbor window", () => {
     const ctx = stubCtx();
     const tokens = ["a", "b", "c", "d", "e"];
     const words = tokens.map((word, i) => ({
@@ -220,8 +218,7 @@ describe("render", () => {
       1280,
       { words },
     );
-    expect(ctx.texts).toEqual(["b", "c", "d"]);
-    expect(ctx.accents[1]).toBe(theme.accent);
+    expect(ctx.texts).toEqual(["a b c d e"]);
   });
 
   it("follows voice-timed words outside their cue window", () => {
@@ -242,9 +239,8 @@ describe("render", () => {
       1280,
       { words },
     );
-    expect(ctx.texts).toEqual(["sites", "kill", "beat"]);
-    const killIdx = ctx.texts.findIndex((t) => t === "kill");
-    expect(ctx.accents[killIdx]).toBe(theme.accent);
+    expect(ctx.texts).toEqual(["slow sites kill"]);
+    expect(ctx.texts.join(" ")).not.toContain("beat");
   });
 
   it("dips to brand dark across cue boundaries, never mid-cue", () => {
@@ -294,7 +290,7 @@ describe("render", () => {
     expect(ctx.globalAlphaValues).toContain(0.55);
   });
 
-  it("draws video b-roll cover-fit with dim overlay", () => {
+  it("keeps video footage visible without the still-image scrim or extra zoom", () => {
     const ctx = stubCtx();
     drawFrame(
       ctx,
@@ -312,7 +308,8 @@ describe("render", () => {
       },
     );
     expect(ctx.drawImageCalls.length).toBeGreaterThan(0);
-    expect(ctx.globalAlphaValues).toContain(0.55);
+    expect(ctx.globalAlphaValues).not.toContain(0.55);
+    expect(ctx.globalAlphaValues.some((alpha) => alpha > 0 && alpha < 0.25)).toBe(true);
   });
 
   it("balances save/restore with b-roll inside zoom", () => {

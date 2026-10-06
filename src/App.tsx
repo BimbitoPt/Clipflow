@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { makeCaptionPlan, resolveCaptionMode, suggestSceneLabel, type CaptionMode } from "../shared/caption-plan";
 import { loadPack, type Theme } from "./lib/packs";
 import { MSTUDIO_PROFILE, loadProfile, saveProfile, type Profile } from "./lib/profile";
 import { buildScript } from "./lib/script";
@@ -14,9 +15,14 @@ import ProfileSettings from "./components/ProfileSettings";
 import ScriptBeats from "./components/ScriptBeats";
 import SceneTray from "./components/SceneTray";
 import ExportPanel from "./components/ExportPanel";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import DesktopToolbar from "./components/DesktopToolbar";
+import { desktop, importNativeMedia, openDesktopProject, initialDesktopProject, saveDesktopProject, nativeMediaUrl, showInFolder, confirmDiscard, projectFingerprint, type DesktopProjectV1 } from "./lib/desktop";
+import { renderDesktop } from "./lib/desktop-render";
+import type { VisualEffect } from "../shared/visual-effects";
 
 const pack = loadPack("mstudio");
-const theme: Theme = pack.themes[0]!;
+const theme: Theme = pack.themes[1]!;
 
 const OUT_W = 720, OUT_H = 1280, OUT_BITRATE = 5_000_000, OUT_NAME = "clipflow-916.mp4";
 
@@ -157,6 +163,13 @@ async function seekVideo(el: HTMLVideoElement, t: number): Promise<void> {
 }
 
 export function App() {
+  const [projectPath, setProjectPath] = useState<string | null>(null);
+  const [projectError, setProjectError] = useState("");
+  const [projectBusy, setProjectBusy] = useState(false);
+  const [savedSnapshot, setSavedSnapshot] = useState("");
+  const [projectBase, setProjectBase] = useState<{idea: string; profile: string; script: ReturnType<typeof buildScript>} | null>(null);
+  const [nativeOutput, setNativeOutput] = useState<string | null>(null);
+  const exportAbortRef = useRef<AbortController | null>(null);
   const [niche, setNiche] = useState(() => initialProfile().niche);
   const [audience, setAudience] = useState(() => initialProfile().audience);
   const [offer, setOffer] = useState(() => initialProfile().offer);
@@ -172,8 +185,13 @@ export function App() {
   const [sceneAssets, setSceneAssets] = useState<Array<StockAsset | null>>([]);
   const [assetLoading, setAssetLoading] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
+  const [captionMode, setCaptionMode] = useState<CaptionMode>("auto");
+  const [visualEffect, setVisualEffect] = useState<VisualEffect>("none");
+  const [captionOverrides, setCaptionOverrides] = useState<Record<number, string>>({});
   const [exportMsg, setExportMsg] = useState("");
   const [exportProgress, setExportProgress] = useState(0);
+  const [exportUrl, setExportUrl] = useState<string | null>(null);
+  useEffect(() => () => { if (exportUrl) URL.revokeObjectURL(exportUrl); }, [exportUrl]);
   const [voiceWarn, setVoiceWarn] = useState("");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const busyRef = useRef(false);
@@ -193,14 +211,81 @@ export function App() {
   }, []);
 
   const profile = useMemo(() => ({ niche, audience, offer, tone, proof }), [niche, audience, offer, tone, proof]);
+  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, timing: localStorage.getItem("clipflow.wordtimes") };
+  const projectSnapshot = projectFingerprint(projectDraft);
+  const projectDirty = projectSnapshot !== savedSnapshot;
+
+  function restoreProject(project: DesktopProjectV1, path: string | null) {
+    if (project.version !== 1 || !Array.isArray(project.sceneChoices) || project.sceneChoices.length !== 5 || typeof project.idea !== "string" || !project.profile || !project.scriptOverrides || !project.captionOverrides) throw new Error("Invalid Clipflow project.");
+    setIdea(project.idea); setNiche(project.profile.niche); setAudience(project.profile.audience); setOffer(project.profile.offer); setTone(project.profile.tone); setProof(project.profile.proof);
+    if (project.baseScript && (!Array.isArray(project.baseScript.cues) || project.baseScript.cues.length !== 5)) throw new Error("The saved script has an invalid scene plan.");
+    setProjectBase(project.baseScript ? {idea: project.idea, profile: projectFingerprint(project.profile), script: project.baseScript} : null);
+    setScriptOverrides(project.scriptOverrides); setSceneChoices(project.sceneChoices); setCaptionMode(project.captionMode); setCaptionOverrides(project.captionOverrides); setVoiceOn(project.voiceOn); setVisualEffect(project.visualEffect ?? "none");
+    if (project.timing) localStorage.setItem("clipflow.wordtimes", project.timing); else localStorage.removeItem("clipflow.wordtimes");
+    const { savedAt: _savedAt, ...draft } = project;
+    setSavedSnapshot(projectFingerprint(draft)); setProjectPath(path); setSelectedScene(0); setNativeOutput(null); setExportUrl(null); setStatus("idle"); setErr("");
+  }
+
+  async function desktopAction(action: "open" | "save" | "import" | "new") {
+    if (projectBusy || status === "working") return;
+    if ((action === "open" || action === "new") && projectDirty && !await confirmDiscard("Discard unsaved project changes? Save your project first to keep them.")) return;
+    setProjectBusy(true); setProjectError("");
+    try {
+      if (action === "save") {
+        const savedFrames = script ? planFrames(script, 30, timing?.windows ?? null, sceneChoices.map((choice,index) => choice.kind === "upload" && choice.approvedProof === true && sceneAssets[index]?.src === `upload:${choice.id}`), sceneAssets) : [];
+        const renderPlan = script ? { renderer: "canvas-v1", fps: 30, duration: timing?.total ?? VIDEO_SECS, theme, captions,
+          timingSource: timing ? "measured" : "estimated", scenes: script.cues.map((cue,index) => {
+            const frame = savedFrames.find(frame => cueIndexOf(script, frame.cue) === index);
+            return { ...cue, ...timing?.windows?.[index], motionIntent: frame?.motionIntent, motionLabels: frame?.motionLabels };
+          }) } : null;
+        const result = await saveDesktopProject({ ...projectDraft, baseScript: generatedScript, renderPlan, savedAt: new Date().toISOString() });
+        if (result) { setSceneChoices(result.project.sceneChoices); setProjectPath(result.path); const { savedAt: _savedAt, ...draft } = result.project; setSavedSnapshot(projectFingerprint(draft)); }
+      } else if (action === "open") {
+        const result = await openDesktopProject(); if (result) restoreProject(result.project, result.path);
+      } else if (action === "new") {
+        restoreProject({ version: 1, idea: "", profile, scriptOverrides: {}, sceneChoices: Array.from({length: 5}, () => ({kind: "auto-ai"})), captionMode: "auto", captionOverrides: {}, voiceOn: false, visualEffect: "none", timing: null, savedAt: "" }, null);
+      } else {
+        const media = await importNativeMedia();
+        if (media) setSceneChoices(current => current.map((choice,index) => index === selectedScene ? media : choice));
+      }
+    } catch (error) { setProjectError(error instanceof Error ? error.message : String(error)); }
+    finally { setProjectBusy(false); }
+  }
+
+  useEffect(() => {
+    if (!desktop) return;
+    const nativeWindow = getCurrentWindow();
+    const listener = nativeWindow.onCloseRequested(async event => {
+      if (!projectDirty && !busyRef.current) return;
+      event.preventDefault();
+      const message = busyRef.current ? "Close Clipflow and cancel the current export? Unsaved changes will be lost." : "Close Clipflow without saving project changes?";
+      if (await confirmDiscard(message)) { exportAbortRef.current?.abort(); await nativeWindow.destroy(); }
+    });
+    return () => { void listener.then(unlisten => unlisten()); };
+  }, [projectDirty]);
+  useEffect(() => {
+    if (!desktop) return;
+    void initialDesktopProject().then(result => { if (result) restoreProject(result.project, result.path); }).catch(error => setProjectError(String(error)));
+  }, []);
+
+  useEffect(() => {
+    if (!desktop) return;
+    const key = (event: KeyboardEvent) => {
+      if (!event.ctrlKey || event.altKey || event.shiftKey) return;
+      const action = ({s: "save", o: "open", n: "new"} as const)[event.key.toLowerCase() as "s" | "o" | "n"];
+      if (action) { event.preventDefault(); void desktopAction(action); }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  });
   const { generatedScript, err: generatedErr } = useMemo(() => {
     try {
-      return { generatedScript: buildScript(idea, profile, pack), err: "" };
+      return { generatedScript: projectBase?.idea === idea && projectBase.profile === projectFingerprint(profile) ? projectBase.script : buildScript(idea, profile, pack), err: "" };
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
       return { generatedScript: null, err: m.includes("E_EMPTY_IDEA") ? "Enter your idea above." : m };
     }
-  }, [idea, profile]);
+  }, [idea, profile, projectBase]);
   const { script, err: editErr } = useMemo(() => {
     if (!generatedScript) return { script: null, err: "" };
     try { return { script: applyScriptOverrides(generatedScript, scriptOverrides), err: "" }; }
@@ -217,6 +302,11 @@ export function App() {
     () => (script ? planWordsTimed(script, timing?.cues ?? null) : undefined),
     [script, timing],
   );
+  const captionLabels = useMemo(() => script?.cues.map((cue,index) => captionOverrides[index] ?? suggestSceneLabel(cue.text)) ?? [], [script, captionOverrides]);
+  const captions = useMemo(() => makeCaptionPlan({ mode: captionMode, voiceOn, labels: captionLabels, words,
+    scenes: script?.cues.map((cue,index) => ({ ...cue, ...timing?.windows?.[index] })) ?? [],
+  }), [script, timing, captionMode, voiceOn, captionLabels, words]);
+  const editingSceneLabels = resolveCaptionMode(captionMode, voiceOn, script?.cues.map(cue => cue.text).join(" ")) === "scene";
 
   const aiSuggestions = useMemo(() => assignAiBackgrounds(idea, profile, generatedScript?.cues.map((cue) => cue.text) ?? []), [idea, profile, generatedScript]);
   const resolvedChoices = useMemo(() => resolveSceneChoices(sceneChoices, aiSuggestions, STOCK_POOL), [sceneChoices, aiSuggestions]);
@@ -253,7 +343,7 @@ export function App() {
       const bmp = await createImageBitmap(file);
       const id = crypto.randomUUID();
       uploadsRef.current.set(id, { kind: "image", src: `upload:${id}`, el: bmp, keywords: [] });
-      setSceneChoices((choices) => choices.map((choice, index) => index === selectedScene ? { kind: "upload", id } : choice));
+      setSceneChoices((choices) => choices.map((choice, index) => index === selectedScene ? { kind: "upload", id, approvedProof: false } : choice));
       setErr("");
     } catch {
       setErr("Could not load that image — try another file.");
@@ -270,11 +360,13 @@ export function App() {
       return;
     }
     try {
-      const frames = planFrames(script, 30, timing?.windows ?? null);
+      const frames = planFrames(script, 30, timing?.windows ?? null, sceneChoices.map((choice, index) => choice.kind === "upload" && choice.approvedProof === true && sceneAssets[index]?.src === `upload:${choice.id}`), sceneAssets);
       const cueFrames = frames.filter((frame) => cueIndexOf(script, frame.cue) === selectedScene);
       const frame = cueFrames[Math.floor(cueFrames.length / 2)] ?? frames[0];
       if (!frame) return;
       const extra: RenderExtra = {};
+      extra.visualEffect = visualEffect;
+      extra.captions = captions;
       if (words) extra.words = words;
       const asset = sceneAssets[selectedScene];
       if (asset) extra.asset = asset;
@@ -282,7 +374,7 @@ export function App() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
-  }, [script, words, timing, selectedScene, sceneAssets]);
+  }, [script, words, captions, timing, selectedScene, sceneAssets, sceneChoices, visualEffect]);
 
   function onSave() {
     try {
@@ -298,17 +390,20 @@ export function App() {
     if (busyRef.current) return;
     busyRef.current = true;
     try {
-      if (typeof VideoEncoder === "undefined") {
+      if (!desktop && typeof VideoEncoder === "undefined") {
         setStatus("error");
         setErr("This browser can't hardware-encode — open in Chrome/Edge.");
         return;
       }
-      if (voiceOn && (typeof AudioEncoder === "undefined" || typeof AudioData === "undefined")) {
+      if (!desktop && voiceOn && (typeof AudioEncoder === "undefined" || typeof AudioData === "undefined")) {
         setStatus("error");
         setErr("This browser can't encode audio — export silently or try Chrome/Edge.");
         return;
       }
       setStatus("working");
+      exportAbortRef.current = new AbortController();
+      setNativeOutput(null);
+      setExportUrl(null);
       setErr("");
       setExportMsg("Script ready.");
       setExportProgress(10);
@@ -316,7 +411,10 @@ export function App() {
       try {
         setExportMsg("Loading selected scene visuals…");
         setExportProgress(25);
-        const cueAssets = await Promise.all(resolveSceneChoices([...sceneChoices], aiSuggestions, STOCK_POOL).map(loadSceneAsset));
+        const exportChoices = [...sceneChoices];
+        const cueAssets = await Promise.all(resolveSceneChoices(exportChoices, aiSuggestions, STOCK_POOL).map(loadSceneAsset));
+        if (desktop && cueAssets.some(asset => !asset)) throw new Error("A selected scene's media could not be loaded. Reimport it before exporting.");
+        const approvedProofByCue = exportChoices.map((choice, index) => choice.kind === "upload" && choice.approvedProof === true && cueAssets[index]?.src === `upload:${choice.id}`);
         setExportProgress(35);
         let pcm: Float32Array | null = null;
         if (voiceOn) {
@@ -359,6 +457,18 @@ export function App() {
             setExportProgress(65);
           }
         }
+        if (desktop) {
+          exportAbortRef.current.signal.throwIfAborted();
+          const output = await renderDesktop({
+            frames: planFrames(script, 30, timing?.windows ?? null, approvedProofByCue, cueAssets), assets: cueAssets, theme,
+            extra: { captions, words, visualEffect }, duration: timing?.total ?? VIDEO_SECS, pcm, signal: exportAbortRef.current.signal,
+            cueIndex: frame => cueIndexOf(script, frame.cue), seek: seekVideo,
+            progress: (percent,message) => { setExportProgress(percent); setExportMsg(message); },
+          });
+          if (output) { setNativeOutput(output); setStatus("exported"); setExportMsg(""); }
+          else { setStatus("idle"); setExportMsg(""); }
+          return;
+        }
         setExportMsg("Muxing clipflow-916.mp4…");
         const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
         const muxer = voiceOn
@@ -374,7 +484,7 @@ export function App() {
         canvas.height = OUT_H;
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
-        const frames: PlannedFrame[] = planFrames(script, 30, timing?.windows ?? null);
+        const frames: PlannedFrame[] = planFrames(script, 30, timing?.windows ?? null, approvedProofByCue, cueAssets);
         const assetByCue = new Map<number, StockAsset | null>();
         script.cues.forEach((_cue, i) => assetByCue.set(i, cueAssets[i] ?? null));
         // Deterministic video start: seek each cue's video once before its frames.
@@ -405,13 +515,15 @@ export function App() {
             if (asset?.kind === "video") {
               const video = asset.el as HTMLVideoElement;
               video.pause();
-              const start = timing?.windows?.[idx]?.start ?? f.cue.start;
-              const elapsed = Math.max(0, f.t - start);
+              // Keep local stock video moving continuously across scene cuts.
+              // Resetting to scene-local time made every beat reuse the same opening angle.
               const seek = Number.isFinite(video.duration) && video.duration > 0
-                ? elapsed % video.duration : elapsed;
+                ? f.t % video.duration : f.t;
               await seekVideo(video, seek);
             }
             const extra: RenderExtra = {};
+            extra.visualEffect = visualEffect;
+            extra.captions = captions;
             if (words) extra.words = words;
             if (asset) extra.asset = asset;
             drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, extra, timing?.total ?? VIDEO_SECS);
@@ -459,11 +571,11 @@ export function App() {
         setExportMsg("");
         const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
+        setExportUrl(url);
         const a = document.createElement("a");
         a.href = url;
         a.download = OUT_NAME;
         a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 10_000);
         setStatus("exported");
       } catch (e) {
         setStatus("error");
@@ -473,6 +585,7 @@ export function App() {
       }
     } finally {
       busyRef.current = false;
+      exportAbortRef.current = null;
     }
   }
 
@@ -480,7 +593,7 @@ export function App() {
   const xpost = script ? `${script.hook} ${script.cta}`.slice(0, 280) : "";
 
   const sceneLabels = ["HOOK", "BEAT 01", "BEAT 02", "BEAT 03", "CTA"];
-  const isWorking = status === "working";
+  const isWorking = status === "working" || projectBusy;
   const sceneThumb = (index: number): string | undefined => {
     const choice = sceneChoices[index];
     if (choice?.kind === "auto-ai") return aiSuggestions[index]?.src;
@@ -508,10 +621,12 @@ export function App() {
     <main className="cf-app">
       <div className="cf-shell">
         <header className="cf-header">
-          <a href="/" className="cf-brand" aria-label="Clipflow home"><img className="cf-brand-mark" src="/brand/mark.png" alt="" /><span>CLIPFLOW</span></a>
+          <a href={desktop ? "#idea" : "/"} className="cf-brand" aria-label="Clipflow home"><img className="cf-brand-mark" src="/brand/mark.png" alt="" /><span>CLIPFLOW</span></a>
           <span className="cf-header-label">IDEA → VIDEO STUDIO</span>
           <span className="cf-local-pill"><span /> LOCAL-FIRST</span>
         </header>
+        {desktop && <DesktopToolbar path={projectPath} dirty={projectDirty} busy={projectBusy || status === "working"} error={projectError}
+          onNew={() => void desktopAction("new")} onOpen={() => void desktopAction("open")} onSave={() => void desktopAction("save")} onImport={() => void desktopAction("import")} />}
 
         <section className="cf-hero" aria-label="Clipflow studio">
           <div className="cf-hero-copy">
@@ -542,6 +657,7 @@ export function App() {
             {generatedScript && <section className="cf-script-panel" id="script">
               <div className="cf-panel-heading"><span className="cf-kicker">STORY STRUCTURE / 02</span><h2>Make every beat count.</h2><p>Edit a line, then select it to inspect its frame. This script drives the narration, captions, and post copy.</p></div>
               <ScriptBeats generated={generatedScript} overrides={scriptOverrides} selected={selectedScene} disabled={isWorking} onSelect={setSelectedScene}
+                captionLabels={editingSceneLabels ? captionLabels : undefined} onCaptionEdit={(index,value) => setCaptionOverrides((current) => ({ ...current, [index]: value }))}
                 onEdit={(index, value) => setScriptOverrides((current) => ({ ...current, [index]: value }))}
                 onReset={(index) => setScriptOverrides((current) => { const next = { ...current }; delete next[index]; return next; })} />
             </section>}
@@ -564,7 +680,8 @@ export function App() {
         </div>
 
         {script && <ExportPanel script={script} tiktok={tiktok} xpost={xpost} voiceOn={voiceOn} onVoiceChange={setVoiceOn} onPreviewVoice={() => previewSpeak(script.hook)}
-          onExport={() => void onExport()} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} />}
+          onExport={() => void onExport()} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} downloadUrl={exportUrl} captionMode={captionMode} onCaptionModeChange={setCaptionMode} visualEffect={visualEffect} onVisualEffectChange={setVisualEffect}
+          nativeOutput={nativeOutput} nativePreview={nativeOutput ? nativeMediaUrl(nativeOutput) : null} onReveal={() => nativeOutput && void showInFolder(nativeOutput).catch(error => setErr(String(error)))} onCancel={desktop ? () => exportAbortRef.current?.abort() : undefined} />}
 
         <footer className="cf-footer"><span>CLIPFLOW / BUILT TO KEEP IDEAS MOVING</span><a href="mailto:hello@mstudioweb.pt?subject=Clipflow%20Managed">NEED A MANAGED VIDEO PIPELINE? ↗</a></footer>
       </div>

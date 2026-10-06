@@ -99,6 +99,7 @@ async function prepare(story: Story) {
       throw new Error(`Scene ${index + 1} prompt changed. Replace ${imagePath} and rerun with --accept-new-images.`);
     }
     return {
+      evidenceApproved: false,
       bg: { prompt, promptHash, imagePath },
       visual: index === 2 ? { kind: story.visual.kind, items: [...story.visual.items] } : undefined,
       motionGraphic: index === 2 ? undefined : story.brandId === "clipflow" ? "filmstrip" as const : "site-network" as const,

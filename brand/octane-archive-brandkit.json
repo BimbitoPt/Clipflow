@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "octane-archive",
+  "name": "Octane Archive",
+  "palette": { "background": "#101311", "foreground": "#F4F1E9", "accent": "#C9F05A", "accentAlt": "#D88A4D" },
+  "fonts": { "heading": "Space Grotesk", "body": "Inter" },
+  "logoPath": "brand/octane-archive-mark.svg",
+  "audioPath": null,
+  "toneNotes": "Faceless, visual-first automotive edit account. Every moment should show a moving car, racing line, tire, cockpit, smoke, or track detail. Use fast hard cuts, selective speed changes, tight vertical crops, natural engine and tire audio, and very little text. No voice-led trivia or abstract backgrounds. Use rights-cleared footage, credit the source in production records, and never imply endorsement by a visible car maker, event, or driver.",
+  "defaultCta": "Follow for the drive.",
+  "captionStyle": { "wordsPerChunk": 3, "highlightColor": "#C9F05A", "safeAreaPercent": 10 },
+  "approvedAssets": [],
+  "updatedAt": "2026-09-29T00:00:00.000Z"
+}

@@ -136,7 +136,7 @@ async function prepare(clip: ClipBrief, story: Story) {
       throw new Error(`Scene ${index + 1} prompt changed. Generate a new text-free image at ${imagePath}, then rerun with --accept-new-images.`);
     }
     await readFile(path.join(process.cwd(), "public", imagePath));
-    return { bg: { prompt, promptHash, imagePath } };
+    return { bg: { prompt, promptHash, imagePath }, evidenceApproved: false };
   }));
   const audioDir = path.join(process.cwd(), "public", "local-assets", "scene-audio");
   await mkdir(audioDir, { recursive: true });

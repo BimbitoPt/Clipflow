@@ -24,13 +24,16 @@ export function buildScript(idea: string, profile: Profile, pack: NichePack): Vi
   let clean = idea.trim().replace(/\s+/g, " ");
   if (!clean) throw new Error("E_EMPTY_IDEA: idea must be non-empty");
   clean = clean.length <= 140 ? clean : clean.slice(0, 140).replace(/\s+\S*$/, "");
-  const hook = `${pick(pack.hooks, clean)} ${clean}.`;
-  const beats: [string, string, string] = [
+  const carEdit = /\b(porsche|gt3|gt3rs|car edit|car footage|nightdrive)\b/i.test(clean);
+  const subject = /\b(?:gt3\s*rs|gt3rs)\b/i.test(clean) ? "PORSCHE GT3 RS" : /\bporsche\b/i.test(clean) ? "PORSCHE" : "THE CAR";
+  // Showcase copy does not invent a location, speed, race, or performance figure.
+  const hook = carEdit ? subject : `${pick(pack.hooks, clean)} ${clean}.`;
+  const beats: [string, string, string] = carEdit ? ["A CLOSER LOOK", "THE DETAILS", "SAME CAR. NEW ANGLE."] : [
     `${profile.audience} keep losing to competitors who look finished.`,
     `Proof: ${profile.proof}.`,
     `You get ${profile.offer}. ${profile.tone}.`,
   ];
-  const cta = `${pick(pack.ctas, clean + "\n" + profile.niche)}`;
+  const cta = carEdit ? "YOUR FAVORITE SHOT?" : `${pick(pack.ctas, clean + "\n" + profile.niche)}`;
   const cues: TimedCue[] = [
     { start: 0, end: 4, kind: "hook", text: hook },
     { start: 4, end: 16, kind: "beat", text: beats[0]! },
