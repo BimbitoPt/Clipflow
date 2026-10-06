@@ -16,6 +16,36 @@ export interface RenderExtra {
   words?: WordCue[];
   captions?: readonly CaptionPhrase[];
   visualEffect?: VisualEffect;
+  /** Per-platform caption baseline override (0.60-0.70); defaults to CAPTION_ANCHOR_RATIO. */
+  captionAnchor?: number;
+  /** Opt-in credit card: replaces the whole frame, no captions or b-roll. */
+  endCard?: boolean;
+}
+
+/** Length of the opt-in credit card appended to exports. */
+export const CREDIT_SECS = 2;
+
+function drawEndCard(ctx: DrawCtx, W: number, H: number, accent: string) {
+  ctx.fillStyle = "#080A0D";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, 0, W, 12);
+  ctx.fillRect(0, H - 14, W, 14);
+  const mark = "CLIPFLOW";
+  const over = "MADE WITH";
+  const markSize = Math.round(W * 0.11);
+  const overSize = Math.round(W * 0.032);
+  ctx.font = `900 ${markSize}px system-ui, sans-serif`;
+  const measure = (text: string, size: number) => ctx.measureText?.(text).width ?? text.length * size * 0.55;
+  ctx.fillStyle = "#9BAC9B";
+  ctx.font = `700 ${overSize}px ui-monospace, Consolas, monospace`;
+  ctx.fillText(over, (W - measure(over, overSize)) / 2, H * 0.46);
+  ctx.font = `900 ${markSize}px system-ui, sans-serif`;
+  ctx.fillStyle = "#F2F5ED";
+  ctx.fillText(mark, (W - measure(mark, markSize)) / 2, H * 0.53);
+  ctx.fillStyle = accent;
+  const barW = W * 0.2;
+  ctx.fillRect((W - barW) / 2, H * 0.57, barW, 6);
 }
 
 export interface DrawCtx {
@@ -124,7 +154,7 @@ export function findActiveWord(wordList: readonly WordCue[], t: number): string 
   return cur;
 }
 
-function drawPhraseCaption(ctx: DrawCtx, phrase: CaptionPhrase, time: number, W: number, H: number, accent: string, activeWord?: string) {
+function drawPhraseCaption(ctx: DrawCtx, phrase: CaptionPhrase, time: number, W: number, H: number, accent: string, activeWord?: string, anchorRatio: number = CAPTION_ANCHOR_RATIO) {
   const value = phrase.kind === "scene" ? phrase.text.toUpperCase() : phrase.text;
   const maxWidth = W * .78;
   let size = W * (phrase.kind === "scene" ? .065 : .07);
@@ -136,7 +166,10 @@ function drawPhraseCaption(ctx: DrawCtx, phrase: CaptionPhrase, time: number, W:
     if (lines.length <= 2 && lines.every(line => measure(line) <= maxWidth)) break;
   }
   const lineHeight = size * 1.22;
-  const y = H * CAPTION_ANCHOR_RATIO;
+  // Platform presets nudge the baseline inside the safe band; clamp so a
+  // bad value can never push captions under a platform overlay.
+  const anchor = Math.min(0.7, Math.max(0.6, anchorRatio));
+  const y = H * anchor;
   const fade = Math.max(0, Math.min(1, (time - phrase.start) / .12, (phrase.end - time) / .12));
   const previousAlpha = ctx.globalAlpha ?? 1;
   try {
@@ -174,6 +207,40 @@ function drawPhraseCaption(ctx: DrawCtx, phrase: CaptionPhrase, time: number, W:
       ctx.fillRect((W - boxW) / 2, y - size, W * .004, lineHeight * lines.length + W * .03);
     }
   } finally { ctx.globalAlpha = previousAlpha; }
+}
+
+export const HOOK_CARD_WORDS = 8;
+export const HOOK_CARD_SECS = 4;
+/** Hook-card baseline: top band, clear of the caption zone and faces. */
+export const HOOK_CARD_RATIO = 0.16;
+
+/** Blunt promise of the clip: first HOOK_CARD_WORDS of the hook cue. */
+export function hookHeadline(text: string): string {
+  return text.split(/\s+/).filter(Boolean).slice(0, HOOK_CARD_WORDS).join(" ");
+}
+
+function drawHookCard(ctx: DrawCtx, headline: string, elapsed: number, W: number, H: number, accent: string) {
+  const size = Math.max(20, Math.round(W * 0.052));
+  ctx.font = `800 ${size}px system-ui, sans-serif`;
+  const measure = (text: string) => ctx.measureText?.(text).width ?? text.length * size * 0.55;
+  const padX = W * 0.035;
+  const boxW = Math.min(W * 0.9, measure(headline) + padX * 2);
+  const boxH = size * 1.7;
+  const y = H * HOOK_CARD_RATIO - boxH / 2;
+  const fade = Math.max(0, Math.min(1, elapsed / 0.25, (HOOK_CARD_SECS - elapsed) / 0.5));
+  const previousAlpha = ctx.globalAlpha ?? 1;
+  try {
+    ctx.globalAlpha = fade * 0.85;
+    ctx.fillStyle = "#080A0D";
+    ctx.fillRect((W - boxW) / 2, y, boxW, boxH);
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = accent;
+    ctx.fillRect((W - boxW) / 2, y + boxH - 4, boxW, 4);
+    ctx.fillStyle = "#F7F8FA";
+    ctx.fillText(headline, (W - measure(headline)) / 2, y + boxH / 2 + size * 0.35);
+  } finally {
+    ctx.globalAlpha = previousAlpha;
+  }
 }
 
 export function variantForKind(kind: PlannedFrame["cue"]["kind"]): SceneVariant {
@@ -399,6 +466,15 @@ export function drawFrame(
   extra?: RenderExtra,
   totalSecs: number = VIDEO_SECS,
 ): void {
+  // Opt-in credit card: the whole frame, no captions, no b-roll, no motion.
+  if (extra?.endCard) {
+    try {
+      drawEndCard(ctx, W, H, theme.accent);
+    } catch {
+      // The card must never throw; worst case the frame stays blank.
+    }
+    return;
+  }
   const visualEffect = extra?.visualEffect ?? "none";
   if (visualEffect !== "none") ctx.filter = visualEffectFilters[visualEffect];
   const footage = extra?.asset?.kind === "video";
@@ -591,7 +667,7 @@ export function drawFrame(
   const maxW = W - 96;
   // No-captions fallback position: centered for procedural backgrounds,
   // safe-zone anchored over real footage (faces/UI live at the edges).
-  const captionY = footage ? H * CAPTION_ANCHOR_RATIO : H / 2;
+  const captionY = footage ? H * (extra?.captionAnchor ?? CAPTION_ANCHOR_RATIO) : H / 2;
   // Headroom for the 1.15x pop word: fit lines against maxW/1.15 so the
   // popped word can never overflow the frame.
   const fitW = maxW / 1.15;
@@ -642,11 +718,26 @@ export function drawFrame(
     const phrase = captionPlan.find(item => frame.t >= item.start && frame.t < item.end);
     if (phrase) {
       const activeWord = phrase.kind === "speech" && extra?.words ? findActiveWord(extra.words, frame.t) : undefined;
-      drawPhraseCaption(ctx, phrase, frame.t, W, H, theme.accent, activeWord);
+      drawPhraseCaption(ctx, phrase, frame.t, W, H, theme.accent, activeWord, extra?.captionAnchor);
     }
   } else {
     ctx.fillStyle = "#F7F8FA";
     lines.forEach((line, index) => ctx.fillText(line, 48, captionY + index * 110));
+  }
+  // Hook card: the clip's promise, held over the opening seconds so muted
+  // autoplay reads it before any audio registers. Top band, gone by 4s.
+  if (frame.cue.kind === "hook") {
+    const elapsed = frame.t - frame.cue.start;
+    if (elapsed >= 0 && elapsed < HOOK_CARD_SECS) {
+      const headline = hookHeadline(frame.cue.text);
+      if (headline) {
+        try {
+          drawHookCard(ctx, headline, elapsed, W, H, theme.accent);
+        } catch {
+          // Hook card is garnish; captions already painted.
+        }
+      }
+    }
   }
   // No cue pills: TikTok style shows speech captions only, never
   // HOOK/BEAT/CTA labels.

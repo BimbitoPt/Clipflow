@@ -46,7 +46,10 @@ User promises (DIY):
    MSTUDIO; editable inline, saved to localStorage.
 2. **Idea** — one textarea. Empty state guides, never a blank wall.
    A one-click sample idea (`SAMPLE_IDEA` in `src/lib/activation.ts`)
-   warm-starts first-timers: value before typing.
+   warm-starts first-timers: value before typing. Below it, the week's
+   queue (`src/lib/week-queue.ts`, one idea per line, max 10) lines up
+   the 5–7 posts/week cadence: finish a clip, `LOAD NEXT IDEA`, same
+   profile, no context loss.
 3. **Script** — deterministic hook + 3 beats + CTA (5 cues, 45s).
    Every beat editable, resettable, selectable to preview its frame.
    The script is the source of truth: narration, captions, motion,
@@ -57,8 +60,10 @@ User promises (DIY):
 5. **Voice & look** — voice on/off + preview, caption mode
    (`auto|scene|speech|off`), visual effect grade.
 6. **Export** — one button: browser MP4 download or desktop native
-   file. Progress with honest status messages; cancellation on
-   desktop. Post copy (TikTok / X / LinkedIn) with one-tap copy.
+   file. Target-platform select tunes caption placement and shows that
+   app's spec guidance. Opt-in Clipflow credit appends a 2s end card.
+   Progress with honest status messages; cancellation on desktop. Post copy
+   (TikTok / X / LinkedIn) with one-tap copy.
 
 Ordering is fixed and spatial: editor left, sticky preview center,
 visuals right; export below; post copy last. Mobile stacks preview
@@ -94,6 +99,10 @@ system. New surfaces must register in this table.
   18%), scene labels uppercase with accent tick in scene mode. The
   sounding word pops in accent at 1.15x (karaoke emphasis); full-paragraph
   captions are a bug.
+- **Hook card + platform presets.** Every export opens with the hook's
+  promise as a headline card (≤8 words, first 4s). One 720×1280 file
+  serves all platforms; the target-platform select tunes caption
+  placement and shows that app's spec guidance at export time.
 - **Motion is copy-directed** (`transform|sequence|comparison|
   evidence-reveal|payoff|kinetic-type|focus|metric|none`), never
   decorative. Same script → same motion.
@@ -130,12 +139,28 @@ apps, virality scoring. Each has a competitor to lose to and a reason
 documented in `docs/teardown.md`. Revisit only with owner sign-off and
 a line added here.
 
-## 8. Roadmap hooks
+## 8. Distribution (the loop v1)
 
-Near-term improvement vectors (ordered): preview fidelity (export =
-preview pixels), caption style presets (≥3, per teardown), batch/queue
-in DIY via the remotion-studio pipeline, 1080p export upgrade path,
-cloud voices as a paid convenience. Managed door owns fulfillment;
-DIY owns the loop. Improvements land behind these docs: product
-behavior here, contracts in `architecture.md`, visuals in
-`design-system.md`.
+No watermark — so distribution must come from opt-in surfaces, not
+hostage mechanics:
+
+- **End card (shipped):** the credit toggle burns `MADE WITH CLIPFLOW`
+  into the last 2 seconds of any export. Default off, one tap on, works
+  in browser and desktop exports. Every credited export is an impression
+  in the usage scenario itself.
+- **Next (not yet):** template/pack sharing and referral attribution need
+  identity + hosting the local-first core deliberately lacks. Build them
+  on the Managed door first, where accounts exist — never as DIY
+  paywalls.
+
+## 9. Roadmap hooks
+
+Shipped from the 2026 audit: safe-zone captions, active-word emphasis,
+hook card, platform presets, upload durability, activation metric +
+warm start, off-thread export, DIY week queue, opt-in end card.
+Remaining vectors: preview fidelity (export = preview pixels), caption
+style presets (≥3, per teardown), DIY→batch-studio handoff,
+1080p export upgrade path, cloud voices as a paid convenience. Managed
+door owns fulfillment; DIY owns the loop. Improvements land behind
+these docs: product behavior here, contracts in `architecture.md`,
+visuals in `design-system.md`.

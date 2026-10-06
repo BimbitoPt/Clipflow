@@ -7,6 +7,8 @@ import type { StockAsset } from './broll';
 export interface DesktopRenderInput {
   frames: PlannedFrame[]; assets: Array<StockAsset | null>; theme: Theme; extra: RenderExtra;
   duration: number; pcm: Float32Array | null; signal: AbortSignal;
+  /** Frames at or past this timestamp render the opt-in credit card. */
+  endCardAfter?: number;
   cueIndex: (frame: PlannedFrame) => number;
   seek: (video: HTMLVideoElement, t: number) => Promise<void>;
   progress: (percent: number, message: string) => void;
@@ -29,7 +31,7 @@ export async function renderDesktop(input: DesktopRenderInput): Promise<string |
       const frame = input.frames[i]!;
       const asset = input.assets[input.cueIndex(frame)];
       if (asset?.kind === 'video') { const video = asset.el as HTMLVideoElement; video.pause(); await seekNativeVideo(video, frame.t); }
-      drawFrame(ctx as DrawCtx, frame, input.theme, 720, 1280, { ...input.extra, asset: asset ?? undefined }, input.duration);
+      drawFrame(ctx as DrawCtx, frame, input.theme, 720, 1280, { ...input.extra, asset: asset ?? undefined, endCard: input.endCardAfter !== undefined && frame.t >= input.endCardAfter }, input.duration);
       await invoke('render_frame', { id: job.id, png: canvas.toDataURL('image/png').split(',')[1] });
       if (i % 15 === 0) input.progress(65 + Math.round(30 * (i + 1) / input.frames.length), `Rendering frame ${i + 1}/${input.frames.length}`);
     }

@@ -61,8 +61,19 @@ Stage contracts:
    phrase captions → progress bar. Extra inputs: `{ asset, words,
    captions, visualEffect }`. `drawFrame` must never throw (mock-`DrawCtx`
    tests enforce this).
-5. **Export** — browser: `mp4-muxer` (AVC `720×1280` 5 Mbps +
-   AAC 16 kHz mono), `clipflow-916.mp4`. Desktop: `renderDesktop`
+5. **Export** — browser: capability probes first
+   (`probeVideoConfig/probeAudioConfig` — exact shipping configs, named
+   failure reasons, desktop app as fallback). Frames draw on the main
+   thread (video elements can't cross the boundary) and transfer as
+   `VideoFrame`s to `src/lib/export-worker.ts`, which owns
+   `VideoEncoder`/`AudioEncoder` + `mp4-muxer` off-thread (AVC `720×1280`
+   5 Mbps + AAC 16 kHz mono, `clipflow-916.mp4`). Backpressure at
+   `MAX_QUEUE=24` (resume at 8); yields every 30 frames keep the UI alive;
+   abort terminates the worker. The worker ships as its own chunk so
+   initial load never pays for export. Opt-in credit (`creditOn`) appends
+   `CREDIT_SECS` of `endCard` frames (browser) or `endCardAfter`-flagged
+   frames (desktop) — the card replaces the whole frame, no captions.
+   Desktop: `renderDesktop`
    (`src/lib/desktop-render.ts`) streams PNG frames over Tauri `invoke`
    to `src-tauri/src/render.rs` (`begin_render/render_frame/
    finish_render/cancel_render`), piped to bundled FFmpeg

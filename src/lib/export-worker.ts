@@ -1,0 +1,222 @@
+import { ArrayBufferTarget, Muxer } from "mp4-muxer";
+import {
+  AUDIO_CONFIG,
+  VIDEO_CONFIG,
+  type FromWorker,
+  type ToWorker,
+} from "./export-worker-protocol";
+
+/**
+ * Browser export worker: VideoEncoder + AudioEncoder + mp4-muxer live here,
+ * off the main thread. The main thread keeps canvas drawing (video elements
+ * can't cross the thread boundary) and transfers each finished frame as a
+ * VideoFrame; audio arrives as AudioData. Same codec configs as the old
+ * inline path — only the thread changed.
+ *
+ * Protocol (main -> worker): init{voice} | frame{frame,keyFrame} |
+ * audio{data} | finish{} | abort{}.
+ * Protocol (worker -> main): ready{} | accepted{queue} | done{buffer} |
+ * error{message} | aborted{}. Nothing here ever throws out of onmessage —
+ * failures arrive as error{} so the main thread can fail the export cleanly.
+ */
+
+export interface MuxerLike {
+  addVideoChunk(chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata): void;
+  addAudioChunk(chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata): void;
+  finalize(): void;
+  target: { buffer: ArrayBuffer };
+}
+export interface EncoderLike<Config> {
+  readonly encodeQueueSize: number;
+  readonly state: CodecState;
+  configure(config: Config): void;
+  encode(frame: VideoFrame | AudioData, options?: { keyFrame?: boolean }): void;
+  flush(): Promise<void>;
+  close(): void;
+}
+export type VideoChunkOut = (chunk: EncodedVideoChunk, metadata?: EncodedVideoChunkMetadata) => void;
+export type AudioChunkOut = (chunk: EncodedAudioChunk, metadata?: EncodedAudioChunkMetadata) => void;
+export interface WorkerDeps {
+  createMuxer(voice: boolean): MuxerLike;
+  createVideoEncoder(output: VideoChunkOut, onError: (e: unknown) => void): EncoderLike<VideoEncoderConfig>;
+  createAudioEncoder(output: AudioChunkOut, onError: (e: unknown) => void): EncoderLike<AudioEncoderConfig>;
+}
+export interface WorkerScope {
+  postMessage(message: FromWorker, transfer?: Transferable[]): void;
+  setOnMessage(handler: (message: ToWorker) => void): void;
+}
+
+const realDeps: WorkerDeps = {
+  createMuxer: (voice: boolean) =>
+    voice
+      ? new Muxer({
+          target: new ArrayBufferTarget(),
+          video: { codec: "avc", width: VIDEO_CONFIG.width, height: VIDEO_CONFIG.height },
+          audio: { codec: "aac", sampleRate: AUDIO_CONFIG.sampleRate, numberOfChannels: AUDIO_CONFIG.numberOfChannels },
+          fastStart: "in-memory",
+        })
+      : new Muxer({
+          target: new ArrayBufferTarget(),
+          video: { codec: "avc", width: VIDEO_CONFIG.width, height: VIDEO_CONFIG.height },
+          fastStart: "in-memory",
+        }),
+  createVideoEncoder: (output, onError) => new VideoEncoder({ output, error: onError as ErrorCallback }),
+  createAudioEncoder: (output, onError) => new AudioEncoder({ output, error: onError as ErrorCallback }),
+};
+
+interface Session {
+  muxer: MuxerLike;
+  video: EncoderLike<VideoEncoderConfig>;
+  audio: EncoderLike<AudioEncoderConfig> | null;
+  voice: boolean;
+  videoErr: unknown;
+  audioErr: unknown;
+  finished: boolean;
+}
+
+function fail(scope: WorkerScope, message: string): void {
+  try {
+    scope.postMessage({ type: "error", message });
+  } catch {
+    // Last resort: nothing left to signal with.
+  }
+}
+
+export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): void {
+  let session: Session | null = null;
+
+  const reset = () => {
+    if (session) {
+      try {
+        if (session.video.state !== "closed") session.video.close();
+      } catch {
+        // Close is best-effort during teardown.
+      }
+      try {
+        if (session.audio && session.audio.state !== "closed") session.audio.close();
+      } catch {
+        // Close is best-effort during teardown.
+      }
+    }
+    session = null;
+  };
+
+  const handle = (message: ToWorker) => {
+    try {
+      if (message.type === "abort") {
+        reset();
+        scope!.postMessage({ type: "aborted" });
+        return;
+      }
+      if (message.type === "init") {
+        reset();
+        const muxer = deps.createMuxer(message.voice);
+        const next: Session = {
+          muxer,
+          video: null as unknown as EncoderLike<VideoEncoderConfig>,
+          audio: null,
+          voice: message.voice,
+          videoErr: null,
+          audioErr: null,
+          finished: false,
+        };
+        next.video = deps.createVideoEncoder(
+          (chunk, metadata) => muxer.addVideoChunk(chunk, metadata),
+          (e) => {
+            next.videoErr = e;
+          },
+        );
+        next.video.configure({ ...VIDEO_CONFIG });
+        if (message.voice) {
+          next.audio = deps.createAudioEncoder(
+            (chunk, metadata) => muxer.addAudioChunk(chunk, metadata),
+            (e) => {
+              next.audioErr = e;
+            },
+          );
+          next.audio.configure({ ...AUDIO_CONFIG });
+        }
+        session = next;
+        scope!.postMessage({ type: "ready" });
+        return;
+      }
+      if (!session || session.finished) {
+        fail(scope!, "Export session is not initialized.");
+        return;
+      }
+      if (message.type === "frame") {
+        try {
+          session.video.encode(message.frame, { keyFrame: message.keyFrame });
+        } finally {
+          try {
+            message.frame.close();
+          } catch {
+            // Frame release is best-effort.
+          }
+        }
+        scope!.postMessage({ type: "accepted", queue: session.video.encodeQueueSize });
+        return;
+      }
+      if (message.type === "audio") {
+        if (!session.audio) {
+          try {
+            message.data.close();
+          } catch {
+            // Release is best-effort.
+          }
+          fail(scope!, "Audio data sent to a voiceless session.");
+          return;
+        }
+        try {
+          session.audio.encode(message.data);
+        } finally {
+          try {
+            message.data.close();
+          } catch {
+            // Release is best-effort.
+          }
+        }
+        return;
+      }
+      // finish
+      void (async () => {
+        try {
+          await session!.video.flush();
+          if (session!.videoErr) throw session!.videoErr;
+          if (session!.voice && session!.audio) {
+            await session!.audio.flush();
+            if (session!.audioErr) throw session!.audioErr;
+          }
+          session!.muxer.finalize();
+          session!.finished = true;
+          const buffer = session!.muxer.target.buffer;
+          scope!.postMessage({ type: "done", buffer }, [buffer]);
+        } catch (error) {
+          fail(scope!, error instanceof Error ? error.message : String(error));
+        } finally {
+          reset();
+        }
+      })();
+    } catch (error) {
+      fail(scope!, error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  if (scope) {
+    scope.setOnMessage(handle);
+    return;
+  }
+  const globalScope = self as unknown as {
+    postMessage(message: FromWorker, transfer?: Transferable[]): void;
+    onmessage: ((event: MessageEvent<ToWorker>) => void) | null;
+  };
+  globalScope.onmessage = (event: MessageEvent<ToWorker>) => handle(event.data);
+}
+
+// Auto-start in a real worker global only: main-thread `self` is `window`.
+try {
+  const candidate = self as unknown as { window?: unknown };
+  if (typeof self !== "undefined" && candidate.window === undefined) startWorker();
+} catch {
+  // Module import context (tests, SSR): start explicitly via startWorker().
+}

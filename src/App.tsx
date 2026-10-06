@@ -4,7 +4,7 @@ import { loadPack, type Theme } from "./lib/packs";
 import { MSTUDIO_PROFILE, loadProfile, saveProfile, type Profile } from "./lib/profile";
 import { buildScript } from "./lib/script";
 import { planFrames, planWordsTimed, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
-import { drawFrame, type DrawCtx, type RenderExtra } from "./lib/render";
+import { drawFrame, CREDIT_SECS, type DrawCtx, type RenderExtra } from "./lib/render";
 import { preloadAsset, STOCK_POOL, type StockAsset } from "./lib/broll";
 import { AI_BACKGROUNDS, assignAiBackgrounds } from "./lib/ai-backgrounds";
 import { resolveSceneChoices, type ResolvedSceneChoice, type SceneChoice } from "./lib/scene-assets";
@@ -21,12 +21,15 @@ import { desktop, importNativeMedia, openDesktopProject, initialDesktopProject, 
 import { renderDesktop } from "./lib/desktop-render";
 import { deleteUpload, gcUploads, loadUploadBlob, saveUpload, touchUpload } from "./lib/upload-store";
 import { markMilestone, recordExport, SAMPLE_IDEA } from "./lib/activation";
+import { MAX_QUEUE, probeAudioConfig, probeVideoConfig, RESUME_QUEUE, type FromWorker } from "./lib/export-worker-protocol";
+import { isPlatformId, platformPreset, type PlatformId } from "../shared/platform-presets";
+import { nextQueueIndex, parseQueueIdeas, queuePosition, WEEK_KEY } from "./lib/week-queue";
 import type { VisualEffect } from "../shared/visual-effects";
 
 const pack = loadPack("mstudio");
 const theme: Theme = pack.themes[1]!;
 
-const OUT_W = 720, OUT_H = 1280, OUT_BITRATE = 5_000_000, OUT_NAME = "clipflow-916.mp4";
+const OUT_W = 720, OUT_H = 1280, OUT_NAME = "clipflow-916.mp4";
 
 // Browser session snapshot: React state (idea, beats, scene choices) dies
 // with the tab while uploads/timing/profile already persist — without this,
@@ -43,7 +46,7 @@ function validSceneChoice(choice: unknown): choice is SceneChoice {
 function readSession(): {
   idea: string; scriptOverrides: ScriptOverrides; sceneChoices: SceneChoice[];
   captionMode: CaptionMode; captionOverrides: Record<number, string>;
-  voiceOn: boolean; visualEffect: VisualEffect;
+  voiceOn: boolean; visualEffect: VisualEffect; platform: PlatformId; credit: boolean;
 } | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
@@ -51,6 +54,7 @@ function readSession(): {
     const parsed = JSON.parse(raw) as {
       version?: unknown; idea?: unknown; scriptOverrides?: unknown; sceneChoices?: unknown;
       captionMode?: unknown; captionOverrides?: unknown; voiceOn?: unknown; visualEffect?: unknown;
+      platform?: unknown; credit?: unknown;
     };
     if (!parsed || parsed.version !== 1 || typeof parsed.idea !== "string") return null;
     if (!Array.isArray(parsed.sceneChoices) || parsed.sceneChoices.length !== 5 || !parsed.sceneChoices.every(validSceneChoice)) return null;
@@ -67,6 +71,8 @@ function readSession(): {
       captionOverrides: parsed.captionOverrides as Record<number, string>,
       voiceOn: parsed.voiceOn,
       visualEffect: parsed.visualEffect as VisualEffect,
+      platform: isPlatformId(parsed.platform) ? parsed.platform : "tiktok",
+      credit: parsed.credit === true,
     };
   } catch {
     return null;
@@ -233,6 +239,15 @@ export function App() {
   const [assetLoading, setAssetLoading] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
   const [captionMode, setCaptionMode] = useState<CaptionMode>("auto");
+  const [platform, setPlatform] = useState<PlatformId>("tiktok");
+  const [creditOn, setCreditOn] = useState(false);
+  const [queueText, setQueueText] = useState(() => {
+    try {
+      return localStorage.getItem(WEEK_KEY) ?? "";
+    } catch {
+      return "";
+    }
+  });
   const [visualEffect, setVisualEffect] = useState<VisualEffect>("none");
   const [captionOverrides, setCaptionOverrides] = useState<Record<number, string>>({});
   const [exportMsg, setExportMsg] = useState("");
@@ -258,7 +273,11 @@ export function App() {
   }, []);
 
   const profile = useMemo(() => ({ niche, audience, offer, tone, proof }), [niche, audience, offer, tone, proof]);
-  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, timing: localStorage.getItem("clipflow.wordtimes") };
+  const preset = platformPreset(platform);
+  const queueIdeas = useMemo(() => parseQueueIdeas(queueText), [queueText]);
+  const queueNext = nextQueueIndex(queueIdeas, idea);
+  const queuePos = queuePosition(queueIdeas, idea);
+  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, timing: localStorage.getItem("clipflow.wordtimes") };
   const projectSnapshot = projectFingerprint(projectDraft);
   const projectDirty = projectSnapshot !== savedSnapshot;
 
@@ -268,6 +287,8 @@ export function App() {
     if (project.baseScript && (!Array.isArray(project.baseScript.cues) || project.baseScript.cues.length !== 5)) throw new Error("The saved script has an invalid scene plan.");
     setProjectBase(project.baseScript ? {idea: project.idea, profile: projectFingerprint(project.profile), script: project.baseScript} : null);
     setScriptOverrides(project.scriptOverrides); setSceneChoices(project.sceneChoices); setCaptionMode(project.captionMode); setCaptionOverrides(project.captionOverrides); setVoiceOn(project.voiceOn); setVisualEffect(project.visualEffect ?? "none");
+    if (isPlatformId(project.platform)) setPlatform(project.platform);
+    setCreditOn(project.credit === true);
     if (project.timing) localStorage.setItem("clipflow.wordtimes", project.timing); else localStorage.removeItem("clipflow.wordtimes");
     const { savedAt: _savedAt, ...draft } = project;
     setSavedSnapshot(projectFingerprint(draft)); setProjectPath(path); setSelectedScene(0); setNativeOutput(null); setExportUrl(null); setStatus("idle"); setErr("");
@@ -335,6 +356,8 @@ export function App() {
     setCaptionOverrides(session.captionOverrides);
     setVoiceOn(session.voiceOn);
     setVisualEffect(session.visualEffect);
+    setPlatform(session.platform);
+    setCreditOn(session.credit);
   }, []);
 
   useEffect(() => {
@@ -342,12 +365,20 @@ export function App() {
     try {
       localStorage.setItem(SESSION_KEY, JSON.stringify({
         version: 1, idea, scriptOverrides, sceneChoices,
-        captionMode, captionOverrides, voiceOn, visualEffect,
+        captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn,
       }));
     } catch {
       // Session restore is convenience; the editor works without it.
     }
-  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect]);
+  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(WEEK_KEY, queueText);
+    } catch {
+      // Queue persistence is convenience; the editor works without it.
+    }
+  }, [queueText]);
 
   useEffect(() => {
     if (!desktop) return;
@@ -473,6 +504,7 @@ export function App() {
       const extra: RenderExtra = {};
       extra.visualEffect = visualEffect;
       extra.captions = captions;
+      extra.captionAnchor = preset.captionAnchor;
       if (words) extra.words = words;
       const asset = sceneAssets[selectedScene];
       if (asset) extra.asset = asset;
@@ -485,7 +517,7 @@ export function App() {
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     }
-  }, [script, words, captions, timing, selectedScene, sceneAssets, sceneChoices, visualEffect]);
+  }, [script, words, captions, timing, selectedScene, sceneAssets, sceneChoices, visualEffect, preset]);
 
   function onSave() {
     try {
@@ -501,15 +533,32 @@ export function App() {
     if (busyRef.current) return;
     busyRef.current = true;
     try {
-      if (!desktop && typeof VideoEncoder === "undefined") {
-        setStatus("error");
-        setErr("This browser can't hardware-encode — open in Chrome/Edge.");
-        return;
-      }
-      if (!desktop && voiceOn && (typeof AudioEncoder === "undefined" || typeof AudioData === "undefined")) {
-        setStatus("error");
-        setErr("This browser can't encode audio — export silently or try Chrome/Edge.");
-        return;
+      // Capability probe first: fail fast with a named cause instead of
+      // dying mid-export. The desktop app (FFmpeg) is the universal fallback.
+      if (!desktop) {
+        const videoProbe = await probeVideoConfig();
+        if (!videoProbe.supported) {
+          setStatus("error");
+          setErr(videoProbe.reason === "missing"
+            ? "This browser can't hardware-encode — open in Chrome/Edge, or use the desktop app."
+            : "This browser refused the 720x1280 H.264 export config — update Chrome/Edge, or use the desktop app.");
+          return;
+        }
+        if (voiceOn && typeof AudioData === "undefined") {
+          setStatus("error");
+          setErr("This browser can't encode audio — export silently or try Chrome/Edge.");
+          return;
+        }
+        if (voiceOn) {
+          const audioProbe = await probeAudioConfig();
+          if (!audioProbe.supported) {
+            setStatus("error");
+            setErr(audioProbe.reason === "missing"
+              ? "This browser can't encode audio — export silently or try Chrome/Edge."
+              : "This browser refused the voice export config — export silently or update Chrome/Edge.");
+            return;
+          }
+        }
       }
       setStatus("working");
       exportAbortRef.current = new AbortController();
@@ -570,9 +619,17 @@ export function App() {
         }
         if (desktop) {
           exportAbortRef.current.signal.throwIfAborted();
+          const baseDuration = timing?.total ?? VIDEO_SECS;
+          const totalDuration = baseDuration + (creditOn ? CREDIT_SECS : 0);
+          const baseFrames = planFrames(script, 30, timing?.windows ?? null, approvedProofByCue, cueAssets);
+          const lastCue = script.cues[script.cues.length - 1]!;
+          const cardFrames: PlannedFrame[] = creditOn
+            ? Array.from({ length: Math.round(CREDIT_SECS * 30) }, (_, i) => ({ t: baseDuration + i / 30, cue: lastCue }))
+            : [];
           const output = await renderDesktop({
-            frames: planFrames(script, 30, timing?.windows ?? null, approvedProofByCue, cueAssets), assets: cueAssets, theme,
-            extra: { captions, words, visualEffect }, duration: timing?.total ?? VIDEO_SECS, pcm, signal: exportAbortRef.current.signal,
+            frames: [...baseFrames, ...cardFrames], assets: cueAssets, theme,
+            extra: { captions, words, visualEffect, captionAnchor: preset.captionAnchor }, duration: totalDuration,
+            endCardAfter: creditOn ? baseDuration : undefined, pcm, signal: exportAbortRef.current.signal,
             cueIndex: frame => cueIndexOf(script, frame.cue), seek: seekVideo,
             progress: (percent,message) => { setExportProgress(percent); setExportMsg(message); },
           });
@@ -581,106 +638,158 @@ export function App() {
           return;
         }
         setExportMsg("Muxing clipflow-916.mp4…");
-        const { Muxer, ArrayBufferTarget } = await import("mp4-muxer");
-        const muxer = voiceOn
-          ? new Muxer({
-              target: new ArrayBufferTarget(),
-              video: { codec: "avc", width: OUT_W, height: OUT_H },
-              audio: { codec: "aac", sampleRate: 16000, numberOfChannels: 1 },
-              fastStart: "in-memory",
-            })
-          : new Muxer({ target: new ArrayBufferTarget(), video: { codec: "avc", width: OUT_W, height: OUT_H }, fastStart: "in-memory" });
-        const canvas = document.createElement("canvas");
-        canvas.width = OUT_W;
-        canvas.height = OUT_H;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
-        const frames: PlannedFrame[] = planFrames(script, 30, timing?.windows ?? null, approvedProofByCue, cueAssets);
-        const assetByCue = new Map<number, StockAsset | null>();
-        script.cues.forEach((_cue, i) => assetByCue.set(i, cueAssets[i] ?? null));
-        // Deterministic video start: seek each cue's video once before its frames.
-        let encErr: unknown = null;
-        const encoder = new VideoEncoder({
-          output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-          error: (e) => {
-            encErr = e;
-          },
-        });
-        encoder.configure({ codec: "avc1.42001f", width: OUT_W, height: OUT_H, bitrate: OUT_BITRATE });
-        let audioEncErr: unknown = null;
-        let audioEncoder: AudioEncoder | null = null;
-        if (voiceOn && pcm) {
-          audioEncoder = new AudioEncoder({
-            output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
-            error: (e) => {
-              audioEncErr = e;
-            },
-          });
-          audioEncoder.configure({ codec: "mpac", sampleRate: 16000, numberOfChannels: 1, bitrate: 96000 });
-        }
+        // Encode off the main thread: this thread draws frames (video
+        // elements can't cross the boundary) and transfers each finished
+        // frame to the worker, which encodes + muxes. Backpressure via the
+        // worker queue keeps memory flat; periodic yields keep the UI alive.
+        const withAudio = Boolean(voiceOn && pcm);
+        const worker = new Worker(new URL("./lib/export-worker.ts", import.meta.url), { type: "module" });
+        let buffer: ArrayBuffer;
         try {
-          let n = 0;
-          for (const f of frames) {
-            const idx = cueIndexOf(script, f.cue);
-            const asset = assetByCue.get(idx) ?? null;
-            if (asset?.kind === "video") {
-              const video = asset.el as HTMLVideoElement;
-              video.pause();
-              // Keep local stock video moving continuously across scene cuts.
-              // Resetting to scene-local time made every beat reuse the same opening angle.
-              const seek = Number.isFinite(video.duration) && video.duration > 0
-                ? f.t % video.duration : f.t;
-              await seekVideo(video, seek);
-            }
-            const extra: RenderExtra = {};
-            extra.visualEffect = visualEffect;
-            extra.captions = captions;
-            if (words) extra.words = words;
-            if (asset) extra.asset = asset;
-            drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, extra, timing?.total ?? VIDEO_SECS);
-            const vf = new VideoFrame(canvas, { timestamp: Math.round(f.t * 1e6) });
-            try {
-              encoder.encode(vf, { keyFrame: f.t < 1 });
-            } finally {
-              vf.close();
-            }
-            n++;
-            if (n % 90 === 0) {
-              setExportProgress(65 + Math.round((30 * n) / frames.length));
-              setExportMsg(`Muxing ${n}/${frames.length} frames…`);
-            }
-          }
-          await encoder.flush();
-          if (encErr) throw encErr;
-          if (voiceOn && pcm && audioEncoder) {
-            const CHUNK = 1_000_000;
-            for (let off = 0; off < pcm.length; off += CHUNK) {
-              const slice = pcm.slice(off, off + CHUNK);
-              const ad = new AudioData({
-                format: "f32",
-                sampleRate: 16000,
-                numberOfFrames: slice.length,
-                numberOfChannels: 1,
-                timestamp: Math.round((off * 1e6) / 16000),
-                data: slice,
-              });
-              try {
-                audioEncoder.encode(ad);
-              } finally {
-                ad.close();
+          buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+            let lastQueue = 0;
+            let gate: (() => void) | null = null;
+            let settled = false;
+            const release = () => {
+              const pending = gate;
+              gate = null;
+              if (pending) pending();
+            };
+            const fail = (error: unknown) => {
+              if (settled) return;
+              settled = true;
+              release();
+              reject(error instanceof Error ? error : new Error(String(error)));
+            };
+            worker.onmessage = (event: MessageEvent<FromWorker>) => {
+              const message = event.data;
+              if (message.type === "accepted") {
+                lastQueue = message.queue;
+                if (message.queue <= RESUME_QUEUE) release();
+              } else if (message.type === "done") {
+                if (settled) return;
+                settled = true;
+                release();
+                resolve(message.buffer);
+              } else if (message.type === "error") {
+                fail(new Error(message.message));
               }
-            }
-            await audioEncoder.flush();
-            if (audioEncErr) throw audioEncErr;
-          }
-          muxer.finalize();
+            };
+            worker.onerror = (event) => fail(event instanceof ErrorEvent ? event.message : "Export worker failed.");
+            exportAbortRef.current?.signal.addEventListener("abort", () => {
+              try {
+                worker.postMessage({ type: "abort" });
+              } catch {
+                // Terminate below still releases the worker.
+              }
+              fail(new DOMException("Export cancelled.", "AbortError"));
+            }, { once: true });
+            void (async () => {
+              try {
+                worker.postMessage({ type: "init", voice: withAudio });
+                const canvas = document.createElement("canvas");
+                canvas.width = OUT_W;
+                canvas.height = OUT_H;
+                const ctx = canvas.getContext("2d");
+                if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
+                const frames: PlannedFrame[] = planFrames(script, 30, timing?.windows ?? null, approvedProofByCue, cueAssets);
+                const assetByCue = new Map<number, StockAsset | null>();
+                script.cues.forEach((_cue, i) => assetByCue.set(i, cueAssets[i] ?? null));
+                const baseDuration = timing?.total ?? VIDEO_SECS;
+                const totalDuration = baseDuration + (creditOn ? CREDIT_SECS : 0);
+                const totalFrames = frames.length + (creditOn ? Math.round(CREDIT_SECS * 30) : 0);
+                const postFrame = async (vf: VideoFrame, keyFrame: boolean) => {
+                  try {
+                    worker.postMessage({ type: "frame", frame: vf, keyFrame }, [vf]);
+                  } catch (postError) {
+                    try {
+                      vf.close();
+                    } catch {
+                      // Release is best-effort; the post error carries the failure.
+                    }
+                    throw postError;
+                  }
+                  n++;
+                  if (n % 90 === 0) {
+                    setExportProgress(65 + Math.round((30 * n) / totalFrames));
+                    setExportMsg(`Muxing ${n}/${totalFrames} frames…`);
+                  }
+                  if (lastQueue > MAX_QUEUE) await new Promise<void>((resume) => {
+                    gate = resume;
+                  });
+                  if (n % 30 === 0) await new Promise((paint) => setTimeout(paint, 0));
+                };
+                let n = 0;
+                for (const f of frames) {
+                  exportAbortRef.current?.signal.throwIfAborted();
+                  const idx = cueIndexOf(script, f.cue);
+                  const asset = assetByCue.get(idx) ?? null;
+                  if (asset?.kind === "video") {
+                    const video = asset.el as HTMLVideoElement;
+                    video.pause();
+                    // Keep local stock video moving continuously across scene cuts.
+                    // Resetting to scene-local time made every beat reuse the same opening angle.
+                    const seek = Number.isFinite(video.duration) && video.duration > 0
+                      ? f.t % video.duration : f.t;
+                    await seekVideo(video, seek);
+                  }
+                  const extra: RenderExtra = {};
+                  extra.visualEffect = visualEffect;
+                  extra.captions = captions;
+                  extra.captionAnchor = preset.captionAnchor;
+                  if (words) extra.words = words;
+                  if (asset) extra.asset = asset;
+                  drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, extra, totalDuration);
+                  const vf = new VideoFrame(canvas, { timestamp: Math.round(f.t * 1e6) });
+                  await postFrame(vf, f.t < 1);
+                }
+                if (creditOn) {
+                  const cardFrames = Math.round(CREDIT_SECS * 30);
+                  for (let i = 0; i < cardFrames; i++) {
+                    exportAbortRef.current?.signal.throwIfAborted();
+                    const t = baseDuration + i / 30;
+                    drawFrame(ctx as DrawCtx, { t, cue: script.cues[script.cues.length - 1]! }, theme, OUT_W, OUT_H, { endCard: true }, totalDuration);
+                    const vf = new VideoFrame(canvas, { timestamp: Math.round(t * 1e6) });
+                    await postFrame(vf, i === 0);
+                  }
+                }
+                if (withAudio && pcm) {
+                  const CHUNK = 1_000_000;
+                  for (let off = 0; off < pcm.length; off += CHUNK) {
+                    exportAbortRef.current?.signal.throwIfAborted();
+                    const slice = pcm.slice(off, off + CHUNK);
+                    const ad = new AudioData({
+                      format: "f32",
+                      sampleRate: 16000,
+                      numberOfFrames: slice.length,
+                      numberOfChannels: 1,
+                      timestamp: Math.round((off * 1e6) / 16000),
+                      data: slice,
+                    });
+                    try {
+                      worker.postMessage({ type: "audio", data: ad }, [ad]);
+                    } catch (postError) {
+                      try {
+                        ad.close();
+                      } catch {
+                        // Release is best-effort.
+                      }
+                      throw postError;
+                    }
+                  }
+                }
+                worker.postMessage({ type: "finish" });
+              } catch (error) {
+                fail(error);
+              }
+            })();
+          });
         } finally {
-          if (encoder.state !== "closed") encoder.close();
-          if (audioEncoder && audioEncoder.state !== "closed") audioEncoder.close();
+          worker.terminate();
         }
         setExportProgress(100);
         setExportMsg("");
-        const blob = new Blob([muxer.target.buffer], { type: "video/mp4" });
+        const blob = new Blob([buffer], { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         setExportUrl(url);
         try {
@@ -769,6 +878,23 @@ export function App() {
                   TRY A SAMPLE IDEA IN ONE CLICK
                 </button>
               )}
+              <label className="cf-idea-label">THIS WEEK'S QUEUE
+                <textarea value={queueText} disabled={isWorking} rows={2} onChange={(e) => setQueueText(e.target.value)} placeholder="One idea per line — line up the week's posts." />
+              </label>
+              {queueIdeas.length > 0 && (
+                <div className="cf-queue-row">
+                  <span>{queuePos.total > 0 ? `${queuePos.position}/${queuePos.total} IN QUEUE` : ""}</span>
+                  <button type="button" className="cf-button cf-button-secondary" disabled={isWorking || queueNext < 0} onClick={() => {
+                    const next = queueIdeas[queueNext];
+                    if (next === undefined) return;
+                    setIdea(next);
+                    setScriptOverrides({});
+                    setSelectedScene(0);
+                  }}>
+                    {queueNext < 0 ? "QUEUE DONE" : "LOAD NEXT IDEA"}
+                  </button>
+                </div>
+              )}
               <ProfileSettings profile={profile} disabled={isWorking} saved={saved} onSave={onSave} onChange={(field, value) => {
                 ({ niche: setNiche, audience: setAudience, offer: setOffer, tone: setTone, proof: setProof })[field](value);
                 setScriptOverrides({});
@@ -801,7 +927,7 @@ export function App() {
         </div>
 
         {script && <ExportPanel script={script} tiktok={tiktok} xpost={xpost} voiceOn={voiceOn} onVoiceChange={setVoiceOn} onPreviewVoice={() => previewSpeak(script.hook)}
-          onExport={() => void onExport()} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} downloadUrl={exportUrl} captionMode={captionMode} onCaptionModeChange={setCaptionMode} visualEffect={visualEffect} onVisualEffectChange={setVisualEffect}
+          onExport={() => void onExport()} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} downloadUrl={exportUrl} captionMode={captionMode} onCaptionModeChange={setCaptionMode} visualEffect={visualEffect} onVisualEffectChange={setVisualEffect} platform={platform} onPlatformChange={setPlatform} creditOn={creditOn} onCreditChange={setCreditOn}
           nativeOutput={nativeOutput} nativePreview={nativeOutput ? nativeMediaUrl(nativeOutput) : null} onReveal={() => nativeOutput && void showInFolder(nativeOutput).catch(error => setErr(String(error)))} onCancel={desktop ? () => exportAbortRef.current?.abort() : undefined} />}
 
         <footer className="cf-footer"><span>CLIPFLOW / BUILT TO KEEP IDEAS MOVING</span><a href="mailto:hello@mstudioweb.pt?subject=Clipflow%20Managed">NEED A MANAGED VIDEO PIPELINE? ↗</a></footer>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { drawFrame, drawScene, findActiveWord, CAPTION_ANCHOR_RATIO, type DrawCtx } from "./render";
+import { drawFrame, drawScene, findActiveWord, hookHeadline, CAPTION_ANCHOR_RATIO, CREDIT_SECS, HOOK_CARD_SECS, HOOK_CARD_WORDS, type DrawCtx } from "./render";
 import { planFrames, type SceneVariant } from "./planner";
 import type { VideoScript } from "./script";
 import type { Theme } from "./packs";
@@ -200,8 +200,8 @@ describe("render", () => {
     expect(ctx.texts.join(" ")).toMatch(/niche/);
     expect(ctx.texts[0]).toEqual("Hello niche");
     // Karaoke emphasis: the sounding word is overdrawn in accent.
-    expect(ctx.texts.at(-1)).toEqual("niche");
-    expect(ctx.accents.at(-1)).toEqual(theme.accent);
+    expect(ctx.texts).toContain("niche");
+    expect(ctx.accents).toContain(theme.accent);
   });
 
   it("shows a stable phrase instead of a sliding neighbor window", () => {
@@ -222,8 +222,8 @@ describe("render", () => {
       { words },
     );
     expect(ctx.texts[0]).toEqual("a b c d e");
-    expect(ctx.texts.at(-1)).toEqual("c");
-    expect(ctx.accents.at(-1)).toEqual(theme.accent);
+    expect(ctx.texts).toContain("c");
+    expect(ctx.accents).toContain(theme.accent);
   });
 
   it("follows voice-timed words outside their cue window", () => {
@@ -246,8 +246,8 @@ describe("render", () => {
     );
     expect(ctx.texts[0]).toEqual("slow sites kill");
     expect(ctx.texts.join(" ")).not.toContain("beat");
-    expect(ctx.texts.at(-1)).toEqual("kill");
-    expect(ctx.accents.at(-1)).toEqual(theme.accent);
+    expect(ctx.texts).toContain("kill");
+    expect(ctx.accents).toContain(theme.accent);
   });
 
   it("keeps phrase captions inside the platform safe zone", () => {
@@ -291,7 +291,7 @@ describe("render", () => {
         captions: [{ text: "Custom Scene Label", start: 0, end: 4, kind: "scene" as const }],
       },
     );
-    expect(ctx.texts).toEqual(["CUSTOM SCENE LABEL"]);
+    expect(ctx.texts[0]).toEqual("CUSTOM SCENE LABEL");
   });
 
   it("anchors the no-caption fallback in the safe zone over footage", () => {
@@ -326,6 +326,60 @@ describe("render", () => {
     expect(findActiveWord(words, 9)).toEqual("c");
     expect(findActiveWord(words, -1)).toBeUndefined();
     expect(findActiveWord([], 1)).toBeUndefined();
+  });
+
+  it("holds a hook card over the opening seconds", () => {
+    const ctx = stubCtx();
+    drawFrame(
+      ctx,
+      { t: 1, cue: { start: 0, end: 4, kind: "hook", text: "Slow sites cost you sales every single week" } },
+      theme,
+      720,
+      1280,
+    );
+    expect(ctx.texts).toContain("Slow sites cost you sales every single week");
+    // Plate lives in the top band, far from captions and platform UI.
+    // (Background and accent-bar rects also touch y=0 — filter by plate size.)
+    const plates = ctx.rects.filter(([, y, , h]) => y > 20 && y < 1280 * 0.3 && h > 20 && h < 1280 * 0.1);
+    expect(plates.length).toBeGreaterThan(0);
+  });
+
+  it("drops the hook card after the opening seconds", () => {
+    const ctx = stubCtx();
+    drawFrame(
+      ctx,
+      { t: 10, cue: { start: 4, end: 16, kind: "beat", text: "Owning the result beats renting attention" } },
+      theme,
+      720,
+      1280,
+    );
+    expect(ctx.texts).not.toContain("Owning the result beats renting attention");
+    expect(ctx.rects.filter(([, y, , h]) => y > 20 && y < 1280 * 0.3 && h > 20 && h < 1280 * 0.1).length).toBe(0);
+  });
+
+  it("truncates the hook card to a blunt headline", () => {
+    const long = "one two three four five six seven eight nine ten eleven twelve";
+    expect(hookHeadline(long).split(" ").length).toBeLessThanOrEqual(HOOK_CARD_WORDS);
+    expect(hookHeadline(long)).toBe("one two three four five six seven eight");
+    expect(HOOK_CARD_SECS).toBe(4);
+  });
+
+  it("draws the opt-in credit card with no captions", () => {
+    const ctx = stubCtx();
+    drawFrame(
+      ctx,
+      { t: 46, cue: { start: 40, end: 45, kind: "cta", text: "Book now today" } },
+      theme,
+      720,
+      1280,
+      {
+        endCard: true,
+        words: [{ word: "Book", start: 46, end: 46.5, cueKind: "cta" as const }],
+        captions: [{ text: "Book now today", start: 40, end: 47, kind: "speech" as const }],
+      },
+    );
+    expect(ctx.texts).toEqual(["MADE WITH", "CLIPFLOW"]);
+    expect(CREDIT_SECS).toBe(2);
   });
 
   it("dips to brand dark across cue boundaries, never mid-cue", () => {

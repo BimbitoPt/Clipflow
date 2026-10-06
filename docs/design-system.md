@@ -114,7 +114,18 @@ the accent but frames may use theme 1 (`#246BFD`) or theme 2 (`#CFFF47`).
   `CAPTION_ANCHOR_RATIO` (0.64H) so the block (~0.60–0.75H) stays inside the
   platform safe zone — platform UI covers the top ~9% and bottom ~18%, so
   bottom-third captions get covered on cross-posts. Bold system-ui over a
-  dark scrim; scene kind uppercase with accent side-tick.
+  dark scrim; scene kind uppercase with accent side-tick. Platform presets
+  (`shared/platform-presets.ts`: TikTok 0.64, Reels 0.62, Shorts 0.66)
+  nudge the baseline per app overlay; values clamp to 0.60–0.70.
+- Hook card: the clip's promise (first 8 words of the hook, `hookHeadline`)
+  held over the opening 4 seconds at 0.16H — dark plate, white extra-bold,
+  accent underline. Muted autoplay reads it before any audio registers.
+- End card (opt-in `RenderExtra.endCard`, `CREDIT_SECS = 2`): the whole
+  frame — near-black, `MADE WITH` mono over `CLIPFLOW` extra-black with an
+  accent bar. No captions, no b-roll, no motion. Every credited export is
+  a distribution impression.
+- Week queue (`.cf-queue-row`): one idea per line, position counter,
+  `LOAD NEXT IDEA` secondary button. Same panel language as the idea box.
 - Active word: the sounding word overdraws in accent at 1.15x
   (`findActiveWord` in `src/lib/render.ts`, `EmphasizedPhrase` in
   `SceneFrame.tsx`). Speech phrases only — scene labels have no word

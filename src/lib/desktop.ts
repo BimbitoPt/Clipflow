@@ -4,6 +4,7 @@ import type { ScriptOverrides } from './script-draft';
 import type { SceneChoice } from './scene-assets';
 import type { CaptionMode } from '../../shared/caption-plan';
 import type { VisualEffect } from '../../shared/visual-effects';
+import type { PlatformId } from '../../shared/platform-presets';
 import type { VideoScript } from './script';
 
 export const desktop = isTauri();
@@ -14,6 +15,8 @@ export interface DesktopProjectV1 {
   version: 1; idea: string; profile: Profile; scriptOverrides: ScriptOverrides;
   sceneChoices: SceneChoice[]; captionMode: CaptionMode; captionOverrides: Record<number, string>;
   voiceOn: boolean; visualEffect: VisualEffect; timing: string | null; savedAt: string;
+  platform?: PlatformId;
+  credit?: boolean;
   baseScript?: VideoScript | null;
   renderPlan?: Record<string, unknown> | null;
 }
