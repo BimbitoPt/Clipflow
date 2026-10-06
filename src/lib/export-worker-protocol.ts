@@ -21,6 +21,7 @@ export type ToWorker =
 export type FromWorker =
   | { type: "ready" }
   | { type: "accepted"; queue: number }
+  | { type: "stage"; stage: "flushing-video" | "flushing-audio" | "finalizing" }
   | { type: "done"; buffer: ArrayBuffer }
   | { type: "error"; message: string }
   | { type: "aborted" };

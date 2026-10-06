@@ -27,16 +27,21 @@ const browser = await chromium.launch({
   args: ["--autoplay-policy=no-user-gesture-required", "--mute-audio"],
 });
 const page = await browser.newPage({ acceptDownloads: true });
+page.on("pageerror", (error) => console.log(`[pageerror] ${error.message}`));
+const step = (name) => console.log(`[dogfood] ${name}`);
 try {
+  step("loading studio");
   await page.goto("http://localhost:8081/", { waitUntil: "load", timeout: 60000 });
   const box = page.getByPlaceholder("What should this video say?");
   await box.waitFor({ timeout: 60000 });
   // Clipflow pack + Clipflow brand context: the hero sells Clipflow itself.
+  step("selecting clipflow pack");
   await page.getByLabel("Niche pack").selectOption("clipflow");
   await page.locator(".cf-profile summary").click();
   for (const [label, value] of Object.entries(PROFILE)) {
     await page.getByLabel(label, { exact: true }).fill(value);
   }
+  step("filling idea, waiting for script");
   await box.fill(idea);
   // Script panel appears once the idea builds.
   await page.locator(".cf-script-panel").waitFor({ timeout: 60000 });
@@ -50,13 +55,23 @@ try {
   }
   const exportButton = page.getByRole("button", { name: /EXPORT 9:16 MP4/ });
   await exportButton.scrollIntoViewIfNeeded();
+  step("exporting (voice render + mux — this takes a while)");
   const [download] = await Promise.all([
     page.waitForEvent("download", { timeout: 30 * 60 * 1000 }),
     exportButton.click(),
   ]);
   const dest = path.resolve(out);
   await download.saveAs(dest);
-  console.log(`Saved ${dest}`);
+  step(`saved ${dest}`);
+} catch (error) {
+  console.error(`[dogfood] FAILED: ${error.message}`);
+  try {
+    await page.screenshot({ path: "C:/Users/Guilh/AppData/Local/Temp/opencode/dogfood-fail.png" });
+    console.error("[dogfood] failure screenshot saved");
+  } catch {
+    // ignore
+  }
+  throw error;
 } finally {
   await browser.close();
 }

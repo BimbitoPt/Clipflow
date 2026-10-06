@@ -653,6 +653,16 @@ export function App() {
         const withAudio = Boolean(voiceOn && pcm);
         const worker = new Worker(new URL("./lib/export-worker.ts", import.meta.url), { type: "module" });
         let buffer: ArrayBuffer;
+        // Stall watchdog: a hung encoder used to look identical to a slow
+        // one. After 45s without a worker message, say so and name the way
+        // out instead of spinning forever.
+        let lastWorkerMsgAt = Date.now();
+        const watchdog = setInterval(() => {
+          const silentSec = Math.round((Date.now() - lastWorkerMsgAt) / 1000);
+          if (silentSec >= 45) {
+            setExportMsg(`Still encoding — no encoder response for ${silentSec}s. If this persists, restart Chrome or use the desktop app.`);
+          }
+        }, 5000);
         try {
           buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
             let lastQueue = 0;
@@ -671,9 +681,16 @@ export function App() {
             };
             worker.onmessage = (event: MessageEvent<FromWorker>) => {
               const message = event.data;
+              lastWorkerMsgAt = Date.now();
               if (message.type === "accepted") {
                 lastQueue = message.queue;
                 if (message.queue <= RESUME_QUEUE) release();
+              } else if (message.type === "stage") {
+                setExportMsg(
+                  message.stage === "flushing-video" ? "Flushing video encoder…"
+                  : message.stage === "flushing-audio" ? "Flushing voice encoder…"
+                  : "Finalizing MP4…",
+                );
               } else if (message.type === "done") {
                 if (settled) return;
                 settled = true;
@@ -797,6 +814,7 @@ export function App() {
             })();
           });
         } finally {
+          clearInterval(watchdog);
           worker.terminate();
         }
         setExportProgress(100);

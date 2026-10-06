@@ -140,6 +140,9 @@ describe("export-worker", () => {
     await tick();
     const done = h.posted.at(-1)!;
     expect(done.type).toBe("done");
+    // Finish stages are visible so a stall is attributable, not a mystery.
+    expect(h.posted).toContainEqual({ type: "stage", stage: "flushing-video" });
+    expect(h.posted).toContainEqual({ type: "stage", stage: "finalizing" });
     expect((done as { buffer: ArrayBuffer }).buffer.byteLength).toBe(8);
     expect(h.finalized()).toBe(true);
     expect(h.chunks).toEqual([{ kind: "video" }, { kind: "audio" }]);
