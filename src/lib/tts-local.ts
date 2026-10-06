@@ -25,7 +25,7 @@ let cached: SpeechT5Pipeline | null = null;
 // null on failure so a later call retries instead of sticking to rejection.
 let pending: Promise<SpeechT5Pipeline> | null = null;
 
-function resampleLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+export function resampleLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
   if (input.length === 0 || fromRate === toRate) return input;
   const ratio = fromRate / toRate;
   const outLength = Math.max(1, Math.round(input.length / ratio));

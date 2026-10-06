@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { makeCaptionPlan, resolveCaptionMode, suggestSceneLabel, type CaptionMode } from "../shared/caption-plan";
-import { loadPack, type Theme } from "./lib/packs";
+import { loadPack, PACK_IDS, packLabel, type Theme } from "./lib/packs";
 import { MSTUDIO_PROFILE, loadProfile, saveProfile, type Profile } from "./lib/profile";
 import { buildScript } from "./lib/script";
 import { planFrames, planWordsTimed, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
@@ -10,7 +10,7 @@ import { AI_BACKGROUNDS, assignAiBackgrounds } from "./lib/ai-backgrounds";
 import { resolveSceneChoices, type ResolvedSceneChoice, type SceneChoice } from "./lib/scene-assets";
 import { applyScriptOverrides, hasScriptOverrides, type ScriptOverrides } from "./lib/script-draft";
 import { previewSpeak } from "./lib/tts";
-import { createSpeechT5Loader } from "./lib/tts-local";
+import { createSpeechT5Loader, resampleLinear } from "./lib/tts-local";
 import ProfileSettings from "./components/ProfileSettings";
 import ScriptBeats from "./components/ScriptBeats";
 import SceneTray from "./components/SceneTray";
@@ -21,13 +21,11 @@ import { desktop, importNativeMedia, openDesktopProject, initialDesktopProject, 
 import { renderDesktop } from "./lib/desktop-render";
 import { deleteUpload, gcUploads, loadUploadBlob, saveUpload, touchUpload } from "./lib/upload-store";
 import { markMilestone, recordExport, SAMPLE_IDEA } from "./lib/activation";
-import { MAX_QUEUE, probeAudioConfig, probeVideoConfig, RESUME_QUEUE, type FromWorker } from "./lib/export-worker-protocol";
+import { MAX_QUEUE, AUDIO_CONFIG, probeAudioConfig, probeVideoConfig, RESUME_QUEUE, type FromWorker } from "./lib/export-worker-protocol";
 import { isPlatformId, platformPreset, type PlatformId } from "../shared/platform-presets";
 import { nextQueueIndex, parseQueueIdeas, queuePosition, WEEK_KEY } from "./lib/week-queue";
 import type { VisualEffect } from "../shared/visual-effects";
-
-const pack = loadPack("mstudio");
-const theme: Theme = pack.themes[1]!;
+import type { PackId } from "./lib/packs";
 
 const OUT_W = 720, OUT_H = 1280, OUT_NAME = "clipflow-916.mp4";
 
@@ -46,7 +44,7 @@ function validSceneChoice(choice: unknown): choice is SceneChoice {
 function readSession(): {
   idea: string; scriptOverrides: ScriptOverrides; sceneChoices: SceneChoice[];
   captionMode: CaptionMode; captionOverrides: Record<number, string>;
-  voiceOn: boolean; visualEffect: VisualEffect; platform: PlatformId; credit: boolean;
+  voiceOn: boolean; visualEffect: VisualEffect; platform: PlatformId; credit: boolean; pack: PackId;
 } | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
@@ -54,7 +52,7 @@ function readSession(): {
     const parsed = JSON.parse(raw) as {
       version?: unknown; idea?: unknown; scriptOverrides?: unknown; sceneChoices?: unknown;
       captionMode?: unknown; captionOverrides?: unknown; voiceOn?: unknown; visualEffect?: unknown;
-      platform?: unknown; credit?: unknown;
+      platform?: unknown; credit?: unknown; pack?: unknown;
     };
     if (!parsed || parsed.version !== 1 || typeof parsed.idea !== "string") return null;
     if (!Array.isArray(parsed.sceneChoices) || parsed.sceneChoices.length !== 5 || !parsed.sceneChoices.every(validSceneChoice)) return null;
@@ -73,6 +71,7 @@ function readSession(): {
       visualEffect: parsed.visualEffect as VisualEffect,
       platform: isPlatformId(parsed.platform) ? parsed.platform : "tiktok",
       credit: parsed.credit === true,
+      pack: typeof parsed.pack === "string" && (PACK_IDS as readonly string[]).includes(parsed.pack) ? parsed.pack as PackId : "mstudio",
     };
   } catch {
     return null;
@@ -225,6 +224,7 @@ export function App() {
   const exportAbortRef = useRef<AbortController | null>(null);
   const [niche, setNiche] = useState(() => initialProfile().niche);
   const [audience, setAudience] = useState(() => initialProfile().audience);
+  const [packId, setPackId] = useState<PackId>("mstudio");
   const [offer, setOffer] = useState(() => initialProfile().offer);
   const [tone, setTone] = useState(() => initialProfile().tone);
   const [proof, setProof] = useState(() => initialProfile().proof);
@@ -273,11 +273,13 @@ export function App() {
   }, []);
 
   const profile = useMemo(() => ({ niche, audience, offer, tone, proof }), [niche, audience, offer, tone, proof]);
+  const pack = useMemo(() => loadPack(packId), [packId]);
+  const theme: Theme = pack.themes[1] ?? pack.themes[0]!;
   const preset = platformPreset(platform);
   const queueIdeas = useMemo(() => parseQueueIdeas(queueText), [queueText]);
   const queueNext = nextQueueIndex(queueIdeas, idea);
   const queuePos = queuePosition(queueIdeas, idea);
-  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, timing: localStorage.getItem("clipflow.wordtimes") };
+  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: localStorage.getItem("clipflow.wordtimes") };
   const projectSnapshot = projectFingerprint(projectDraft);
   const projectDirty = projectSnapshot !== savedSnapshot;
 
@@ -289,6 +291,10 @@ export function App() {
     setScriptOverrides(project.scriptOverrides); setSceneChoices(project.sceneChoices); setCaptionMode(project.captionMode); setCaptionOverrides(project.captionOverrides); setVoiceOn(project.voiceOn); setVisualEffect(project.visualEffect ?? "none");
     if (isPlatformId(project.platform)) setPlatform(project.platform);
     setCreditOn(project.credit === true);
+    if (typeof project.pack === "string" && (PACK_IDS as readonly string[]).includes(project.pack)) {
+      setPackId(project.pack as PackId);
+      setProjectBase(null);
+    }
     if (project.timing) localStorage.setItem("clipflow.wordtimes", project.timing); else localStorage.removeItem("clipflow.wordtimes");
     const { savedAt: _savedAt, ...draft } = project;
     setSavedSnapshot(projectFingerprint(draft)); setProjectPath(path); setSelectedScene(0); setNativeOutput(null); setExportUrl(null); setStatus("idle"); setErr("");
@@ -358,6 +364,8 @@ export function App() {
     setVisualEffect(session.visualEffect);
     setPlatform(session.platform);
     setCreditOn(session.credit);
+    setPackId(session.pack);
+    setProjectBase(null);
   }, []);
 
   useEffect(() => {
@@ -365,12 +373,12 @@ export function App() {
     try {
       localStorage.setItem(SESSION_KEY, JSON.stringify({
         version: 1, idea, scriptOverrides, sceneChoices,
-        captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn,
+        captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId,
       }));
     } catch {
       // Session restore is convenience; the editor works without it.
     }
-  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn]);
+  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn, packId]);
 
   useEffect(() => {
     try {
@@ -397,7 +405,7 @@ export function App() {
       const m = e instanceof Error ? e.message : String(e);
       return { generatedScript: null, err: m.includes("E_EMPTY_IDEA") ? "Enter your idea above." : m };
     }
-  }, [idea, profile, projectBase]);
+  }, [idea, profile, projectBase, pack]);
   const { script, err: editErr } = useMemo(() => {
     if (!generatedScript) return { script: null, err: "" };
     try { return { script: applyScriptOverrides(generatedScript, scriptOverrides), err: "" }; }
@@ -754,16 +762,20 @@ export function App() {
                   }
                 }
                 if (withAudio && pcm) {
+                  // Chrome only encodes AAC at 44.1/48 kHz — the model speaks
+                  // 16 kHz, so upsample here. The desktop FFmpeg path keeps
+                  // the 16 kHz original untouched.
+                  const voice = resampleLinear(pcm, 16000, AUDIO_CONFIG.sampleRate);
                   const CHUNK = 1_000_000;
-                  for (let off = 0; off < pcm.length; off += CHUNK) {
+                  for (let off = 0; off < voice.length; off += CHUNK) {
                     exportAbortRef.current?.signal.throwIfAborted();
-                    const slice = pcm.slice(off, off + CHUNK);
+                    const slice = voice.slice(off, off + CHUNK);
                     const ad = new AudioData({
                       format: "f32",
-                      sampleRate: 16000,
+                      sampleRate: AUDIO_CONFIG.sampleRate,
                       numberOfFrames: slice.length,
                       numberOfChannels: 1,
-                      timestamp: Math.round((off * 1e6) / 16000),
+                      timestamp: Math.round((off * 1e6) / AUDIO_CONFIG.sampleRate),
                       data: slice,
                     });
                     try {
@@ -872,6 +884,15 @@ export function App() {
               <div className="cf-panel-heading"><span className="cf-kicker">START HERE / 01</span><h2>What's the idea?</h2><p>One sentence is enough. We'll turn it into five editable beats.</p></div>
               <label className="cf-idea-label">YOUR VIDEO IDEA
                 <textarea value={idea} disabled={isWorking} rows={3} onChange={(e) => { setIdea(e.target.value); setScriptOverrides({}); }} placeholder="What should this video say?" />
+              </label>
+              <label className="cf-pack-label">NICHE PACK
+                <select aria-label="Niche pack" disabled={isWorking} value={packId} onChange={(e) => {
+                  setPackId(e.target.value as PackId);
+                  setScriptOverrides({});
+                  setProjectBase(null);
+                }}>
+                  {PACK_IDS.map((id) => <option key={id} value={id}>{packLabel(id)}</option>)}
+                </select>
               </label>
               {!idea.trim() && !isWorking && (
                 <button type="button" className="cf-button cf-button-secondary cf-sample-idea" onClick={() => { setIdea(SAMPLE_IDEA); setScriptOverrides({}); }}>

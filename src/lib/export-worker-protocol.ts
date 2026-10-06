@@ -5,7 +5,7 @@
  */
 
 export const VIDEO_CONFIG = { codec: "avc1.42001f", width: 720, height: 1280, bitrate: 5_000_000, framerate: 30 } as const;
-export const AUDIO_CONFIG = { codec: "mpac", sampleRate: 16000, numberOfChannels: 1, bitrate: 96000 } as const;
+export const AUDIO_CONFIG = { codec: "mp4a.40.2", sampleRate: 44100, numberOfChannels: 1, bitrate: 96000 } as const;
 /** Main thread pauses sending when the worker queue passes this depth. */
 export const MAX_QUEUE = 24;
 /** …and resumes once it drains to this depth. */

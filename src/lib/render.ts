@@ -220,12 +220,32 @@ export function hookHeadline(text: string): string {
 }
 
 function drawHookCard(ctx: DrawCtx, headline: string, elapsed: number, W: number, H: number, accent: string) {
-  const size = Math.max(20, Math.round(W * 0.052));
+  // Shrink-to-fit, then spill to a second line: the card renders at both
+  // preview (360) and export (720) widths, so a fixed floor would still
+  // overflow the small frame. Same guarantee as phrase captions.
+  const maxW = W * 0.86;
+  const minSize = Math.max(12, Math.round(W * 0.03));
+  let size = Math.round(W * 0.052);
+  const widthAt = (s: number, text: string) => {
+    ctx.font = `800 ${s}px system-ui, sans-serif`;
+    return ctx.measureText?.(text).width ?? text.length * s * 0.55;
+  };
+  for (; size > minSize; size -= 2) {
+    if (widthAt(size, headline) <= maxW) break;
+  }
+  size = Math.max(minSize, size);
+  let lines = [headline];
+  if (widthAt(size, headline) > maxW) {
+    const tokens = headline.split(" ");
+    const half = Math.ceil(tokens.length / 2);
+    lines = [tokens.slice(0, half).join(" "), tokens.slice(half).join(" ")];
+  }
   ctx.font = `800 ${size}px system-ui, sans-serif`;
   const measure = (text: string) => ctx.measureText?.(text).width ?? text.length * size * 0.55;
   const padX = W * 0.035;
-  const boxW = Math.min(W * 0.9, measure(headline) + padX * 2);
-  const boxH = size * 1.7;
+  const boxW = Math.min(W * 0.9, Math.max(...lines.map(measure)) + padX * 2);
+  const lineH = size * 1.35;
+  const boxH = lineH * lines.length + size * 0.5;
   const y = H * HOOK_CARD_RATIO - boxH / 2;
   const fade = Math.max(0, Math.min(1, elapsed / 0.25, (HOOK_CARD_SECS - elapsed) / 0.5));
   const previousAlpha = ctx.globalAlpha ?? 1;
@@ -237,7 +257,7 @@ function drawHookCard(ctx: DrawCtx, headline: string, elapsed: number, W: number
     ctx.fillStyle = accent;
     ctx.fillRect((W - boxW) / 2, y + boxH - 4, boxW, 4);
     ctx.fillStyle = "#F7F8FA";
-    ctx.fillText(headline, (W - measure(headline)) / 2, y + boxH / 2 + size * 0.35);
+    lines.forEach((line, index) => ctx.fillText(line, (W - measure(line)) / 2, y + size * 0.5 + index * lineH + size * 0.35));
   } finally {
     ctx.globalAlpha = previousAlpha;
   }

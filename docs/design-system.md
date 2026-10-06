@@ -119,7 +119,9 @@ the accent but frames may use theme 1 (`#246BFD`) or theme 2 (`#CFFF47`).
   nudge the baseline per app overlay; values clamp to 0.60–0.70.
 - Hook card: the clip's promise (first 8 words of the hook, `hookHeadline`)
   held over the opening 4 seconds at 0.16H — dark plate, white extra-bold,
-  accent underline. Muted autoplay reads it before any audio registers.
+  accent underline. Shrink-to-fit with a relative floor, spilling to two
+  lines if needed, so it holds at both preview (360) and export (720)
+  widths. Muted autoplay reads it before any audio registers.
 - End card (opt-in `RenderExtra.endCard`, `CREDIT_SECS = 2`): the whole
   frame — near-black, `MADE WITH` mono over `CLIPFLOW` extra-black with an
   accent bar. No captions, no b-roll, no motion. Every credited export is

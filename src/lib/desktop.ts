@@ -5,6 +5,7 @@ import type { SceneChoice } from './scene-assets';
 import type { CaptionMode } from '../../shared/caption-plan';
 import type { VisualEffect } from '../../shared/visual-effects';
 import type { PlatformId } from '../../shared/platform-presets';
+import type { PackId } from './packs';
 import type { VideoScript } from './script';
 
 export const desktop = isTauri();
@@ -17,6 +18,7 @@ export interface DesktopProjectV1 {
   voiceOn: boolean; visualEffect: VisualEffect; timing: string | null; savedAt: string;
   platform?: PlatformId;
   credit?: boolean;
+  pack?: PackId;
   baseScript?: VideoScript | null;
   renderPlan?: Record<string, unknown> | null;
 }
