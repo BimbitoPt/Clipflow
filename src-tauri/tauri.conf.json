@@ -1,0 +1,28 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Clipflow",
+  "version": "0.1.0",
+  "identifier": "pt.mstudioweb.clipflow",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:8081",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [{ "label": "main", "title": "Clipflow Studio", "width": 1440, "height": 960, "minWidth": 960, "minHeight": 700, "backgroundColor": "#101510" }],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost blob:; connect-src 'self' ipc: http://ipc.localhost asset: http://asset.localhost https://huggingface.co https://*.huggingface.co https://*.hf.co https://cdn-lfs.huggingface.co; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:",
+      "assetProtocol": { "enable": true, "scope": [] }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
+    "resources": { "resources/ffmpeg.exe": "ffmpeg.exe" },
+    "shortDescription": "A local creative studio for vertical video",
+    "fileAssociations": [{ "ext": ["clipflow"], "name": "Clipflow project", "description": "Clipflow video project" }],
+    "windows": { "nsis": { "installMode": "currentUser" } }
+  }
+}

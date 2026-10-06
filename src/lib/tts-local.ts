@@ -1,4 +1,5 @@
 import type { TtsLoader } from "./tts";
+import { desktop } from "./desktop";
 
 const MODEL_ID = "Xenova/speecht5_tts";
 // Default speaker voice (float32 mono embeddings). Passed as URL string so the
@@ -45,7 +46,11 @@ async function getOrCreatePipeline(): Promise<SpeechT5Pipeline> {
   pending = (async (): Promise<SpeechT5Pipeline> => {
     try {
       // LAZY import: module import must never touch network.
-      const { pipeline } = await import("@xenova/transformers");
+      const { pipeline, env } = await import("@xenova/transformers");
+      if (desktop) {
+        env.backends.onnx.wasm.wasmPaths = new URL("/desktop-runtime/", window.location.href).href;
+        env.backends.onnx.wasm.numThreads = 1;
+      }
       const created = (await pipeline(
         "text-to-speech",
         MODEL_ID,

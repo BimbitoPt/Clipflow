@@ -2,10 +2,11 @@
 
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { PlayerRef } from "@remotion/player";
-import type { BrandKit, ClipBrief } from "@/src/lib/domain";
+import type { BrandKit, ClipBrief, MotionIntent } from "@/src/lib/domain";
 import { makeScenePlan } from "@/src/lib/scene-plan";
 import { defaultVoiceoverScript } from "@/src/lib/voiceover-script";
 import ClipPlayer from "@/components/ClipPlayer";
+import { VISUAL_EFFECTS, visualEffectLabels } from "../../shared/visual-effects";
 
 type Tab = "story" | "visuals" | "voice" | "publish";
 export type ClipEditorHandle = { save: () => Promise<boolean> };
@@ -16,7 +17,9 @@ function editPayload(draft: ClipBrief) {
     concept: draft.concept, hook: draft.hook, keyMessage: draft.keyMessage, supportingPoint: draft.supportingPoint,
     proof: draft.proof, cta: draft.cta, format: draft.format, durationSeconds: draft.durationSeconds,
     sceneCopy: draft.sceneCopy, postCopy: draft.postCopy, voiceoverScript: draft.voiceover.script,
-    voiceId: draft.voiceover.voiceId, motionStyle: draft.motionStyle,
+    voiceId: draft.voiceover.voiceId, motionStyle: draft.motionStyle, visualEffect: draft.visualEffect,
+    sceneMotionIntents: draft.creative?.scenes.map((scene) => scene.motionIntent ?? null) ?? [],
+    sceneEvidenceApprovals: draft.creative?.scenes.map((scene) => scene.evidenceApproved ?? false) ?? [],
   };
 }
 
@@ -40,6 +43,15 @@ const ClipEditor = forwardRef<ClipEditorHandle, Props>(function ClipEditor({ cli
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   function patch(value: Partial<ClipBrief>) { setDraft((current) => ({ ...current, ...value })); setMessage(""); }
   function patchScene(index: number, copy: string) { patch({ sceneCopy: draft.sceneCopy.map((item, itemIndex) => itemIndex === index ? copy : item) }); }
+  function patchSceneMotionIntent(index: number, value: string) {
+    if (!draft.creative) return;
+    const motionIntent = value === "legacy" ? undefined : value as MotionIntent;
+    patch({ creative: { ...draft.creative, scenes: draft.creative.scenes.map((scene, sceneIndex) => sceneIndex === index ? { ...scene, motionIntent } : scene) } });
+  }
+  function patchSceneEvidenceApproval(index: number, approved: boolean) {
+    if (!draft.creative) return;
+    patch({ creative: { ...draft.creative, scenes: draft.creative.scenes.map((scene, sceneIndex) => sceneIndex === index ? { ...scene, evidenceApproved: approved } : scene) } });
+  }
 
   async function send(path: string, method: string, body: unknown, success: string): Promise<boolean> {
     setBusy(true); setMessage("");
@@ -99,12 +111,15 @@ const ClipEditor = forwardRef<ClipEditorHandle, Props>(function ClipEditor({ cli
           <div className="inspector-field-pair"><label>Format<select disabled={busy} value={draft.format} onChange={(event) => patch({ format: event.target.value as ClipBrief["format"] })}><option value="explainer">Explainer</option><option value="demo">Product demo</option><option value="proof">Proof / story</option></select></label><label>Length (seconds)<input disabled={busy} type="number" min={10} max={60} value={draft.durationSeconds} onChange={(event) => patch({ durationSeconds: Math.max(10, Math.min(60, Number(event.target.value) || 10)) })} /></label></div>
         </div>}
         {tab === "visuals" && <div className="inspector-fields" role="tabpanel">
-          <p className="inspector-hint">The current cinematic treatment stays intact. Edit what appears in each beat and preview it before saving.</p>
+          <p className="inspector-hint">Motion follows the story beat. Use real approved screens for evidence; without one, the renderer uses an explanatory graphic.</p>
           <div className="treatment-summary"><span className="eyebrow">TREATMENT</span><strong>{draft.creative?.template.replace(/-/g, " ") ?? "Brand storyboard"}</strong><small>{draft.creative?.musicPath ? "Music bed" : "No music"} · {draft.creative?.captionCues.length ? "Timed captions" : "Default captions"}</small></div>
           <label>Motion style<select disabled={busy} value={draft.motionStyle} onChange={(event) => patch({ motionStyle: event.target.value as ClipBrief["motionStyle"] })}><option value="kinetic">Kinetic type</option><option value="float">Soft float</option><option value="snap">Punchy snap</option><option value="cinematic">Cinematic drift</option></select></label>
+          <label>Visual effect<select disabled={busy} value={draft.visualEffect} onChange={(event) => patch({ visualEffect: event.target.value as ClipBrief["visualEffect"] })}>{VISUAL_EFFECTS.map(effect => <option key={effect} value={effect}>{visualEffectLabels[effect]}</option>)}</select></label>
           <div className="scene-controls">{scenes.map((scene) => {
             const image = scene.screen?.imagePath ?? scene.bg?.imagePath;
-            return <div className="scene-control" key={scene.index}><button type="button" onClick={() => playerRef.current?.seekTo(scene.startFrame)} className="scene-control-thumb" aria-label={`Preview scene ${scene.index + 1}`}>{image ? <img src={`/${image}`} alt="" /> : <span>{String(scene.index + 1).padStart(2, "0")}</span>}</button><div><span className="scene-control-meta">SCENE {String(scene.index + 1).padStart(2, "0")} · {(scene.durationInFrames / 30).toFixed(1)}s</span><label>On-screen text<textarea disabled={busy} rows={2} maxLength={220} value={draft.sceneCopy[scene.index] ?? ""} onChange={(event) => patchScene(scene.index, event.target.value)} /></label><small>{scene.screen ? "Real screen · " + scene.screen.imagePath.split("/").at(-1) : scene.bg ? "Cinematic still" : scene.visual ? "Motion graphic" : "Branded backdrop"}</small></div></div>;
+            const creativeScene = draft.creative?.scenes[scene.index];
+            const motionValue = creativeScene?.motionIntent ?? "legacy";
+            return <div className="scene-control" key={scene.index}><button type="button" onClick={() => playerRef.current?.seekTo(scene.startFrame)} className="scene-control-thumb" aria-label={`Preview scene ${scene.index + 1}`}>{image ? <img src={`/${image}`} alt="" /> : <span>{String(scene.index + 1).padStart(2, "0")}</span>}</button><div><span className="scene-control-meta">SCENE {String(scene.index + 1).padStart(2, "0")} · {(scene.durationInFrames / 30).toFixed(1)}s</span><label>On-screen text<textarea disabled={busy} rows={2} maxLength={220} value={draft.sceneCopy[scene.index] ?? ""} onChange={(event) => patchScene(scene.index, event.target.value)} /></label><label>Motion intent<select disabled={busy || !draft.creative} value={motionValue} onChange={(event) => patchSceneMotionIntent(scene.index, event.target.value)}><option value="legacy">Existing treatment</option><option value="auto">Adapt to this video</option><option value="kinetic-type">Animated typography</option><option value="focus">Subject focus</option><option value="metric">Stated metric</option><option value="none">Footage only</option><option value="transform">Transform</option><option value="sequence">Sequence</option><option value="comparison">Comparison</option><option value="evidence-reveal" disabled={!scene.screen || !creativeScene?.evidenceApproved}>Evidence reveal</option><option value="payoff">Payoff</option></select></label>{scene.screen && <label className="scene-evidence-approval"><input type="checkbox" disabled={busy} checked={creativeScene?.evidenceApproved ?? false} onChange={(event) => patchSceneEvidenceApproval(scene.index, event.target.checked)} />Approved for use as evidence</label>}<small>{scene.motionIntent ? `Resolved: ${scene.motionIntent.replace(/-/g, " ")}${scene.motionReason ? ` · ${scene.motionReason}` : ""}` : "Existing motion treatment"}{scene.screen ? ` · ${scene.screen.imagePath.split("/").at(-1)}` : scene.bg ? " · Cinematic still" : scene.visual ? " · Motion graphic" : " · Branded backdrop"}</small></div></div>;
           })}</div>
         </div>}
         {tab === "voice" && <div className="inspector-fields" role="tabpanel">

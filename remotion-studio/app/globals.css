@@ -295,6 +295,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .scene-control-meta { display: block; margin-bottom: 5px; color: var(--lime); font: 9px ui-monospace,monospace; }
 .scene-control label { font-size: 10px; }
 .scene-control textarea { margin-top: 4px; padding: 7px; font-size: 11px; }
+.scene-control .scene-evidence-approval { display: flex; align-items: center; gap: 7px; margin-top: 7px; color: #c8d7c2; }
+.scene-control .scene-evidence-approval input { display: inline-block; width: 14px; height: 14px; margin: 0; padding: 0; accent-color: var(--lime); }
 .scene-control small { display: block; margin-top: 5px; color: #8e9aa2; font-size: 9px; overflow-wrap: anywhere; }
 .voice-empty { margin: 0; color: #95a4ad; font-size: 11px; line-height: 1.5; }
 .inspector-message { margin: 0 17px 12px; }

@@ -5,7 +5,7 @@ import { approveClip, editClip, unapproveClip } from "./clip-state";
 const base: ClipBrief = {
   id: "clip-001", batchId: "batch-001", brandId: "clipflow", concept: "Idea", hook: "Hook", keyMessage: "Message",
   supportingPoint: null, proof: null, cta: "Start", format: "explainer", durationSeconds: 25, sceneCopy: ["Hook", "End"], postCopy: "Post", mediaOverrides: [], status: "needs_review",
-  voiceover: { script: "", voiceId: "af_heart", audioPath: null, wordTimings: [], generatedFor: null }, creative: null, motionStyle: "kinetic",
+  voiceover: { script: "", voiceId: "af_heart", audioPath: null, wordTimings: [], generatedFor: null }, creative: null, motionStyle: "kinetic", visualEffect: "none",
   progress: 0, outputPath: null, coverPath: null, renderError: null, updatedAt: "2026-09-24T10:00:00.000Z",
 };
 
@@ -35,5 +35,12 @@ describe("clip review state", () => {
     expect(edited.voiceover.voiceId).toBe("af_bella");
     expect(edited.voiceover.audioPath).toBeNull();
     expect(edited.outputPath).toBeNull();
+  });
+  it("requires a fresh render when the visual effect changes", () => {
+    const rendered = { ...base, outputPath: "exports/old.mp4", coverPath: "exports/old.png" };
+    const edited = editClip(rendered, { concept: "Idea", hook: "Hook", keyMessage: "Message", supportingPoint: null, proof: null, cta: "Start", format: "explainer", durationSeconds: 25, sceneCopy: ["Hook", "End"], postCopy: "Post", motionStyle: "kinetic", visualEffect: "cinematic", voiceoverScript: "", voiceId: "af_heart" });
+    expect(edited.visualEffect).toBe("cinematic");
+    expect(edited.outputPath).toBeNull();
+    expect(edited.coverPath).toBeNull();
   });
 });

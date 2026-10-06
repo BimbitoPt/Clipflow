@@ -1,8 +1,10 @@
 import React from "react";
+import { speechPhrases } from "../../../../shared/caption-plan";
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import type { CompositionProps, SceneSegment } from "../../lib/scene-plan";
 import { AnimatedBackground } from "./AnimatedBackground";
 import { StoryScene } from "./StoryScene";
+import { visualEffectFilters } from "../../../../shared/visual-effects";
 
 export function wordChunks(text: string, size: number) {
   const words = text.trim().split(/\s+/).filter(Boolean);
@@ -12,8 +14,14 @@ export function wordChunks(text: string, size: number) {
 }
 
 export function AnimatedScene({ props, scene, variant }: { props: CompositionProps; scene: SceneSegment; variant: "explainer" | "demo" | "proof" }) {
-  if (props.clip.creative) return <StoryScene props={props} scene={scene} />;
-  return <StandardScene props={props} scene={scene} variant={variant} />;
+  const effect = props.clip.visualEffect;
+  const content = props.clip.creative ? <StoryScene props={props} scene={scene} /> : <StandardScene props={props} scene={scene} variant={variant} />;
+  if (effect === "none") return content;
+  return <AbsoluteFill style={{ filter: visualEffectFilters[effect] }}>
+    {content}
+    {(effect === "cinematic" || effect === "mono") && <AbsoluteFill style={{ backgroundColor: effect === "cinematic" ? "#17212a" : "#111111", opacity: 0.18, pointerEvents: "none" }} />}
+    {effect === "analog" && <AbsoluteFill style={{ background: "radial-gradient(circle at center, transparent 32%, #0008 100%), repeating-linear-gradient(0deg, transparent 0 5px, #03060330 5px 7px)", pointerEvents: "none" }} />}
+  </AbsoluteFill>;
 }
 
 function StandardScene({ props, scene, variant }: { props: CompositionProps; scene: SceneSegment; variant: "explainer" | "demo" | "proof" }) {
@@ -32,9 +40,7 @@ function StandardScene({ props, scene, variant }: { props: CompositionProps; sce
   const headingSize = variant === "proof" ? 68 : variant === "demo" ? 72 : 82;
   const motion = clip.motionStyle;
   const elapsedSeconds = (frame + scene.startFrame) / fps;
-  const activeWord = clip.voiceover.wordTimings.findIndex((word) => elapsedSeconds >= word.start && elapsedSeconds < word.end);
-  const captionStart = activeWord < 0 ? -1 : Math.max(0, Math.floor(activeWord / 4) * 4);
-  const captionWords = activeWord < 0 ? [] : clip.voiceover.wordTimings.slice(captionStart, captionStart + 4);
+  const captionPhrase = speechPhrases(clip.voiceover.wordTimings).find(item => elapsedSeconds >= item.start && elapsedSeconds < item.end);
   const bob = motion === "float" ? Math.sin(frame / 18) * 13 : 0;
   const tilt = motion === "cinematic" ? interpolate(frame, [0, scene.durationInFrames], [-1.8, 1.8], { extrapolateRight: "clamp" }) : motion === "snap" ? (1 - entrance) * -2.5 : 0;
   const titleOffset = motion === "snap" ? 86 : motion === "cinematic" ? 26 : 48;
@@ -57,7 +63,7 @@ function StandardScene({ props, scene, variant }: { props: CompositionProps; sce
     </div>
     {!props.coverMode && <div style={{ position: "absolute", left: 88, right: 88, bottom: 300 }}>
       <div style={{ color: "#9aa6b3", textTransform: "uppercase", letterSpacing: ".22em", fontSize: 15, marginBottom: 16 }}>{variant === "proof" ? "WHAT CHANGED" : variant === "demo" ? "WATCH THIS" : "THE TAKEAWAY"}</div>
-      {clip.voiceover.audioPath && activeWord >= 0 ? <div aria-label="Timed voiceover captions" style={{ display: "inline-block", padding: "13px 19px", maxWidth: 940, color: brand.palette.foreground, background: `${brand.palette.background}ee`, borderBottom: `4px solid ${brand.captionStyle.highlightColor}`, fontSize: 34, lineHeight: 1.15, fontWeight: 800, letterSpacing: "-.035em", textTransform: "uppercase" }}>{captionWords.map((item, index) => <span key={`${item.start}-${index}`} style={{ color: captionStart + index === activeWord ? brand.captionStyle.highlightColor : brand.palette.foreground, transform: captionStart + index === activeWord ? "translateY(-3px) scale(1.06)" : "none", display: "inline-block", marginRight: 9 }}>{item.word}</span>)}</div> : <div style={{ display: "inline-block", padding: "13px 19px", maxWidth: 940, color: brand.palette.foreground, background: `${brand.palette.background}ee`, borderBottom: `4px solid ${brand.captionStyle.highlightColor}`, fontSize: 34, lineHeight: 1.15, fontWeight: 800, letterSpacing: "-.035em", textTransform: "uppercase" }}>{chunks[chunkIndex]}</div>}
+      {(!clip.voiceover.audioPath || captionPhrase) && <div aria-label="Phrase captions" style={{ display: "inline-block", padding: "13px 19px", maxWidth: 840, color: brand.palette.foreground, background: `${brand.palette.background}cc`, fontSize: 42, lineHeight: 1.22, fontWeight: 700, textAlign: "center" }}>{clip.voiceover.audioPath ? captionPhrase?.text : chunks[chunkIndex]}</div>}
     </div>}
     <div style={{ position: "absolute", bottom: 118, left: 88, right: 88, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
       <div style={{ width: 18, height: 18, border: `2px solid ${accent}`, transform: "rotate(45deg)" }} />

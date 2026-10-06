@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 160" role="img" aria-labelledby="title">
+  <title id="title">Signal House</title>
+  <g fill="none" stroke="#C9F05A" stroke-width="8" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M36 122V38h84v84H78V80h42"/>
+    <path d="M52 103V54h52v49H78" opacity=".58"/>
+    <path d="M62 86V68h25" opacity=".28"/>
+  </g>
+  <text x="148" y="75" fill="#F4F1E9" font-family="Arial, sans-serif" font-size="42" font-weight="700" letter-spacing="5">SIGNAL</text>
+  <text x="148" y="124" fill="#F4F1E9" font-family="Arial, sans-serif" font-size="42" font-weight="400" letter-spacing="5">HOUSE</text>
+</svg>

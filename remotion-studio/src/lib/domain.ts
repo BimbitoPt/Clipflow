@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { VISUAL_EFFECTS } from "../../../shared/visual-effects";
 
 const idSchema = z.string().regex(/^[a-z0-9][a-z0-9_-]{2,63}$/);
 const hexColorSchema = z.string().regex(/^#[\da-fA-F]{6}$/);
@@ -26,6 +27,10 @@ export const BrandKitSchema = z.object({
 export const ClipFormatSchema = z.enum(["explainer", "demo", "proof"]);
 export const ClipStatusSchema = z.enum(["draft", "needs_review", "approved", "rendering", "rendered", "failed"]);
 export const MotionStyleSchema = z.enum(["kinetic", "float", "snap", "cinematic"]);
+export const VisualEffectSchema = z.enum(VISUAL_EFFECTS);
+export const MotionIntentSchema = z.enum(["auto", "transform", "sequence", "comparison", "evidence-reveal", "payoff", "kinetic-type", "focus", "metric", "none"]);
+export type MotionIntent = z.infer<typeof MotionIntentSchema>;
+export type ResolvedMotionIntent = Exclude<MotionIntent, "auto">;
 export const VoiceIdSchema = z.enum(["af_heart", "af_bella", "am_michael"]);
 export type VoiceId = z.infer<typeof VoiceIdSchema>;
 export function defaultVoiceIdForBrand(brandId: string): VoiceId {
@@ -48,6 +53,8 @@ export const CreativeTreatmentSchema = z.object({
     visual: z.object({ kind: z.enum(["steps", "cards"]), items: z.array(z.string().trim().min(1).max(36)).min(2).max(5) }).optional(),
     motionGraphic: z.enum(["filmstrip", "site-network"]).optional(),
     screen: z.object({ imagePath: localPathSchema, sourceUrl: z.string().url().max(500) }).optional(),
+    motionIntent: MotionIntentSchema.optional(),
+    evidenceApproved: z.boolean().default(false),
   })).min(2).max(8),
   captionCues: z.array(z.object({ text: z.string().trim().min(1).max(120), start: z.number().min(0), end: z.number().positive(), emphasis: z.array(z.string().trim().min(1).max(40)).max(5) })).max(30),
   musicPath: localPathSchema.nullable(),
@@ -73,6 +80,7 @@ export const ClipBriefSchema = z.object({
   voiceover: VoiceoverSchema,
   creative: CreativeTreatmentSchema,
   motionStyle: MotionStyleSchema.default("kinetic"),
+  visualEffect: VisualEffectSchema.default("none"),
   status: ClipStatusSchema,
   progress: z.number().min(0).max(1),
   outputPath: localPathSchema.nullable(),

@@ -24,3 +24,15 @@ public/.broll-usage.json
 .env
 .env.*
 !.env.example
+
+# Desktop generated packaging resources
+/src-tauri/resources/
+/src-tauri/gen/
+/src-tauri/icons/android/
+/src-tauri/icons/ios/
+/desktop-projects/*.assets/
+
+# Temporary upstream Laravel starter clone; the app is in /signal-house-app.
+/signal-house/
+/public/desktop-runtime/
+/.desktop-public/

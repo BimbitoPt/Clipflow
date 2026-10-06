@@ -90,6 +90,7 @@ async function main() {
     }
     for (const key of episode.shots) await access(`public/proof-screens/${screens[key]}.png`);
     const scenes = episode.shots.map((key, sceneIndex) => ({
+      evidenceApproved: false,
       screen: { imagePath: `proof-screens/${screens[key]}.png`, sourceUrl: episode.brandId === "clipflow" ? appUrl : key === "home" || key === "services" || key === "contact" || key === "contactForm" ? `${siteUrl}${key === "home" ? "" : key === "contactForm" ? "contact" : key}` : pricingUrl },
       bg: { prompt: `Existing approved ${episode.brandId} text-free cinematic background ${sceneIndex + 1}.`, promptHash: "000000000000", imagePath: `scene-backgrounds/${episode.brandId === "clipflow" ? "clipflow-spine" : "mstudio-pricing"}/scene-${sceneIndex + 1}.png` },
     }));

@@ -22,6 +22,17 @@ DIY is the default. Managed is the upgrade. Same engine, same loop.
 
 ## Docs
 
+### Windows desktop
+
+Clipflow also has a Tauri desktop application with native media import, portable project files, and local FFmpeg export. The editor shares its scene, motion, and caption renderer with the browser version.
+
+```powershell
+npm run desktop:dev
+npm run desktop:build
+```
+
+See [the desktop guide](docs/native-desktop.md) for packaging prerequisites, project files, and first-release limits.
+
 - `docs/clipflow-saas.md` — Clipflow SaaS direction and operating plan.
 - `docs/teardown.md` — competitive teardown feeding DIY positioning.
 - `docs/dogfood.md` — DIY dogfood validation (3 MSTUDIO ideas).

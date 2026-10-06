@@ -55,6 +55,8 @@ export const STOCK_POOL: PoolEntry[] = [
   { kind: "video", src: "/broll/clips/clip-6.mp4", keywords: ["laptop", "typing", "hands", "keyboard", "desk", "work", "macbook", "coffee"] },
   { kind: "video", src: "/broll/clips/web-mstudioweb-hero.mp4", keywords: ["website", "site", "speed", "mstudio", "mstudioweb", "homepage", "hero", "webdesign", "custom", "builds", "ships", "portfolio"] },
   { kind: "video", src: "/broll/clips/web-mstudioweb-scroll.mp4", keywords: ["website", "site", "scroll", "mstudio", "mstudioweb", "page", "tour", "speed", "webdesign", "ships", "custom", "walkthrough"] },
+  // Local-only dogfood footage for the Octane Archive Clipflow workflow.
+  { kind: "video", src: "/broll/clips/porsche-gt3rs-dogfood.mp4", keywords: ["porsche", "gt3", "gt3rs", "911", "car", "racing", "track", "automotive", "nightdrive"] },
 ];
 
 export function tokenizeQuery(text: string): Set<string> {

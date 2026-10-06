@@ -1,6 +1,10 @@
 import type { Theme } from "./packs";
 import { VIDEO_SECS, type PlannedFrame, type SceneVariant, type WordCue } from "./planner";
 import { assetSize, type StockAsset } from "./broll";
+import { drawMotionGraphic } from "./motion-graphics";
+import { resolveMotionIntent } from "./motion-intent";
+import { speechPhrases, type CaptionPhrase } from "../../shared/caption-plan";
+import { visualEffectFilters, type VisualEffect } from "../../shared/visual-effects";
 
 export interface BrollImage {
   width: number;
@@ -10,6 +14,8 @@ export interface BrollImage {
 export interface RenderExtra {
   asset?: StockAsset;
   words?: WordCue[];
+  captions?: readonly CaptionPhrase[];
+  visualEffect?: VisualEffect;
 }
 
 export interface DrawCtx {
@@ -19,12 +25,14 @@ export interface DrawCtx {
   fillText(text: string, x: number, y: number, maxWidth?: number): void;
   measureText?(text: string): { width: number };
   createLinearGradient?(x0: number, y0: number, x1: number, y1: number): CanvasGradient;
+  createRadialGradient?(x0: number, y0: number, r0: number, x1: number, y1: number, r1: number): CanvasGradient;
   save?(): void;
   restore?(): void;
   translate?(x: number, y: number): void;
   scale?(x: number, y: number): void;
   drawImage?(img: BrollImage | ImageBitmap | HTMLVideoElement, dx: number, dy: number, dw: number, dh: number): void;
   globalAlpha?: number;
+  filter?: string;
   beginPath?(): void;
   arc?(x: number, y: number, radius: number, startAngle: number, endAngle: number, counterclockwise?: boolean): void;
   fill?(): void;
@@ -95,75 +103,36 @@ function wrapMeasured(text: string, maxW: number, measure: (s: string) => number
   return kept;
 }
 
-function findCurrentWord(wordList: WordCue[], t: number): WordCue | undefined {
-  // Global lookup (never cue-filtered): voice-timed words can legitimately
-  // sound outside their caption cue's window (e.g. a slow hook bleeding
-  // into the first beat), and the caption must follow the voice.
-  const sorted = [...wordList].sort((a, b) => a.start - b.start);
-  if (sorted.length === 0) return undefined;
-  let cur: WordCue | undefined;
-  for (const w of sorted) {
-    if (w.start <= t) cur = w;
-    else break;
+function drawPhraseCaption(ctx: DrawCtx, phrase: CaptionPhrase, time: number, W: number, H: number, accent: string) {
+  const value = phrase.kind === "scene" ? phrase.text.toUpperCase() : phrase.text;
+  const maxWidth = W * .78;
+  let size = W * (phrase.kind === "scene" ? .065 : .07);
+  let lines = [value];
+  for (; size >= W * .034; size -= 1) {
+    ctx.font = `700 ${Math.round(size)}px system-ui, sans-serif`;
+    const measure = (text: string) => ctx.measureText?.(text).width ?? text.length * size * .55;
+    lines = wrapMeasured(value, maxWidth, measure);
+    if (lines.length <= 2 && lines.every(line => measure(line) <= maxWidth)) break;
   }
-  return cur ?? sorted[0];
-}
-
-function drawPopLine(
-  ctx: DrawCtx,
-  line: string,
-  popWord: string,
-  x: number,
-  y: number,
-  baseFont: string,
-  baseSize: number,
-  accent: string,
-): void {
-  if (typeof ctx.measureText !== "function") {
-    ctx.fillStyle = "#F7F8FA";
-    ctx.fillText(line, x, y);
-    return;
-  }
-  const normalFont = fontFor(baseFont, baseSize);
-  // Integer px: fractional sizes (e.g. 32.199999999999996px) break naive
-  // /(\d+)px/ font-size parsers, which match the trailing digit run.
-  const popFont = fontFor(baseFont, Math.max(1, Math.round(baseSize * 1.15)));
-  const tokens = line.split(" ").filter(Boolean);
-  const popIdx = tokens.findIndex((t) => t === popWord);
-  if (popIdx < 0) {
-    ctx.fillStyle = "#F7F8FA";
-    ctx.font = normalFont;
-    ctx.fillText(line, x, y);
-    return;
-  }
-  ctx.font = normalFont;
-  let spaceW = 0;
+  const lineHeight = size * 1.22;
+  const y = H * .79;
+  const fade = Math.max(0, Math.min(1, (time - phrase.start) / .12, (phrase.end - time) / .12));
+  const previousAlpha = ctx.globalAlpha ?? 1;
   try {
-    spaceW = ctx.measureText.call(ctx, " ").width;
-  } catch {
-    spaceW = 0;
-  }
-  let curX = x;
-  tokens.forEach((tok, idx) => {
-    const isPop = idx === popIdx;
-    try {
-      if (isPop) {
-        ctx.font = popFont;
-        ctx.fillStyle = accent;
-        ctx.fillText(tok, curX, y);
-        const w = ctx.measureText!.call(ctx, tok).width;
-        curX += w + spaceW;
-      } else {
-        ctx.font = normalFont;
-        ctx.fillStyle = "#F7F8FA";
-        ctx.fillText(tok, curX, y);
-        const w = ctx.measureText!.call(ctx, tok).width;
-        curX += w + spaceW;
-      }
-    } catch {
-      // No-throw fallback per word.
+    ctx.globalAlpha = fade;
+    const measure = (text: string) => ctx.measureText?.(text).width ?? text.length * size * .55;
+    const boxW = Math.min(W * .86, Math.max(...lines.map(measure)) + W * .045);
+    ctx.fillStyle = "#080A0D";
+    ctx.globalAlpha = fade * .7;
+    ctx.fillRect((W - boxW) / 2, y - size, boxW, lineHeight * lines.length + W * .03);
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = "#F7F8FA";
+    lines.forEach((line,index) => ctx.fillText(line, (W - measure(line)) / 2, y + index * lineHeight));
+    if (phrase.kind === "scene") {
+      ctx.fillStyle = accent;
+      ctx.fillRect((W - boxW) / 2, y - size, W * .004, lineHeight * lines.length + W * .03);
     }
-  });
+  } finally { ctx.globalAlpha = previousAlpha; }
 }
 
 export function variantForKind(kind: PlannedFrame["cue"]["kind"]): SceneVariant {
@@ -389,6 +358,9 @@ export function drawFrame(
   extra?: RenderExtra,
   totalSecs: number = VIDEO_SECS,
 ): void {
+  const visualEffect = extra?.visualEffect ?? "none";
+  if (visualEffect !== "none") ctx.filter = visualEffectFilters[visualEffect];
+  const footage = extra?.asset?.kind === "video";
   const bg0 = typeof theme.bg[0] === "string" && theme.bg[0].length > 0 ? theme.bg[0] : "";
   const bg1 = typeof theme.bg[1] === "string" && theme.bg[1].length > 0 ? theme.bg[1] : "";
   const hasBg = bg0 !== "" && bg1 !== "";
@@ -442,7 +414,7 @@ export function drawFrame(
     }
   };
   if (hasTransform) {
-    const z = 1 + 0.08 * (frame.t / totalSecs);
+    const z = footage ? 1 : 1 + 0.08 * (frame.t / totalSecs);
     let entered = false;
     try {
       ctx.save!();
@@ -496,7 +468,7 @@ export function drawFrame(
   if (brollDrawn) {
     try {
       try {
-        ctx.globalAlpha = 0.55;
+        ctx.globalAlpha = footage ? 0.16 : 0.55;
         ctx.fillStyle = "#000000";
         ctx.fillRect(0, 0, W, H);
       } finally {
@@ -510,6 +482,17 @@ export function drawFrame(
       // Overlay must never throw; alpha already restored by finally.
     }
   }
+  const fallbackProgress = Math.max(0, Math.min(1, (frame.t - frame.cue.start) / Math.max(0.001, frame.cue.end - frame.cue.start)));
+  drawMotionGraphic(
+    ctx,
+    frame.motionIntent ?? resolveMotionIntent({ cue: frame.cue, cueIndex: 1, approvedProof: false, context: { medium: extra?.asset?.kind, assetKeywords: extra?.asset?.keywords } }),
+    frame.progress ?? fallbackProgress,
+    W,
+    H,
+    theme.accent,
+    frame.motionLabels,
+    footage,
+  );
   // Edge dip: brief dip-to-brand-dark across cue boundaries hides hard cuts
   // (including same-take restarts) while the accent bar, progress bar and
   // captions paint after it at full brightness.
@@ -534,9 +517,38 @@ export function drawFrame(
   } catch {
     // Dip must never throw; captions paint next regardless.
   }
+  if (visualEffect !== "none") {
+    ctx.filter = "none";
+    if (visualEffect === "cinematic" || visualEffect === "mono") {
+      const previousAlpha = ctx.globalAlpha ?? 1;
+      try {
+        ctx.globalAlpha = 0.18;
+        ctx.fillStyle = visualEffect === "cinematic" ? "#17212a" : "#111111";
+        ctx.fillRect(0, 0, W, H);
+      } finally { ctx.globalAlpha = previousAlpha; }
+    }
+    if (visualEffect === "analog") {
+      const previousAlpha = ctx.globalAlpha ?? 1;
+      try {
+        ctx.globalAlpha = 0.11;
+        ctx.fillStyle = "#050705";
+        const offset = Math.floor(frame.t * 24) % 7;
+        for (let y = offset; y < H; y += 7) ctx.fillRect(0, y, W, 2);
+        const vignette = ctx.createRadialGradient?.(W / 2, H / 2, W * 0.15, W / 2, H / 2, H * 0.75);
+        if (vignette) {
+          vignette.addColorStop(0, "#00000000");
+          vignette.addColorStop(1, "#000000aa");
+          ctx.globalAlpha = 0.38;
+          ctx.fillStyle = vignette;
+          ctx.fillRect(0, 0, W, H);
+        }
+      } finally { ctx.globalAlpha = previousAlpha; }
+    }
+  }
   ctx.fillStyle = theme.accent;
   ctx.fillRect(0, 0, W, 12);
   const maxW = W - 96;
+  const captionY = footage ? H * 0.79 : H / 2;
   // Headroom for the 1.15x pop word: fit lines against maxW/1.15 so the
   // popped word can never overflow the frame.
   const fitW = maxW / 1.15;
@@ -582,67 +594,13 @@ export function drawFrame(
     ctx.font = fontFor(theme.font, best);
     lines = full.fitted;
   }
-  const wordList = extra?.words;
-  if (wordList && wordList.length > 0 && typeof ctx.measureText === "function") {
-    let current: WordCue | undefined;
-    try {
-      current = findCurrentWord(wordList, frame.t);
-    } catch {
-      current = undefined;
-    }
-    if (current && measureAt) {
-      // Trending karaoke: max 3 words on screen (prev/current/next),
-      // current word popped in accent — never the full cue paragraph.
-      let windowLine = current.word;
-      try {
-        // Neighbor window in global time order (never cue-filtered): the
-        // words sounding right now, even across a cue boundary.
-        const sorted = [...wordList].sort((a, b) => a.start - b.start);
-        let idx = sorted.findIndex((w) => w === current);
-        if (idx < 0) {
-          idx = sorted.findIndex((w) => w.start === current!.start && w.word === current!.word);
-        }
-        if (idx < 0) idx = 0;
-        const lo = Math.max(0, idx - 1);
-        const hi = Math.min(sorted.length, lo + 3);
-        const lo2 = Math.max(0, hi - 3);
-        const joined = sorted
-          .slice(lo2, hi)
-          .map((w) => w.word)
-          .join(" ");
-        if (joined) windowLine = joined;
-      } catch {
-        windowLine = current.word;
-      }
-      // Single-line fit: the window draws as ONE line, so fit the joined
-      // line itself (never multi-line wrap scoring).
-      const fits = measureAt;
-      let winSize = 28;
-      for (let s = 120; s >= 28; s--) {
-        try {
-          if (fits(s)(windowLine) <= fitW) {
-            winSize = s;
-            break;
-          }
-        } catch {
-          // Treat measure failure as not-fitting; keep shrinking.
-        }
-      }
-      ctx.font = fontFor(theme.font, winSize);
-      try {
-        drawPopLine(ctx, windowLine, current.word, 48, H / 2, theme.font, winSize, theme.accent);
-      } catch {
-        ctx.fillStyle = "#F7F8FA";
-        ctx.font = fontFor(theme.font, winSize);
-        ctx.fillText(windowLine, 48, H / 2);
-      }
-    } else {
-      ctx.fillStyle = "#F7F8FA";
-      lines.forEach((ln, i) => ctx.fillText(ln, 48, H / 2 + i * 110));
-    }
+  const captionPlan = extra?.captions ?? (extra?.words ? speechPhrases(extra.words) : null);
+  if (captionPlan !== null) {
+    const phrase = captionPlan.find(item => frame.t >= item.start && frame.t < item.end);
+    if (phrase) drawPhraseCaption(ctx, phrase, frame.t, W, H, theme.accent);
   } else {
     ctx.fillStyle = "#F7F8FA";
-    lines.forEach((ln, i) => ctx.fillText(ln, 48, H / 2 + i * 110));
+    lines.forEach((line, index) => ctx.fillText(line, 48, captionY + index * 110));
   }
   // No cue pills: TikTok style shows speech captions only, never
   // HOOK/BEAT/CTA labels.

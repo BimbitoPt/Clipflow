@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "idea": "A Porsche GT3 RS car edit with garage footage and different angles of the same car.",
+  "profile": {
+    "niche": "Porsche car edits",
+    "audience": "Car enthusiasts",
+    "offer": "Octane Archive",
+    "tone": "Cinematic and direct",
+    "proof": "Visible footage only"
+  },
+  "scriptOverrides": {
+    "0": "PORSCHE GT3 RS",
+    "1": "A CLOSER LOOK",
+    "2": "THE DETAILS",
+    "3": "SAME CAR. NEW ANGLE.",
+    "4": "YOUR FAVORITE SHOT?"
+  },
+  "sceneChoices": [
+    {
+      "kind": "native",
+      "id": "a10ca000-0000-4000-8000-000000000001",
+      "path": "Signal House GT3 RS.assets/gt3rs.mp4",
+      "mediaKind": "video",
+      "name": "Porsche GT3 RS",
+      "source": "https://www.youtube.com/watch?v=9j3mEUh7QV4"
+    },
+    {
+      "kind": "native",
+      "id": "a10ca000-0000-4000-8000-000000000001",
+      "path": "Signal House GT3 RS.assets/gt3rs.mp4",
+      "mediaKind": "video",
+      "name": "Porsche GT3 RS",
+      "source": "https://www.youtube.com/watch?v=9j3mEUh7QV4"
+    },
+    {
+      "kind": "native",
+      "id": "a10ca000-0000-4000-8000-000000000001",
+      "path": "Signal House GT3 RS.assets/gt3rs.mp4",
+      "mediaKind": "video",
+      "name": "Porsche GT3 RS",
+      "source": "https://www.youtube.com/watch?v=9j3mEUh7QV4"
+    },
+    {
+      "kind": "native",
+      "id": "a10ca000-0000-4000-8000-000000000001",
+      "path": "Signal House GT3 RS.assets/gt3rs.mp4",
+      "mediaKind": "video",
+      "name": "Porsche GT3 RS",
+      "source": "https://www.youtube.com/watch?v=9j3mEUh7QV4"
+    },
+    {
+      "kind": "native",
+      "id": "a10ca000-0000-4000-8000-000000000001",
+      "path": "Signal House GT3 RS.assets/gt3rs.mp4",
+      "mediaKind": "video",
+      "name": "Porsche GT3 RS",
+      "source": "https://www.youtube.com/watch?v=9j3mEUh7QV4"
+    }
+  ],
+  "captionMode": "scene",
+  "captionOverrides": {
+    "0": "PORSCHE GT3 RS",
+    "1": "A CLOSER LOOK",
+    "2": "THE DETAILS",
+    "3": "SAME CAR. NEW ANGLE.",
+    "4": "YOUR FAVORITE SHOT?"
+  },
+  "voiceOn": false,
+  "visualEffect": "none",
+  "timing": null,
+  "savedAt": "2026-09-30"
+}

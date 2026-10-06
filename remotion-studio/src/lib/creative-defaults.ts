@@ -21,8 +21,8 @@ export function defaultCreativeTreatment(brandId: string, format: ClipFormat, sc
     })() : undefined;
     return {
       bg,
-      visual: index === 2 ? { kind: brandId === "mstudio" ? "cards" as const : "steps" as const, items: visualLabels[format] } : undefined,
-      motionGraphic: index === 2 ? undefined : brandId === "clipflow" ? "filmstrip" as const : brandId === "mstudio" ? "site-network" as const : undefined,
+      motionIntent: "auto" as const,
+      evidenceApproved: false,
     };
   });
   return {
