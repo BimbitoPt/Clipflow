@@ -1,0 +1,145 @@
+{
+  "niches": [
+    {
+      "id": "universal",
+      "label": "Universal",
+      "keywords": [],
+      "pack": {
+        "effects": [
+          { "id": "punch-zoom", "weight": 3 },
+          { "id": "flash-cut", "weight": 2 },
+          { "id": "progress-bar", "weight": 2 },
+          { "id": "caption-pop", "weight": 2 }
+        ],
+        "grade": "grade-clean",
+        "transition": "flash-cut",
+        "captionStyle": "pop",
+        "pacing": 8
+      }
+    },
+    {
+      "id": "editing",
+      "label": "Video editing / creative tools",
+      "keywords": ["edit", "editing", "timeline", "cut", "premiere", "capcut", "clip", "transition", "b-roll", "footage", "render", "export", "video tool"],
+      "pack": {
+        "effects": [
+          { "id": "timeline-bar", "weight": 4 },
+          { "id": "razor-flash", "weight": 3 },
+          { "id": "glitch-burst", "weight": 3 },
+          { "id": "punch-zoom", "weight": 2 },
+          { "id": "rec-dot", "weight": 2 },
+          { "id": "progress-bar", "weight": 2 }
+        ],
+        "grade": "grade-clean",
+        "transition": "glitch-burst",
+        "captionStyle": "karaoke",
+        "pacing": 6
+      }
+    },
+    {
+      "id": "tech",
+      "label": "Tech / SaaS / AI",
+      "keywords": ["ai", "saas", "software", "app", "code", "api", "startup", "tool", "platform", "agent", "automation", "tech"],
+      "pack": {
+        "effects": [
+          { "id": "scanline-sweep", "weight": 3 },
+          { "id": "grid-overlay", "weight": 3 },
+          { "id": "click-ripple", "weight": 3 },
+          { "id": "neon-title", "weight": 2 },
+          { "id": "typewriter", "weight": 2 },
+          { "id": "pulse-box", "weight": 2 }
+        ],
+        "grade": "grade-neon",
+        "transition": "scanline-sweep",
+        "captionStyle": "pop",
+        "pacing": 7
+      }
+    },
+    {
+      "id": "gaming",
+      "label": "Gaming",
+      "keywords": ["game", "gaming", "gamer", "fps", "level", "boss", "clutch", "rank", "ranked", "no-scope", "streamer", "twitch", "play"],
+      "pack": {
+        "effects": [
+          { "id": "screen-shake", "weight": 4 },
+          { "id": "rgb-split", "weight": 3 },
+          { "id": "hitmarker", "weight": 3 },
+          { "id": "score-pop", "weight": 3 },
+          { "id": "crt-lines", "weight": 2 },
+          { "id": "whip-pan", "weight": 2 }
+        ],
+        "grade": "grade-arcade",
+        "transition": "whip-pan",
+        "captionStyle": "bounce",
+        "pacing": 5
+      }
+    },
+    {
+      "id": "finance",
+      "label": "Business / finance",
+      "keywords": ["money", "finance", "invest", "stock", "revenue", "profit", "business", "startup cost", "pricing", "sales", "margin", "budget", "crypto"],
+      "pack": {
+        "effects": [
+          { "id": "lower-third", "weight": 4 },
+          { "id": "counter-up", "weight": 4 },
+          { "id": "trend-steps", "weight": 3 },
+          { "id": "slow-push", "weight": 2 }
+        ],
+        "grade": "grade-gold",
+        "transition": "flash-cut",
+        "captionStyle": "clean",
+        "pacing": 9
+      }
+    },
+    {
+      "id": "fitness",
+      "label": "Fitness",
+      "keywords": ["workout", "gym", "fitness", "muscle", "cardio", "protein", "run", "training", "push-up", "squat", "fat loss", "gains"],
+      "pack": {
+        "effects": [
+          { "id": "punch-zoom", "weight": 4 },
+          { "id": "beat-flash", "weight": 4 },
+          { "id": "kinetic-caption", "weight": 3 },
+          { "id": "grade-punch", "weight": 2 }
+        ],
+        "grade": "grade-punch",
+        "transition": "beat-flash",
+        "captionStyle": "bounce",
+        "pacing": 5
+      }
+    },
+    {
+      "id": "food",
+      "label": "Food / lifestyle",
+      "keywords": ["recipe", "cook", "food", "meal", "kitchen", "bake", "restaurant", "taste", "flavor", "lifestyle", "vlog", "morning routine"],
+      "pack": {
+        "effects": [
+          { "id": "sticker-pop", "weight": 4 },
+          { "id": "soft-vignette", "weight": 2 },
+          { "id": "slow-push", "weight": 2 }
+        ],
+        "grade": "grade-warm",
+        "transition": "soft-fade",
+        "captionStyle": "pop",
+        "pacing": 9
+      }
+    },
+    {
+      "id": "edu",
+      "label": "Educational / explainer",
+      "keywords": ["learn", "how to", "tutorial", "explained", "guide", "lesson", "course", "tip", "mistake", "why", "what is", "step"],
+      "pack": {
+        "effects": [
+          { "id": "callout-box", "weight": 4 },
+          { "id": "arrow-note", "weight": 3 },
+          { "id": "step-counter", "weight": 3 },
+          { "id": "key-pop", "weight": 3 }
+        ],
+        "grade": "grade-clean",
+        "transition": "flash-cut",
+        "captionStyle": "pop",
+        "pacing": 7
+      }
+    }
+  ]
+}
