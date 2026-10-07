@@ -4,6 +4,9 @@ import "./editing";
 import "./tech";
 import "./gaming";
 import "./finance";
+import "./fitness";
+import "./food";
+import "./edu";
 import { getEffect } from "../registry";
 
 export { NICHE_PROFILES, loadNicheProfiles, nicheProfile, nicheIds } from "../niches";
