@@ -3,6 +3,7 @@ import "./grades";
 import "./editing";
 import "./tech";
 import "./gaming";
+import "./finance";
 import { getEffect } from "../registry";
 
 export { NICHE_PROFILES, loadNicheProfiles, nicheProfile, nicheIds } from "../niches";
