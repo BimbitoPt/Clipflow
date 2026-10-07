@@ -32,6 +32,8 @@ export interface ComposeOpts {
   assCues?: { text: string; start: number; end: number }[];
   /** Label the fx chain reads from (default: the first input stream). */
   fromLabel?: string;
+  /** Existing graph to chain onto (default: a fresh FilterGraph). */
+  graph?: FilterGraph;
 }
 
 export interface ComposeResult {
@@ -97,7 +99,7 @@ function pickWeighted(rng: () => number, items: { weight: number }[]): number {
  * no clock, no Math.random — everything flows from `seed`.
  */
 export function composeTimeline(opts: ComposeOpts): ComposeResult {
-  const graph = new FilterGraph();
+  const graph = opts.graph ?? new FilterGraph();
   const skipped: { id: string; reason: string }[] = [];
   const fromLabel = opts.fromLabel ?? "[0:v]";
   const result: ComposeResult = {

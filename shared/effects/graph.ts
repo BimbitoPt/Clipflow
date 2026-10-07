@@ -31,10 +31,12 @@ export class FilterGraph {
   }
 
   /** Render the `-filter_complex` script (use `-filter_complex_script`
-   * with this content on Windows to dodge the 32k argv limit). */
+   * with this content on Windows to dodge the 32k argv limit).
+   * NOTE: no comma may follow an input label (`[0:v]scale=…`, never
+   * `[0:v],scale=…`) — the parser reads that comma as an empty filter. */
   script(): string {
     return this.nodes
-      .map((n) => `${n.in}${n.filters.length ? "," : ""}${n.filters.join(",")}[${n.out}]`)
+      .map((n) => `${n.in}${n.filters.length ? n.filters.join(",") : "null"}[${n.out}]`)
       .join(";");
   }
 
@@ -78,6 +80,7 @@ export class FilterGraph {
     const open = (script.match(/\[/g) ?? []).length;
     const close = (script.match(/\]/g) ?? []).length;
     if (open !== close) errors.push(`unbalanced brackets: ${open} [ vs ${close} ]`);
+    if (/\],/.test(script)) errors.push("comma after input label (parses as an empty filter)");
     return errors;
   }
 }

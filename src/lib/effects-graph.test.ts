@@ -6,7 +6,7 @@ describe("FilterGraph", () => {
     const g = new FilterGraph();
     const mid = g.chain("[0:v]", ["scale=720:1280", "setsar=1"]);
     const out = g.chain(`[${mid}]`, ["vignette=PI/5"]);
-    expect(g.script()).toBe(`[0:v],scale=720:1280,setsar=1[${mid}];[${mid}],vignette=PI/5[${out}]`);
+    expect(g.script()).toBe(`[0:v]scale=720:1280,setsar=1[${mid}];[${mid}]vignette=PI/5[${out}]`);
     expect(g.validate(1)).toEqual([]);
   });
 

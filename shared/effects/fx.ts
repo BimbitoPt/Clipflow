@@ -26,12 +26,17 @@ const acc = (p: BuildParams, ctx: FxCtx): string => p.accent ?? ctx.accent;
 
 const AMP = { subtle: 0.3, medium: 0.5, hype: 0.75 } as const;
 
-/** Punch-in zoom burst (always-on chain, motion gated by the window). */
+/**
+ * Punch-in zoom burst via zoompan (per-frame z; crop w/h are config-time
+ * only, so animated crop windows are invalid — zoompan is the tool).
+ * d=1 keeps the 1:1 frame mapping on a live stream; on/30 is the clock.
+ */
 export function punchZoom({ p, ctx }: Prim): string[] {
   const a = AMP[p.intensity];
-  const P = `${a}*${tri(p)}`;
+  const tn = `(on/${ctx.fps})`;
+  const P = `${a}*between(${tn},${p.start},${p.start + p.duration})*sin(PI*(${tn}-${p.start})/${p.duration})`;
   return [
-    `crop=w='iw/(1+${P})':h='ih/(1+${P})':x='(iw-ow)/2':y='(ih-oh)/2',scale=${ctx.W}:${ctx.H}`,
+    `zoompan=z='1+${P}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=${ctx.W}x${ctx.H}:fps=${ctx.fps},setsar=1`,
   ];
 }
 
@@ -54,19 +59,19 @@ export function whipPan({ p }: Prim, dir = 1): string[] {
 }
 
 /** White flash in+out (transition). */
-export function flashCut({ p }: Prim): string[] {
+export function flashCut({ p }: { p: BuildParams }): string[] {
   return [
     `fade=t=in:st=${p.start}:d=0.07:alpha=1,fade=t=out:st=${p.start + p.duration - 0.07}:d=0.07:alpha=1`,
   ];
 }
 
 /** Single short beat flash (sfx-sync). */
-export function beatFlash({ p }: Prim): string[] {
+export function beatFlash({ p }: { p: BuildParams }): string[] {
   return [`fade=t=in:st=${p.start}:d=0.04:alpha=1,fade=t=out:st=${p.start + p.duration - 0.04}:d=0.04:alpha=1`];
 }
 
 /** Slow fade in+out (soft transition). */
-export function softFade({ p }: Prim): string[] {
+export function softFade({ p }: { p: BuildParams }): string[] {
   const h = p.duration / 2;
   return [`fade=t=in:st=${p.start}:d=${h}:alpha=1,fade=t=out:st=${p.start + h}:d=${h}:alpha=1`];
 }
@@ -81,15 +86,15 @@ export function slowPush({ p, ctx }: Prim): string[] {
 /** Bottom progress bar over the full clip. */
 export function progressBar({ p, ctx }: Prim, total: number): string[] {
   void p;
-  return [`drawbox=x=0:y='h-14':w='iw*t/${total}':h=14:c=${acc(p, ctx)}:t=fill`];
+  return [`drawbox=x=0:y='ih-14':w='iw*t/${total}':h=14:c=${acc(p, ctx)}:t=fill`];
 }
 
 /** Blinking REC dot + label, top-right. */
 export function recDot({ p, ctx }: Prim): string[] {
   const blink = `${win(p)}*lt(mod(t,1),0.6)`;
   return [
-    `drawbox=x='w-110':y=36:w=20:h=20:c=red:t=fill:enable='${blink}'`,
-    `drawtext=fontfile=${ctx.fontFile}:text='REC':fontsize=h/36:fontcolor=white:x='w-82':y=32:enable='${blink}'`,
+    `drawbox=x='iw*0.847':y='ih*0.028':w='iw*0.028':h='iw*0.028':c=red:t=fill:enable='${blink}'`,
+    `drawtext=fontfile=${ctx.fontFile}:text='REC':fontsize=h/36:fontcolor=white:x='w*0.886':y='h*0.025':enable='${blink}'`,
   ];
 }
 
@@ -153,7 +158,7 @@ export function glitchBurst(prim: Prim): { filters: string[]; requires: string[]
 
 /** Scanline sweep: accent bar travelling top→bottom. */
 export function scanlineSweep({ p, ctx }: Prim): string[] {
-  const y = `(h+20)*(t-${p.start})/${p.duration}-10`;
+  const y = `(ih+20)*(t-${p.start})/${p.duration}-10`;
   return [`drawbox=x=0:y='${y}':w=iw:h=6:c=${acc(p, ctx)}:t=fill:enable='${win(p)}'`];
 }
 
@@ -169,26 +174,28 @@ export function razorFlash({ p, ctx }: Prim): string[] {
 /** Mock editing timeline: track + fill + playhead + cut ticks (ambient). */
 export function timelineBar({ p, ctx }: Prim, total: number): string[] {
   void p;
-  const y = "h-150";
+  const y = "ih-150";
   return [
-    `drawbox=x='w*0.06':y=${y}:w='w*0.88':h=54:c=black@0.72:t=fill`,
-    `drawbox=x='w*0.06':y='${y}+20':w='w*0.88*t/${total}':h=14:c=${acc(p, ctx)}:t=fill`,
-    `drawbox=x='w*0.06+w*0.88*t/${total}-2':y=${y}:w=4:h=54:c=white:t=fill`,
-    `drawbox=x='w*0.30':y=${y}:w=3:h=54:c=white@0.6:t=fill`,
-    `drawbox=x='w*0.62':y=${y}:w=3:h=54:c=white@0.6:t=fill`,
-    `drawtext=fontfile=${ctx.fontFile}:text='TIMELINE':fontsize=h/44:fontcolor=white@0.8:x='w*0.06':y='${y}-34'`,
+    `drawbox=x='iw*0.06':y=${y}:w='iw*0.88':h=54:c=black@0.72:t=fill`,
+    `drawbox=x='iw*0.06':y='${y}+20':w='iw*0.88*t/${total}':h=14:c=${acc(p, ctx)}:t=fill`,
+    `drawbox=x='iw*0.06+iw*0.88*t/${total}-2':y=${y}:w=4:h=54:c=white:t=fill`,
+    `drawbox=x='iw*0.30':y=${y}:w=3:h=54:c=white@0.6:t=fill`,
+    `drawbox=x='iw*0.62':y=${y}:w=3:h=54:c=white@0.6:t=fill`,
+    `drawtext=fontfile=${ctx.fontFile}:text='TIMELINE':fontsize=h/44:fontcolor=white@0.8:x='w*0.06':y='h-184'`,
   ];
 }
 
 /** Cursor click ripple: expanding double ring at a seeded position. */
 export function clickRipple({ p, ctx }: Prim): string[] {
-  const cx = `w*${(0.25 + p.variant * 0.5).toFixed(2)}`;
-  const cy = `h*${(0.3 + ((p.variant * 7) % 1) * 0.4).toFixed(2)}`;
+  const cx = `iw*${(0.25 + p.variant * 0.5).toFixed(2)}`;
+  const cy = `ih*${(0.3 + ((p.variant * 7) % 1) * 0.4).toFixed(2)}`;
   const k = `(t-${p.start})/${p.duration}`;
   const A = ctx.accent;
+  const r1 = `(iw*0.04+iw*0.36*${k})`;
+  const r2 = `(iw*0.04+iw*0.22*${k})`;
   return [
-    `drawbox=x='${cx}-(30+260*${k})/2':y='${cy}-(30+260*${k})/2':w='30+260*${k}':h='30+260*${k}':c=${A}:t=4:enable='${win(p)}'`,
-    `drawbox=x='${cx}-(30+160*${k})/2':y='${cy}-(30+160*${k})/2':w='30+160*${k}':h='30+160*${k}':c=white:t=3:enable='${win(p)}'`,
+    `drawbox=x='${cx}-${r1}/2':y='${cy}-${r1}/2':w='${r1}':h='${r1}':c=${A}:t=4:enable='${win(p)}'`,
+    `drawbox=x='${cx}-${r2}/2':y='${cy}-${r2}/2':w='${r2}':h='${r2}':c=white:t=3:enable='${win(p)}'`,
   ];
 }
 
@@ -196,7 +203,7 @@ export function clickRipple({ p, ctx }: Prim): string[] {
 export function pulseBox({ p, ctx }: Prim): string[] {
   const blink = `${win(p)}*lt(mod(t-${p.start},0.9),0.55)`;
   return [
-    `drawbox=x='w*0.14':y='h*0.30':w='w*0.72':h='h*0.16':c=${acc(p, ctx)}:t=5:enable='${blink}'`,
+    `drawbox=x='iw*0.14':y='ih*0.30':w='iw*0.72':h='ih*0.16':c=${acc(p, ctx)}:t=5:enable='${blink}'`,
   ];
 }
 
@@ -213,13 +220,17 @@ export function neonTitle({ p, ctx }: Prim): string[] {
 export function typewriter({ p, ctx }: Prim): string[] {
   const text = p.text ?? "console.log(idea)";
   const est = text.length * 0.55;
-  const fs = `h/24`;
-  const wEst = `${est}*${fs}`;
-  const cx = `(w-(${wEst}))/2`;
+  // drawtext sees w/h, drawbox sees iw/ih — size the same line twice.
+  const fsT = `h/24`;
+  const fsB = `ih/24`;
+  const wEstT = `${est}*${fsT}`;
+  const wEstB = `${est}*${fsB}`;
+  const cxT = `(w-(${wEstT}))/2`;
+  const cxB = `(iw-(${wEstB}))/2`;
   const k = `(t-${p.start})/${Math.max(0.3, p.duration * 0.5)}`;
   return [
-    `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize=${fs}:fontcolor=${acc(p, ctx)}:x='${cx}':y='h*0.44':alpha='if(lt(${k},1),${k},1)':enable='${win(p)}'`,
-    `drawbox=x='${cx}+(${wEst})*if(lt(${k},1),${k},1)':y='h*0.44':w='(${wEst})*(1-if(lt(${k},1),${k},1))+4':h=${fs}:c=${ctx.bg}:t=fill:enable='${win(p)}*lt(${k},1)'`,
+    `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize=${fsT}:fontcolor=${acc(p, ctx)}:x='${cxT}':y='h*0.44':alpha='if(lt(${k},1),${k},1)':enable='${win(p)}'`,
+    `drawbox=x='${cxB}+(${wEstB})*if(lt(${k},1),${k},1)':y='ih*0.44':w='(${wEstB})*(1-if(lt(${k},1),${k},1))+4':h=${fsB}:c=${ctx.bg}:t=fill:enable='${win(p)}*lt(${k},1)'`,
   ];
 }
 
@@ -228,9 +239,9 @@ export function lowerThird({ p, ctx }: Prim): string[] {
   const text = p.text ?? "KEY STAT";
   const alpha = `if(lt(t-${p.start},0.2),(t-${p.start})/0.2,if(lt(${p.start + p.duration}-t,0.25),(${p.start + p.duration}-t)/0.25,1))`;
   return [
-    `drawbox=x='w*0.06':y='h*0.72':w='w*0.56':h='h*0.11':c=black@0.72:t=fill:enable='${win(p)}'`,
-    `drawbox=x='w*0.06':y='h*0.72':w=8:h='h*0.11':c=${acc(p, ctx)}:t=fill:enable='${win(p)}'`,
-    `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize=h/26:fontcolor=white:x='w*0.06+28':y='h*0.72+h*0.025':alpha='${alpha}':enable='${win(p)}'`,
+    `drawbox=x='iw*0.06':y='ih*0.72':w='iw*0.56':h='ih*0.11':c=black@0.72:t=fill:enable='${win(p)}'`,
+    `drawbox=x='iw*0.06':y='ih*0.72':w=8:h='ih*0.11':c=${acc(p, ctx)}:t=fill:enable='${win(p)}'`,
+    `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize=h/26:fontcolor=white:x='w*0.06+w*0.04':y='h*0.72+h*0.025':alpha='${alpha}':enable='${win(p)}'`,
   ];
 }
 
@@ -249,15 +260,15 @@ export function counterUp({ p, ctx }: Prim, from: number, to: number, prefix = "
 /** Rising staircase bars (finance trend). */
 export function trendSteps({ p, ctx }: Prim, steps = 5): string[] {
   const out: string[] = [];
-  const baseY = "h*0.62";
+  const baseY = "ih*0.62";
   for (let i = 0; i < steps; i++) {
     const on = p.start + (p.duration / steps) * i;
-    const h = 30 + i * 34;
+    const h = `ih*${(0.023 + i * 0.026).toFixed(3)}`;
     out.push(
-      `drawbox=x='w*0.12+${i}*w*0.13':y='${baseY}-${h}':w='w*0.10':h=${h}:c=${acc(p, ctx)}@0.9:t=fill:enable='between(t,${on},${p.start + p.duration})'`,
+      `drawbox=x='iw*0.12+${i}*iw*0.13':y='${baseY}-${h}':w='iw*0.10':h=${h}:c=${acc(p, ctx)}@0.9:t=fill:enable='between(t,${on},${p.start + p.duration})'`,
     );
   }
-  out.push(`drawbox=x='w*0.10':y='${baseY}':w='w*0.72':h=4:c=white@0.7:t=fill:enable='${win(p)}'`);
+  out.push(`drawbox=x='iw*0.10':y='${baseY}':w='iw*0.72':h=4:c=white@0.7:t=fill:enable='${win(p)}'`);
   return out;
 }
 
@@ -274,14 +285,14 @@ export function scorePop({ p, ctx }: Prim): string[] {
   const text = p.text ?? "+100";
   const k = `(t-${p.start})/${p.duration}`;
   return [
-    `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize='h/18*(1+0.9*(1-${k}))':fontcolor=${acc(p, ctx)}:borderw=3:bordercolor=black:x='(w-text_w)/2':y='h*0.30-60*${k}':alpha='1-${k}*0.7':enable='${win(p)}'`,
+    `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize='h/18*(1+0.9*(1-${k}))':fontcolor=${acc(p, ctx)}:borderw=3:bordercolor=black:x='(w-text_w)/2':y='h*0.30-h*0.05*${k}':alpha='1-${k}*0.7':enable='${win(p)}'`,
   ];
 }
 
 /** Kinetic caption: big bold pop with a bounce. */
 export function kineticCaption({ p, ctx }: Prim): string[] {
   const text = p.text ?? "DO THIS";
-  const y = `h*0.60-24*sin(PI*(t-${p.start})/${p.duration})`;
+  const y = `h*0.60-h*0.02*sin(PI*(t-${p.start})/${p.duration})`;
   return [
     `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize='h/16*(0.7+0.3*sin(PI*min(1,(t-${p.start})/0.18)))':fontcolor=white:borderw=4:bordercolor=black:x='(w-text_w)/2':y='${y}':enable='${win(p)}'`,
   ];
@@ -290,10 +301,10 @@ export function kineticCaption({ p, ctx }: Prim): string[] {
 /** Keyword pop-in: accent plate + word. */
 export function keyPop({ p, ctx }: Prim): string[] {
   const text = (p.text ?? "KEY").toUpperCase();
-  const fs = `h/20`;
+  const fsB = `ih/20`;
   return [
-    `drawbox=x='(w-(${text.length}*0.62*${fs}+40))/2':y='h*0.56':w='(${text.length}*0.62*${fs}+40)':h='1.7*${fs}':c=${acc(p, ctx)}:t=fill:enable='${win(p)}'`,
-    `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize=${fs}:fontcolor=black:x='(w-text_w)/2':y='h*0.56+0.32*${fs}':enable='${win(p)}'`,
+    `drawbox=x='(iw-(${text.length}*0.62*${fsB}+40))/2':y='ih*0.56':w='(${text.length}*0.62*${fsB}+40)':h='1.7*${fsB}':c=${acc(p, ctx)}:t=fill:enable='${win(p)}'`,
+    `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize=h/20:fontcolor=black:x='(w-text_w)/2':y='h*0.56+0.32*h/20':enable='${win(p)}'`,
   ];
 }
 
@@ -304,7 +315,7 @@ export function stickerPop({ p, ctx }: Prim): string[] {
   const pop = `0.6+0.4*sin(PI*min(1,${k}))`;
   const y = `h*${(0.3 + p.variant * 0.2).toFixed(2)}`;
   return [
-    `drawtext=fontfile=${ctx.fontFile}:text=${escText(`★ ${text} ★`)}:fontsize='h/16*${pop}':fontcolor=${acc(p, ctx)}:borderw=5:bordercolor=white:x='(w-text_w)/2':y='${y}':enable='${win(p)}'`,
+    `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize='h/16*${pop}':fontcolor=${acc(p, ctx)}:borderw=5:bordercolor=white:x='(w-text_w)/2':y='${y}':enable='${win(p)}'`,
   ];
 }
 
@@ -312,7 +323,7 @@ export function stickerPop({ p, ctx }: Prim): string[] {
 export function calloutBox({ p, ctx }: Prim): string[] {
   const blink = `${win(p)}*lt(mod(t-${p.start},1.0),0.7)`;
   return [
-    `drawbox=x='w*0.10':y='h*0.34':w='w*0.80':h='h*0.18':c=${acc(p, ctx)}:t=6:enable='${blink}'`,
+    `drawbox=x='iw*0.10':y='ih*0.34':w='iw*0.80':h='ih*0.18':c=${acc(p, ctx)}:t=6:enable='${blink}'`,
   ];
 }
 
@@ -327,8 +338,8 @@ export function arrowNote({ p, ctx }: Prim): string[] {
 /** Step counter chip, e.g. STEP 2/5 (edu). */
 export function stepCounter({ p, ctx }: Prim, cur = 1, total = 3): string[] {
   return [
-    `drawbox=x='w*0.06':y='h*0.10':w='w*0.30':h='h*0.055':c=black@0.72:t=fill:enable='${win(p)}'`,
-    `drawtext=fontfile=${ctx.fontFile}:text='STEP ${cur}/${total}':fontsize=h/30:fontcolor=${acc(p, ctx)}:x='w*0.06+18':y='h*0.10+h*0.008':enable='${win(p)}'`,
+    `drawbox=x='iw*0.06':y='ih*0.10':w='iw*0.30':h='ih*0.055':c=black@0.72:t=fill:enable='${win(p)}'`,
+    `drawtext=fontfile=${ctx.fontFile}:text='STEP ${cur}/${total}':fontsize=h/30:fontcolor=${acc(p, ctx)}:x='w*0.06+w*0.025':y='h*0.10+h*0.008':enable='${win(p)}'`,
   ];
 }
 
@@ -337,7 +348,7 @@ export function codeRain({ p, ctx }: Prim): string[] {
   const cols = ["01</>{}$", "=>{_};#", "AI*42||"];
   return cols.map((col, i) => {
     const x = `w*${(0.08 + i * 0.36).toFixed(2)}`;
-    const y = `-260+mod(${(160 + i * 60)}*(t-${p.start}),h+520)-160`;
+    const y = `-h*0.2+mod(${(160 + i * 60)}*(t-${p.start}),h*1.4)-h*0.08`;
     return `drawtext=fontfile=${ctx.fontFile}:text='${col}':fontsize=h/40:fontcolor=${acc(p, ctx)}@0.30:x='${x}':y='${y}':enable='${win(p)}'`;
   });
 }
