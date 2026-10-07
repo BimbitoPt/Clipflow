@@ -1,6 +1,7 @@
 import "./universal";
 import "./grades";
 import "./editing";
+import "./tech";
 import { getEffect } from "../registry";
 
 export { NICHE_PROFILES, loadNicheProfiles, nicheProfile, nicheIds } from "../niches";

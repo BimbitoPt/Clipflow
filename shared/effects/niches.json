@@ -47,7 +47,8 @@
           { "id": "click-ripple", "weight": 3 },
           { "id": "neon-title", "weight": 2 },
           { "id": "typewriter", "weight": 2 },
-          { "id": "pulse-box", "weight": 2 }
+          { "id": "pulse-box", "weight": 2 },
+          { "id": "code-rain", "weight": 1 }
         ],
         "grade": "grade-neon",
         "transition": "scanline-sweep",
