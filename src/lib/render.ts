@@ -72,6 +72,25 @@ interface GradientLike {
   addColorStop(o: number, c: string): void;
 }
 
+// Memoized text-layout caches: fitting/wrapping is deterministic for a given
+// (text, font, width), so we compute once per unique input instead of every
+// frame. Cleared wholesale when disabled (tests, parity checks).
+const fitCache = new Map<string, { size: number; fitted: string[] }>();
+const phraseLayoutCache = new Map<string, { size: number; lines: string[]; font: string }>();
+let frameCachesEnabled = true;
+
+/**
+ * Toggle the per-frame text-layout memo caches. Default on (export/preview).
+ * Set false for pixel-parity checks or tests that must see a cold path.
+ */
+export function setFrameCacheEnabled(on: boolean): void {
+  frameCachesEnabled = on;
+  if (!on) {
+    fitCache.clear();
+    phraseLayoutCache.clear();
+  }
+}
+
 function words(text: string, max = 8): string[] {
   const tokens: string[] = [];
   for (const tok of text.split(/\s+/).filter(Boolean)) {
@@ -157,14 +176,30 @@ export function findActiveWord(wordList: readonly WordCue[], t: number): string 
 function drawPhraseCaption(ctx: DrawCtx, phrase: CaptionPhrase, time: number, W: number, H: number, accent: string, activeWord?: string, anchorRatio: number = CAPTION_ANCHOR_RATIO) {
   const value = phrase.kind === "scene" ? phrase.text.toUpperCase() : phrase.text;
   const maxWidth = W * .78;
-  let size = W * (phrase.kind === "scene" ? .065 : .07);
-  let lines = [value];
-  for (; size >= W * .034; size -= 1) {
-    ctx.font = `700 ${Math.round(size)}px system-ui, sans-serif`;
-    const measure = (text: string) => ctx.measureText?.(text).width ?? text.length * size * .55;
-    lines = wrapMeasured(value, maxWidth, measure);
-    if (lines.length <= 2 && lines.every(line => measure(line) <= maxWidth)) break;
+  // Shrink-to-fit is deterministic per (text, kind, width): memoize the
+  // result so repeated frames of the same phrase skip the step loop.
+  const layoutKey = `${phrase.kind}|${W}|${value}`;
+  let layout = frameCachesEnabled ? phraseLayoutCache.get(layoutKey) : undefined;
+  if (!layout) {
+    let size = W * (phrase.kind === "scene" ? .065 : .07);
+    let lines = [value];
+    let lastFont = "";
+    for (; size >= W * .034; size -= 1) {
+      lastFont = `700 ${Math.round(size)}px system-ui, sans-serif`;
+      ctx.font = lastFont;
+      const measure = (text: string) => ctx.measureText?.(text).width ?? text.length * size * .55;
+      lines = wrapMeasured(value, maxWidth, measure);
+      if (lines.length <= 2 && lines.every(line => measure(line) <= maxWidth)) break;
+    }
+    layout = { size, lines, font: lastFont };
+    if (frameCachesEnabled) {
+      if (phraseLayoutCache.size > 512) phraseLayoutCache.clear();
+      phraseLayoutCache.set(layoutKey, layout);
+    }
   }
+  const size = layout.size;
+  const lines = layout.lines;
+  ctx.font = layout.font;
   const lineHeight = size * 1.22;
   // Platform presets nudge the baseline inside the safe band; clamp so a
   // bad value can never push captions under a platform overlay.
@@ -688,51 +723,6 @@ export function drawFrame(
   // No-captions fallback position: centered for procedural backgrounds,
   // safe-zone anchored over real footage (faces/UI live at the edges).
   const captionY = footage ? H * (extra?.captionAnchor ?? CAPTION_ANCHOR_RATIO) : H / 2;
-  // Headroom for the 1.15x pop word: fit lines against maxW/1.15 so the
-  // popped word can never overflow the frame.
-  const fitW = maxW / 1.15;
-  const base = parseBaseSize(theme.font);
-  let lines: string[];
-  let best = base;
-  // Text measurement helpers — only defined when the ctx supports it.
-  let measureAt: ((size: number) => (s: string) => number) | undefined;
-  let fitLargest: ((text: string, hi: number) => { size: number; fitted: string[] }) | undefined;
-  if (typeof ctx.measureText === "function") {
-    const measure = ctx.measureText;
-    measureAt = (size: number) => {
-      ctx.font = fontFor(theme.font, size);
-      const m = measure;
-      return (s: string) => m.call(ctx, s).width;
-    };
-    // Largest size in [28, hi] where every wrapped line of text fits fitW.
-    const measureFn = measureAt;
-    fitLargest = (text: string, hi: number): { size: number; fitted: string[] } => {
-      let lo = 28;
-      let top = hi;
-      let size = 28;
-      while (lo <= top) {
-        const mid = Math.floor((lo + top) / 2);
-        const candidate = wrapMeasured(text, fitW, measureFn(mid));
-        const ok = candidate.every((ln) => measureFn(mid)(ln) <= fitW);
-        if (ok) {
-          size = mid;
-          lo = mid + 1;
-        } else {
-          top = mid - 1;
-        }
-      }
-      return { size, fitted: wrapMeasured(text, fitW, measureFn(size)) };
-    };
-  }
-  if (!fitLargest) {
-    ctx.font = theme.font;
-    lines = words(frame.cue.text);
-  } else {
-    const full = fitLargest(frame.cue.text, base);
-    best = full.size;
-    ctx.font = fontFor(theme.font, best);
-    lines = full.fitted;
-  }
   const captionPlan = extra?.captions ?? (extra?.words ? speechPhrases(extra.words) : null);
   if (captionPlan !== null) {
     const phrase = captionPlan.find(item => frame.t >= item.start && frame.t < item.end);
@@ -741,6 +731,53 @@ export function drawFrame(
       drawPhraseCaption(ctx, phrase, frame.t, W, H, theme.accent, activeWord, extra?.captionAnchor);
     }
   } else {
+    // Fallback path (no caption plan): fit cue text to the frame once per
+    // (text, font, fitW) — measurement is deterministic, so memoize instead
+    // of re-running the binary search every frame.
+    // Headroom for the 1.15x pop word: fit lines against maxW/1.15 so the
+    // popped word can never overflow the frame.
+    const fitW = maxW / 1.15;
+    const base = parseBaseSize(theme.font);
+    let lines: string[];
+    let best = base;
+    const fitKey = `${theme.font}|${fitW}|${frame.cue.text}`;
+    const memo = frameCachesEnabled ? fitCache.get(fitKey) : undefined;
+    if (memo) {
+      best = memo.size;
+      ctx.font = fontFor(theme.font, best);
+      lines = memo.fitted;
+    } else if (typeof ctx.measureText === "function") {
+      const measure = ctx.measureText;
+      const measureAt = (size: number) => {
+        ctx.font = fontFor(theme.font, size);
+        return (s: string) => measure.call(ctx, s).width;
+      };
+      // Largest size in [28, hi] where every wrapped line of text fits fitW.
+      let lo = 28;
+      let top = base;
+      let size = 28;
+      while (lo <= top) {
+        const mid = Math.floor((lo + top) / 2);
+        const candidate = wrapMeasured(frame.cue.text, fitW, measureAt(mid));
+        const ok = candidate.every((ln) => measureAt(mid)(ln) <= fitW);
+        if (ok) {
+          size = mid;
+          lo = mid + 1;
+        } else {
+          top = mid - 1;
+        }
+      }
+      best = size;
+      ctx.font = fontFor(theme.font, best);
+      lines = wrapMeasured(frame.cue.text, fitW, measureAt(best));
+      if (frameCachesEnabled) {
+        if (fitCache.size > 256) fitCache.clear();
+        fitCache.set(fitKey, { size: best, fitted: lines });
+      }
+    } else {
+      ctx.font = theme.font;
+      lines = words(frame.cue.text);
+    }
     ctx.fillStyle = "#F7F8FA";
     lines.forEach((line, index) => ctx.fillText(line, 48, captionY + index * 110));
   }

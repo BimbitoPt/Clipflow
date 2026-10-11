@@ -1,6 +1,7 @@
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { ambientChain, limiterChain, musicBedChain } from "../../shared/audio-mix";
 
 const base = "local-assets/octane-archive/";
 const shots: Record<string, { file: string; start: number; length: number }> = {
@@ -80,9 +81,9 @@ async function main() {
     const hook = edit.hook.replaceAll("'", "\\'");
     const flashTimes = Array.from({ length: 8 }, (_, i) => `between(t,${(i * 1.36).toFixed(2)},${(i * 1.36 + 0.055).toFixed(2)})`).join("+");
     filters.push(`${segmentLabels.join("")}concat=n=${edit.sequence.length}:v=1:a=0,drawbox=x=0:y=0:w=iw:h=ih:color=white@0.72:t=fill:enable='${flashTimes}',drawtext=fontfile='${font}':text='${hook}':fontcolor=white:fontsize=42:borderw=3:bordercolor=black@0.88:shadowcolor=black@0.8:shadowx=3:shadowy=4:x=(w-text_w)/2:y=82:enable='lt(t,0.95)',drawbox=x='(iw-112)/2':y=145:w=112:h=5:color=0xC9F05A:t=fill:enable='lt(t,0.85)'[outv]`);
-    filters.push(`[${ambientInput}:a]volume=0.13,highpass=f=90,lowpass=f=900[trackamb]`);
-    filters.push(`[${musicInput}:a]volume=0.92,afade=t=in:st=0:d=0.04,afade=t=out:st=${(duration - 0.35).toFixed(3)}:d=0.35[musicbed]`);
-    filters.push(`[trackamb][musicbed]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,alimiter=limit=0.94[aout]`);
+    filters.push(`[${ambientInput}:a]${ambientChain()}[trackamb]`);
+    filters.push(`[${musicInput}:a]${musicBedChain(duration)}[musicbed]`);
+    filters.push(`[trackamb][musicbed]amix=inputs=2:duration=first:dropout_transition=0:normalize=0,${limiterChain()}[aout]`);
 
     args.push(
       "-filter_complex", filters.join(";"), "-map", "[outv]", "-map", "[aout]", "-t", duration.toFixed(3),
