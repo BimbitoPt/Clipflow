@@ -11,6 +11,7 @@ import { resolveSceneChoices, type ResolvedSceneChoice, type SceneChoice } from 
 import { applyScriptOverrides, hasScriptOverrides, type ScriptOverrides } from "./lib/script-draft";
 import { previewSpeak } from "./lib/tts";
 import { createKokoroLoader, KOKORO_SAMPLE_RATE, resampleLinear } from "./lib/tts-local";
+import { createKokoroTimedLoader } from "./lib/tts-timed";
 import ProfileSettings from "./components/ProfileSettings";
 import ScriptBeats from "./components/ScriptBeats";
 import SceneTray from "./components/SceneTray";
@@ -585,13 +586,25 @@ export function App() {
         const approvedProofByCue = exportChoices.map((choice, index) => choice.kind === "upload" && choice.approvedProof === true && cueAssets[index]?.src === `upload:${choice.id}`);
         setExportProgress(35);
         let pcm: Float32Array | null = null;
+        // Real word timings when the timed model synthesized the voice; the
+        // sidecar/even-split memo stays the fallback — timed synthesis can
+        // only ever upgrade captions, never break the export.
+        let synthesizedCues: Array<TimedCueTiming | null> | null = null;
         if (voiceOn) {
-          const loader = createKokoroLoader();
-          const fullText = [script.hook, ...script.beats, script.cta].join(". ");
+          const cueTexts = script.cues.map((cue) => cue.text);
           setExportMsg("Rendering voice…");
           setExportProgress(50);
           try {
-            const raw = await loader(fullText);
+            let raw: Float32Array;
+            try {
+              const timed = await createKokoroTimedLoader()(cueTexts);
+              raw = timed.audio;
+              synthesizedCues = timed.cues;
+            } catch {
+              // Timestamped model unavailable or alignment failed → plain
+              // synthesis; captions keep the memoized (sidecar/even-split) timing.
+              raw = await createKokoroLoader()(cueTexts.join(". "));
+            }
             const target = Math.round((timing?.total ?? VIDEO_SECS) * KOKORO_SAMPLE_RATE);
             if (raw.length > target) {
               const secs = (raw.length / KOKORO_SAMPLE_RATE).toFixed(1);
@@ -625,6 +638,18 @@ export function App() {
             setExportProgress(65);
           }
         }
+        // Captions for THIS export: real synthesized word times when the
+        // timed model ran, otherwise the memoized plan (sidecar/even-split).
+        const exportWords = synthesizedCues ? planWordsTimed(script, synthesizedCues) : words;
+        const exportCaptions = synthesizedCues
+          ? makeCaptionPlan({
+              mode: captionMode,
+              voiceOn,
+              labels: captionLabels,
+              words: exportWords,
+              scenes: script.cues.map((cue, index) => ({ ...cue, ...timing?.windows?.[index] })),
+            })
+          : captions;
         if (desktop) {
           exportAbortRef.current.signal.throwIfAborted();
           // The Rust WAV sink is pinned to 16 kHz (src-tauri/src/render.rs);
@@ -639,7 +664,7 @@ export function App() {
             : [];
           const output = await renderDesktop({
             frames: [...baseFrames, ...cardFrames], assets: cueAssets, theme,
-            extra: { captions, words, visualEffect, captionAnchor: preset.captionAnchor }, duration: totalDuration,
+            extra: { captions: exportCaptions, words: exportWords, visualEffect, captionAnchor: preset.captionAnchor }, duration: totalDuration,
             endCardAfter: creditOn ? baseDuration : undefined, pcm, signal: exportAbortRef.current.signal,
             cueIndex: frame => cueIndexOf(script, frame.cue), seek: seekVideo,
             progress: (percent,message) => { setExportProgress(percent); setExportMsg(message); },
@@ -763,9 +788,9 @@ export function App() {
                   }
                   const extra: RenderExtra = {};
                   extra.visualEffect = visualEffect;
-                  extra.captions = captions;
+                  extra.captions = exportCaptions;
                   extra.captionAnchor = preset.captionAnchor;
-                  if (words) extra.words = words;
+                  if (exportWords) extra.words = exportWords;
                   if (asset) extra.asset = asset;
                   drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, extra, totalDuration);
                   const vf = new VideoFrame(canvas, { timestamp: Math.round(f.t * 1e6) });
