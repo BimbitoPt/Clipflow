@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { getTimedSynth } from "./kokoro-timestamped";
 import { VoiceIdSchema, type VoiceId, type WordTiming } from "./domain";
 
-export type SynthesizedVoice = { audio: Float32Array; samplingRate: number };
+export type SynthesizedVoice = { audio: Float32Array; samplingRate: number; wordTimings?: WordTiming[] };
 type Synth = (text: string, voiceId: VoiceId) => Promise<SynthesizedVoice>;
 
 let synthPromise: Promise<Synth> | null = null;
@@ -29,6 +30,34 @@ function getSynth(): Promise<Synth> {
     });
   }
   return synthPromise;
+}
+
+let fallbackPromise: Promise<Synth> | null = null;
+
+/**
+ * Production synth: timestamped model first (real word timings), standard
+ * kokoro-js + estimated timings as fallback. The fallback also engages
+ * per-call if timed synthesis throws, so voiceover generation never gets
+ * worse than it was — it only ever warns and degrades.
+ */
+async function getProductionSynth(): Promise<Synth> {
+  let timed: Synth;
+  try {
+    timed = await getTimedSynth();
+  } catch (error) {
+    console.warn(`[voiceover] timed Kokoro unavailable (${(error as Error).message}); using estimated word timings`);
+    if (!fallbackPromise) fallbackPromise = getSynth();
+    return fallbackPromise;
+  }
+  return async (text, voiceId) => {
+    try {
+      return await timed(text, voiceId);
+    } catch (error) {
+      console.warn(`[voiceover] timed synthesis failed (${(error as Error).message}); retrying with estimated word timings`);
+      if (!fallbackPromise) fallbackPromise = getSynth();
+      return (await fallbackPromise)(text, voiceId);
+    }
+  };
 }
 
 export function estimateWordTimings(text: string, durationSeconds: number): WordTiming[] {
@@ -67,7 +96,7 @@ export async function generateVoiceover(text: string, clipId: string, appRoot = 
   if (!script) throw new Error("Write a narration script before generating voiceover");
   if (script.length > 900) throw new Error("Narration must be 900 characters or fewer");
   const voiceId = VoiceIdSchema.parse(options.voiceId ?? "af_heart");
-  const synth = synthesize ?? await getSynth();
+  const synth = synthesize ?? await getProductionSynth();
   const result = await synth(script, voiceId);
   if (!result.audio.length || result.samplingRate < 8000 || result.samplingRate > 96000) {
     throw new Error("Speech model returned empty or unsupported audio");
@@ -83,5 +112,10 @@ export async function generateVoiceover(text: string, clipId: string, appRoot = 
   const wav = encodePcmWav(result.audio, result.samplingRate);
   const { writeFile } = await import("node:fs/promises");
   await writeFile(absolute, wav);
-  return { audioPath: `local-assets/${filename}`, durationSeconds, wordTimings: estimateWordTimings(script, durationSeconds), generatedFor: digest };
+  // Model-predicted spans win when the synth produced them and they cover
+  // every script token; caption alignment throws on a count mismatch, so a
+  // partial set must never escape this function.
+  const wordCount = script.split(/\s+/).filter(Boolean).length;
+  const wordTimings = result.wordTimings?.length === wordCount ? result.wordTimings : estimateWordTimings(script, durationSeconds);
+  return { audioPath: `local-assets/${filename}`, durationSeconds, wordTimings, generatedFor: digest };
 }

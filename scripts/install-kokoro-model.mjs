@@ -26,17 +26,31 @@ const MODEL_FILES = [
   { name: "tokenizer_config.json", size: 113 },
   { name: "onnx/model_quantized.onnx", size: 92_361_116 },
 ];
+/**
+ * Timestamped twin: identical Kokoro checkpoint re-exported with a per-token
+ * duration head (audio + pred_dur in one pass). The studio uses it to turn
+ * char-weighted word-timing guesses into real model-predicted spans. Same
+ * tokenizer bytes as the standard model — only the ONNX graph differs.
+ */
+const TS_REVISION = "dd4401a9add81ac692d20e240d22ec9dda82cc29";
+const TS_MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX-timestamped";
+const TS_MODEL_FILES = [
+  { name: "config.json", size: 44 },
+  { name: "tokenizer.json", size: 3497 },
+  { name: "tokenizer_config.json", size: 113 },
+  { name: "onnx/model_quantized.onnx", size: 92_361_055 },
+];
 /** Voice bins the studio can synthesize with (Clipflow default first). */
 const VOICES = ["af_heart"];
 /** WebAssembly files the bundled transformers.js runtime fetches at synth time. */
 const ORT_FILES = ["ort-wasm-simd-threaded.jsep.wasm", "ort-wasm-simd-threaded.jsep.mjs"];
 
 const require = createRequire(import.meta.url);
-const modelRoot = path.resolve("public", "models", ...MODEL_ID.split("/"));
 const voiceDir = path.resolve("public", "models", "voices");
 const ortDir = path.resolve("public", "ort");
 
-async function ensureModelFile(file) {
+async function ensureModelFile(modelId, revision, file) {
+  const modelRoot = path.resolve("public", "models", ...modelId.split("/"));
   const target = path.join(modelRoot, ...file.name.split("/"));
   if ((await stat(target).catch(() => null))?.size === file.size) {
     console.log(`Ready: ${file.name}`);
@@ -44,8 +58,8 @@ async function ensureModelFile(file) {
   }
   await mkdir(path.dirname(target), { recursive: true });
   const temporary = `${target}.download`;
-  const url = `https://huggingface.co/${MODEL_ID}/resolve/${REVISION}/${file.name}`;
-  console.log(`Downloading ${file.name} (pinned ${REVISION.slice(0, 12)})...`);
+  const url = `https://huggingface.co/${modelId}/resolve/${revision}/${file.name}`;
+  console.log(`Downloading ${file.name} (pinned ${revision.slice(0, 12)})...`);
   const response = await fetch(url);
   if (!response.ok || !response.body) throw new Error(`Model download failed (${response.status}): ${file.name}`);
   try {
@@ -93,7 +107,8 @@ async function stageOrt() {
 }
 
 async function main() {
-  for (const file of MODEL_FILES) await ensureModelFile(file);
+  for (const file of MODEL_FILES) await ensureModelFile(MODEL_ID, REVISION, file);
+  for (const file of TS_MODEL_FILES) await ensureModelFile(TS_MODEL_ID, TS_REVISION, file);
   await stageVoices();
   await stageOrt();
   console.log("Kokoro voice stack ready: public/models + public/ort");
