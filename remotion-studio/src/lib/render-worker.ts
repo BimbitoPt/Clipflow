@@ -8,6 +8,7 @@ import { getBatch, updateClip } from "./batch-store";
 import { resolveInside } from "./file-store";
 import { compositionId, buildCompositionProps } from "./scene-plan";
 import { renderArtifactPaths } from "./render-artifacts";
+import { REMOTION_SERVE_PORT } from "./remotion-serve";
 import { queuedJob, recoverInterruptedJobs, setJobProgress, setJobResult, type RenderJob } from "./render-queue";
 
 async function mediaFingerprint(root: string) {
@@ -53,7 +54,7 @@ async function renderOne(job: RenderJob, appRoot: string, dataRoot: string, getS
   if (!brand) throw new Error(`Brand kit ${clip.brandId} is missing`);
   const props = buildCompositionProps(clip, brand);
   const serveUrl = await getServeUrl();
-  const composition = await selectComposition({ serveUrl, id: compositionId(clip.format), inputProps: props });
+  const composition = await selectComposition({ serveUrl, port: REMOTION_SERVE_PORT, id: compositionId(clip.format), inputProps: props });
   const paths = renderArtifactPaths(batchData.batch, clip, brand, job.id, appRoot);
   await mkdir(path.dirname(paths.videoAbsolute), { recursive: true });
   let lastPercent = -1, lastTime = 0;
@@ -62,6 +63,7 @@ async function renderOne(job: RenderJob, appRoot: string, dataRoot: string, getS
     await renderMedia({
       composition,
       serveUrl,
+      port: REMOTION_SERVE_PORT,
       inputProps: props,
       codec: "h264",
       audioCodec: "aac",
@@ -85,8 +87,8 @@ async function renderOne(job: RenderJob, appRoot: string, dataRoot: string, getS
     await progressWrites;
     const coverFrame = Math.min(props.totalFrames - 1, Math.floor(props.scenes[0].durationInFrames / 2));
     const coverProps = { ...props, coverMode: true };
-    const coverComposition = await selectComposition({ serveUrl, id: compositionId(clip.format), inputProps: coverProps });
-    await renderStill({ composition: coverComposition, serveUrl, inputProps: coverProps, frame: coverFrame, output: paths.coverAbsolute, imageFormat: "png", overwrite: true });
+    const coverComposition = await selectComposition({ serveUrl, port: REMOTION_SERVE_PORT, id: compositionId(clip.format), inputProps: coverProps });
+    await renderStill({ composition: coverComposition, serveUrl, port: REMOTION_SERVE_PORT, inputProps: coverProps, frame: coverFrame, output: paths.coverAbsolute, imageFormat: "png", overwrite: true });
     await progressWrites;
     return { outputPath: paths.video, coverPath: paths.cover };
   } catch (error) {
