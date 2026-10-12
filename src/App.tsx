@@ -3,7 +3,7 @@ import { makeCaptionPlan, resolveCaptionMode, suggestSceneLabel, type CaptionMod
 import { loadPack, PACK_IDS, packLabel, type Theme } from "./lib/packs";
 import { MSTUDIO_PROFILE, loadProfile, saveProfile, type Profile } from "./lib/profile";
 import { buildScript } from "./lib/script";
-import { planFrames, planWordsTimed, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
+import { planFrames, planWordsTimed, voiceGridFromCues, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
 import { drawFrame, CREDIT_SECS, type DrawCtx, type RenderExtra } from "./lib/render";
 import { preloadAsset, STOCK_POOL, type StockAsset } from "./lib/broll";
 import { AI_BACKGROUNDS, assignAiBackgrounds } from "./lib/ai-backgrounds";
@@ -605,17 +605,21 @@ export function App() {
               // synthesis; captions keep the memoized (sidecar/even-split) timing.
               raw = await createKokoroLoader()(cueTexts.join(". "));
             }
-            const target = Math.round((timing?.total ?? VIDEO_SECS) * KOKORO_SAMPLE_RATE);
+            const ceiling = Math.round(VIDEO_SECS * KOKORO_SAMPLE_RATE);
+            // Voice-fitted grid: when timed synthesis produced a span per
+            // cue, the audio defines the length (trimmed only past the 45s
+            // ceiling) instead of being padded to the fixed grid.
+            const target = synthesizedCues && voiceGridFromCues(synthesizedCues) ? Math.min(raw.length, ceiling) : Math.round((timing?.total ?? VIDEO_SECS) * KOKORO_SAMPLE_RATE);
             if (raw.length > target) {
               const secs = (raw.length / KOKORO_SAMPLE_RATE).toFixed(1);
               setVoiceWarn(`Voice ran ${secs}s — trimmed to ${VIDEO_SECS}s video. Shorten the idea for a perfect fit.`);
               pcm = raw.slice(0, target);
-            } else if (raw.length < target) {
+            } else if (target === raw.length) {
+              pcm = raw;
+            } else {
               const fitted = new Float32Array(target);
               fitted.set(raw, 0);
               pcm = fitted;
-            } else {
-              pcm = raw;
             }
             // Normalize: local TTS runs quiet-to-moderate (Kokoro peaks ~0.5)
             // — peak to 0.89 so every export is loud and consistent.
@@ -641,13 +645,29 @@ export function App() {
         // Captions for THIS export: real synthesized word times when the
         // timed model ran, otherwise the memoized plan (sidecar/even-split).
         const exportWords = synthesizedCues ? planWordsTimed(script, synthesizedCues) : words;
-        const exportCaptions = synthesizedCues
+        // Visuals follow the same timeline: synthesized cue spans drive the
+        // render grid and caption phrase windows (clamped at the 45s ceiling
+        // when the voice was trimmed). The fixed grid / sidecar stays the
+        // fallback whenever timed synthesis didn't run or has a gap.
+        const voiceWindows = synthesizedCues && pcm ? voiceGridFromCues(synthesizedCues) : null;
+        const voiceTotal = voiceWindows && pcm ? Math.min(pcm.length / KOKORO_SAMPLE_RATE, VIDEO_SECS) : null;
+        const exportWindows = voiceTotal !== null
+          ? voiceWindows!.map((span) => ({ start: Math.min(span.start, voiceTotal), end: Math.min(span.end, voiceTotal) }))
+          : timing?.windows ?? null;
+        const baseDuration = voiceTotal ?? timing?.total ?? VIDEO_SECS;
+        const synthesized = synthesizedCues;
+        const exportCaptions = synthesized
           ? makeCaptionPlan({
               mode: captionMode,
               voiceOn,
               labels: captionLabels,
               words: exportWords,
-              scenes: script.cues.map((cue, index) => ({ ...cue, ...timing?.windows?.[index] })),
+              scenes: script.cues.map((cue, index) => ({
+                ...cue,
+                ...(synthesized[index]?.span
+                  ? { start: synthesized[index]!.span[0], end: synthesized[index]!.span[1] }
+                  : timing?.windows?.[index] ?? { start: cue.start, end: cue.end }),
+              })),
             })
           : captions;
         if (desktop) {
@@ -655,9 +675,8 @@ export function App() {
           // The Rust WAV sink is pinned to 16 kHz (src-tauri/src/render.rs);
           // Kokoro speaks 24 kHz — downsample once here, FFmpeg muxes it.
           if (pcm) pcm = resampleLinear(pcm, KOKORO_SAMPLE_RATE, 16000);
-          const baseDuration = timing?.total ?? VIDEO_SECS;
           const totalDuration = baseDuration + (creditOn ? CREDIT_SECS : 0);
-          const baseFrames = planFrames(script, 30, timing?.windows ?? null, approvedProofByCue, cueAssets);
+          const baseFrames = planFrames(script, 30, exportWindows, approvedProofByCue, cueAssets);
           const lastCue = script.cues[script.cues.length - 1]!;
           const cardFrames: PlannedFrame[] = creditOn
             ? Array.from({ length: Math.round(CREDIT_SECS * 30) }, (_, i) => ({ t: baseDuration + i / 30, cue: lastCue }))
@@ -745,10 +764,9 @@ export function App() {
                 canvas.height = OUT_H;
                 const ctx = canvas.getContext("2d");
                 if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
-                const frames: PlannedFrame[] = planFrames(script, 30, timing?.windows ?? null, approvedProofByCue, cueAssets);
+                const frames: PlannedFrame[] = planFrames(script, 30, exportWindows, approvedProofByCue, cueAssets);
                 const assetByCue = new Map<number, StockAsset | null>();
                 script.cues.forEach((_cue, i) => assetByCue.set(i, cueAssets[i] ?? null));
-                const baseDuration = timing?.total ?? VIDEO_SECS;
                 const totalDuration = baseDuration + (creditOn ? CREDIT_SECS : 0);
                 const totalFrames = frames.length + (creditOn ? Math.round(CREDIT_SECS * 30) : 0);
                 const postFrame = async (vf: VideoFrame, keyFrame: boolean) => {

@@ -156,6 +156,24 @@ export function planWordsTimed(
 const bareWord = (token: string): string => token.replace(/[^\p{L}\p{N}]+/gu, "").toLowerCase();
 
 /**
+ * Render-grid windows on the synthesized voice timeline: one span per cue,
+ * in order, for planFrames. Returns null unless EVERY cue produced a span —
+ * a single null cue (alignment fallback) means the fixed grid should run —
+ * and the spans are monotonic with positive length.
+ */
+export function voiceGridFromCues(cues: ReadonlyArray<TimedCueTiming | null>): Array<{ start: number; end: number }> | null {
+  const windows: Array<{ start: number; end: number }> = [];
+  let previous = 0;
+  for (const cue of cues) {
+    const span = cue?.span;
+    if (!span || !Number.isFinite(span[0]) || !Number.isFinite(span[1]) || span[1] <= span[0] || span[0] < previous - 1e-6) return null;
+    windows.push({ start: span[0], end: span[1] });
+    previous = span[1];
+  }
+  return windows.length ? windows : null;
+}
+
+/**
  * Map whole-script synthesized token times back onto the cues they came
  * from. Voice export synthesizes cues.join(". ") as one blob, so a period
  * either merges into the previous cue's last token ("curious" → "curious.")

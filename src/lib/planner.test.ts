@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { MSTUDIO_PROFILE } from "./profile";
 import { loadPack } from "./packs";
 import { buildScript } from "./script";
-import { planFrames, planWords, planWordsTimed, alignCueWordTimings } from "./planner";
+import { planFrames, planWords, planWordsTimed, alignCueWordTimings, voiceGridFromCues } from "./planner";
 
 describe("planner", () => {
   it("emits 45*fps frames with monotonic t and covering cues", () => {
@@ -144,5 +144,20 @@ describe("planner", () => {
         { start: 6, end: 7 },
       ]).length,
     ).toBe(45 * 30);
+  });
+
+  it("voiceGridFromCues builds render windows from cue spans or yields null", () => {
+    const cue = (a: number, b: number) => ({ span: [a, b] as [number, number], words: null });
+    expect(voiceGridFromCues([cue(0.3, 2), cue(2, 5.5), cue(5.5, 9)])).toEqual([
+      { start: 0.3, end: 2 },
+      { start: 2, end: 5.5 },
+      { start: 5.5, end: 9 },
+    ]);
+    // A single null cue (alignment fallback) disables the voice grid.
+    expect(voiceGridFromCues([cue(0.3, 2), null, cue(5.5, 9)])).toBeNull();
+    // Degenerate spans never reach planFrames.
+    expect(voiceGridFromCues([cue(0.3, 2), cue(2, 2)])).toBeNull();
+    expect(voiceGridFromCues([cue(2, 5), cue(1, 6)])).toBeNull();
+    expect(voiceGridFromCues([])).toBeNull();
   });
 });
