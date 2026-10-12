@@ -13,8 +13,9 @@ fn replace_manifest(manifest: &Path, contents: &[u8]) -> Result<(), String> {
     }
 
     let id = uuid::Uuid::new_v4();
-    let temp = manifest.with_file_name(format!(".clipflow-{id}.tmp"));
-    let backup = manifest.with_file_name(format!(".clipflow-{id}.bak"));
+    let name = manifest.file_name().and_then(|s| s.to_str()).unwrap_or("project.clipflow");
+    let temp = manifest.with_file_name(format!(".{name}.{id}.tmp"));
+    let backup = manifest.with_file_name(format!(".{name}.{id}.bak"));
 
     fs::write(&temp, contents).map_err(|e| {
         let _ = fs::remove_file(&temp);
@@ -190,11 +191,10 @@ mod tests {
 
         assert_eq!(fs::read(&path).unwrap(), br#"{"version":1,"idea":"updated"}"#);
         let parent = path.parent().unwrap();
-        let stem = path.file_name().unwrap().to_string_lossy();
+        let prefix = format!(".{}.", path.file_name().unwrap().to_string_lossy());
         assert!(!fs::read_dir(parent).unwrap().filter_map(Result::ok).any(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
-            name.starts_with(".clipflow-") && (name.ends_with(".bak") || name.ends_with(".tmp"))
-                && name.contains(&stem)
+            name.starts_with(&prefix) && (name.ends_with(".bak") || name.ends_with(".tmp"))
         }));
         fs::remove_file(path).unwrap();
     }
