@@ -22,6 +22,7 @@ public/.broll-usage.json
 /public/broll/clips/sync-*.mp4
 /public/broll/clips/vo-*.mp4
 /public/broll/clips/post2-*.mp4
+/public/broll/fetched/
 .env
 .env.*
 !.env.example

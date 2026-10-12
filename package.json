@@ -27,6 +27,7 @@
     "build": "tsc --noEmit && vite build",
     "dev": "vite --port 8081",
     "model:install": "node scripts/install-kokoro-model.mjs",
+    "stock:fetch": "vite-node scripts/fetch-stock.ts",
     "preview": "vite preview --port 8081",
     "test": "vitest run",
     "desktop:dev": "node scripts/prepare-desktop.mjs && tauri dev",

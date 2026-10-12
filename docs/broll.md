@@ -66,3 +66,23 @@ Clip sources (free license, vertical 9:16 where available):
 Verify each URL serves a vertical Rendition before committing binaries.
 Document replacements here when IDs change; filenames must stay stable
 because `src/lib/broll.ts` STOCK_POOL maps keywords to these paths.
+
+## Fetched stock (`npm run stock:fetch`)
+
+Real Pexels/Pixabay renditions extend the pool without touching the curated
+list: the fetcher searches 8 niche queries per provider (both APIs are free
+for commercial use — Pexels License / Pixabay Content License), downloads
+480–1080px renditions (4–40s, portrait preferred) into
+`public/broll/fetched/` and regenerates `src/lib/broll-fetched.ts`, which
+`STOCK_POOL` appends at module load. Pool matching, the "All local stock"
+picker and exports pick fetched clips up automatically.
+
+- Keys: `PEXELS_API_KEY` / `PIXABAY_API_KEY` env vars, or
+  `stock-keys.local.json` (gitignored via `*.local`). No keys → the script
+  exits 0 with instructions and the pool stays exactly as shipped.
+- `-- --force` refetches; otherwise the manifest is reused for 7 days
+  (respects both providers' caching rules), and `MAX_FETCHED_CLIPS` (24)
+  caps pool growth.
+- Fetched MP4s are gitignored by default — `git add -f public/broll/fetched`
+  together with the regenerated module to ship a fetched pool. Missing files
+  fall back to jpg/gradient like every other asset; never throws.
