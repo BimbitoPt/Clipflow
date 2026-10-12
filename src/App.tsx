@@ -4,6 +4,7 @@ import { loadPack, type Theme } from "./lib/packs";
 import { MSTUDIO_PROFILE, loadProfile, saveProfile, type Profile } from "./lib/profile";
 import { buildScript } from "./lib/script";
 import { planFrames, planWordsTimed, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
+import { isTimedCueTimingArray } from "./lib/word-timing-validation";
 import { drawFrame, CREDIT_SECS, type DrawCtx, type RenderExtra } from "./lib/render";
 import { preloadAsset, STOCK_POOL, type StockAsset } from "./lib/broll";
 import { AI_BACKGROUNDS, assignAiBackgrounds } from "./lib/ai-backgrounds";
@@ -45,27 +46,6 @@ function safeStorageGet(key: string): string | null {
   } catch {
     return null;
   }
-}
-
-function isTimedCueTiming(value: unknown): value is TimedCueTiming {
-  if (!value || typeof value !== "object") return false;
-  const cue = value as { span?: unknown; words?: unknown };
-  if (
-    !Array.isArray(cue.span) ||
-    cue.span.length !== 2 ||
-    !cue.span.every((time) => typeof time === "number" && Number.isFinite(time)) ||
-    cue.span[1] <= cue.span[0]
-  ) return false;
-  if (cue.words === null) return true;
-  if (!Array.isArray(cue.words)) return false;
-  return cue.words.every((word) => {
-    if (!word || typeof word !== "object") return false;
-    const item = word as { word?: unknown; start?: unknown; end?: unknown };
-    return typeof item.word === "string" &&
-      typeof item.start === "number" && Number.isFinite(item.start) &&
-      typeof item.end === "number" && Number.isFinite(item.end) &&
-      item.end >= item.start;
-  });
 }
 
 function validSceneChoice(choice: unknown): choice is SceneChoice {
@@ -183,7 +163,7 @@ function readWordTiming(
     ) {
       return null;
     }
-    if (!Array.isArray(parsed.cues) || !parsed.cues.every(isTimedCueTiming)) return null;
+    if (!isTimedCueTimingArray(parsed.cues)) return null;
     let windows: Array<{ start: number; end: number }> | null = null;
     if (
       Array.isArray(parsed.windows) &&
