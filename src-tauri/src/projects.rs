@@ -4,6 +4,56 @@ use tauri::{Manager, AppHandle};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_dialog::MessageDialogButtons;
 
+/// Replace a project manifest without relying on Windows rename-over-existing
+/// semantics. The old manifest is moved to a unique sibling backup first and
+/// restored if committing the new file fails.
+fn replace_manifest(manifest: &Path, contents: &[u8]) -> Result<(), String> {
+    if manifest.exists() && !manifest.is_file() {
+        return Err("The selected project path is not a file.".into());
+    }
+
+    let id = uuid::Uuid::new_v4();
+    let name = manifest.file_name().and_then(|s| s.to_str()).unwrap_or("project.clipflow");
+    let temp = manifest.with_file_name(format!(".{name}.{id}.tmp"));
+    let backup = manifest.with_file_name(format!(".{name}.{id}.bak"));
+
+    fs::write(&temp, contents).map_err(|e| {
+        let _ = fs::remove_file(&temp);
+        format!("Could not write temporary project: {e}")
+    })?;
+
+    let had_previous = manifest.exists();
+    if had_previous {
+        if let Err(error) = fs::rename(manifest, &backup) {
+            let _ = fs::remove_file(&temp);
+            return Err(format!("Could not preserve the existing project: {error}"));
+        }
+    }
+
+    if let Err(error) = fs::rename(&temp, manifest) {
+        let restore_error = if had_previous {
+            fs::rename(&backup, manifest).err()
+        } else {
+            None
+        };
+        let _ = fs::remove_file(&temp);
+        return Err(match restore_error {
+            Some(restore) => format!(
+                "Could not save the new project ({error}); restoring the previous project also failed ({restore}). The backup remains at {}.",
+                backup.display()
+            ),
+            None => format!("Could not commit the new project: {error}"),
+        });
+    }
+
+    if had_previous {
+        // The new manifest is committed. A stale backup is preferable to
+        // reporting failure after a successful save, so cleanup is best-effort.
+        let _ = fs::remove_file(&backup);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn confirm_discard(app: AppHandle, message: String) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || app.dialog().message(message).title("Clipflow").buttons(MessageDialogButtons::YesNo).blocking_show()).await.map_err(|e| e.to_string())
@@ -89,9 +139,8 @@ pub async fn save_project(app: AppHandle, mut project: Value) -> Result<Option<V
                 scene["path"] = Value::String(format!("{}/{}", assets_name, name));
             }
         }
-        let temp = manifest.with_extension("clipflow.tmp");
-        fs::write(&temp, serde_json::to_vec_pretty(&project).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
-        fs::rename(temp, &manifest).map_err(|e| e.to_string())?;
+        let serialized = serde_json::to_vec_pretty(&project).map_err(|e| e.to_string())?;
+        replace_manifest(&manifest, &serialized)?;
         hydrate(&app, &manifest, &mut project)?;
         Ok(Some(serde_json::json!({"path":manifest,"project":project})))
     }).await.map_err(|e| e.to_string())?
@@ -114,4 +163,47 @@ pub fn show_in_folder(path: String) -> Result<(), String> {
     let path = PathBuf::from(path).canonicalize().map_err(|e| e.to_string())?;
     Command::new("explorer.exe").arg(format!("/select,{}", path.display())).spawn().map_err(|e| e.to_string())?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replace_manifest;
+    use std::{fs, path::PathBuf};
+
+    fn temp_project_path() -> PathBuf {
+        std::env::temp_dir().join(format!("clipflow-test-{}.clipflow", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn creates_a_new_manifest() {
+        let path = temp_project_path();
+        replace_manifest(&path, br#"{"version":1,"idea":"first"}"#).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), br#"{"version":1,"idea":"first"}"#);
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn replaces_an_existing_manifest_and_cleans_backup() {
+        let path = temp_project_path();
+        fs::write(&path, br#"{"version":1,"idea":"old"}"#).unwrap();
+
+        replace_manifest(&path, br#"{"version":1,"idea":"updated"}"#).unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), br#"{"version":1,"idea":"updated"}"#);
+        let parent = path.parent().unwrap();
+        let prefix = format!(".{}.", path.file_name().unwrap().to_string_lossy());
+        assert!(!fs::read_dir(parent).unwrap().filter_map(Result::ok).any(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            name.starts_with(&prefix) && (name.ends_with(".bak") || name.ends_with(".tmp"))
+        }));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn refuses_to_replace_a_directory() {
+        let path = temp_project_path();
+        fs::create_dir(&path).unwrap();
+        assert!(replace_manifest(&path, b"{}").is_err());
+        fs::remove_dir(path).unwrap();
+    }
 }

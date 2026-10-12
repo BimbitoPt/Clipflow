@@ -4,6 +4,7 @@ import { loadPack, PACK_IDS, packLabel, type Theme } from "./lib/packs";
 import { MSTUDIO_PROFILE, loadProfile, saveProfile, type Profile } from "./lib/profile";
 import { buildScript } from "./lib/script";
 import { planFrames, planWordsTimed, voiceGridFromCues, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
+import { isTimedCueTimingArray } from "./lib/word-timing-validation";
 import { drawFrame, CREDIT_SECS, type DrawCtx, type RenderExtra } from "./lib/render";
 import { preloadAsset, STOCK_POOL, type StockAsset } from "./lib/broll";
 import { AI_BACKGROUNDS, assignAiBackgrounds } from "./lib/ai-backgrounds";
@@ -36,6 +37,16 @@ const OUT_W = 720, OUT_H = 1280, OUT_NAME = "clipflow-916.mp4";
 // a browser reload orphaned persisted uploads. Desktop skips it entirely:
 // the native `.clipflow` project is the source of truth there.
 const SESSION_KEY = "clipflow.session";
+
+// Browser storage is optional: privacy settings and storage failures must not
+// crash rendering or dirty-state calculation.
+function safeStorageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
 
 function validSceneChoice(choice: unknown): choice is SceneChoice {
   if (!choice || typeof choice !== "object") return false;
@@ -131,7 +142,7 @@ function readWordTiming(
   assets: Array<string | null> | null;
 } | null {
   try {
-    const raw = localStorage.getItem("clipflow.wordtimes");
+    const raw = safeStorageGet("clipflow.wordtimes");
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       idea?: unknown;
@@ -153,7 +164,7 @@ function readWordTiming(
     ) {
       return null;
     }
-    if (!Array.isArray(parsed.cues)) return null;
+    if (!isTimedCueTimingArray(parsed.cues)) return null;
     let windows: Array<{ start: number; end: number }> | null = null;
     if (
       Array.isArray(parsed.windows) &&
@@ -178,7 +189,7 @@ function readWordTiming(
     ) {
       assets = parsed.assets as Array<string | null>;
     }
-    return { cues: parsed.cues as TimedCueTiming[], windows, total, assets };
+    return { cues: parsed.cues, windows, total, assets };
   } catch {
     return null;
   }
@@ -320,7 +331,7 @@ export function App() {
   const queueIdeas = useMemo(() => parseQueueIdeas(queueText), [queueText]);
   const queueNext = nextQueueIndex(queueIdeas, idea);
   const queuePos = queuePosition(queueIdeas, idea);
-  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: localStorage.getItem("clipflow.wordtimes") };
+  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: safeStorageGet("clipflow.wordtimes") };
   const projectSnapshot = projectFingerprint(projectDraft);
   const projectDirty = projectSnapshot !== savedSnapshot;
 
@@ -623,6 +634,9 @@ export function App() {
   }, [sceneChoices, sceneAssets]);
 
   async function onUpload(file: File) {
+    // Keep the upload target stable if the user changes scenes while decoding
+    // or persisting the selected file.
+    const targetScene = selectedScene;
     try {
       const bmp = await createImageBitmap(file);
       const id = crypto.randomUUID();
@@ -635,7 +649,7 @@ export function App() {
       } catch {
         console.warn("Clipflow: upload runs session-only, persist failed.");
       }
-      setSceneChoices((choices) => choices.map((choice, index) => index === selectedScene ? { kind: "upload", id, approvedProof: false } : choice));
+      setSceneChoices((choices) => choices.map((choice, index) => index === targetScene ? { kind: "upload", id, approvedProof: false } : choice));
       setErr("");
     } catch {
       setErr("Could not load that image — try another file.");
