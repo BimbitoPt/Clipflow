@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { makeCaptionPlan, resolveCaptionMode, suggestSceneLabel, type CaptionMode } from "../shared/caption-plan";
-import { loadPack, type Theme } from "./lib/packs";
+import { loadPack, PACK_IDS, packLabel, type Theme } from "./lib/packs";
 import { MSTUDIO_PROFILE, loadProfile, saveProfile, type Profile } from "./lib/profile";
 import { buildScript } from "./lib/script";
-import { planFrames, planWordsTimed, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
+import { planFrames, planWordsTimed, voiceGridFromCues, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
 import { isTimedCueTimingArray } from "./lib/word-timing-validation";
 import { drawFrame, CREDIT_SECS, type DrawCtx, type RenderExtra } from "./lib/render";
 import { preloadAsset, STOCK_POOL, type StockAsset } from "./lib/broll";
@@ -11,7 +11,8 @@ import { AI_BACKGROUNDS, assignAiBackgrounds } from "./lib/ai-backgrounds";
 import { resolveSceneChoices, type ResolvedSceneChoice, type SceneChoice } from "./lib/scene-assets";
 import { applyScriptOverrides, hasScriptOverrides, type ScriptOverrides } from "./lib/script-draft";
 import { previewSpeak } from "./lib/tts";
-import { createSpeechT5Loader } from "./lib/tts-local";
+import { createKokoroLoader, KOKORO_SAMPLE_RATE, resampleLinear } from "./lib/tts-local";
+import { createKokoroTimedLoader } from "./lib/tts-timed";
 import ProfileSettings from "./components/ProfileSettings";
 import ScriptBeats from "./components/ScriptBeats";
 import SceneTray from "./components/SceneTray";
@@ -21,14 +22,13 @@ import DesktopToolbar from "./components/DesktopToolbar";
 import { desktop, importNativeMedia, openDesktopProject, initialDesktopProject, saveDesktopProject, nativeMediaUrl, showInFolder, confirmDiscard, projectFingerprint, type DesktopProjectV1 } from "./lib/desktop";
 import { renderDesktop } from "./lib/desktop-render";
 import { deleteUpload, gcUploads, loadUploadBlob, saveUpload, touchUpload } from "./lib/upload-store";
+import { buildKeyframePrompt, generateKeyframe, hashSeed, keyframeId, keyframeSeedOf, keyframeUrl, loadPollinationsKey, sanitizePollinationsKey, savePollinationsKey, type KeyframeStatus } from "./lib/keyframes";
 import { markMilestone, recordExport, SAMPLE_IDEA } from "./lib/activation";
-import { MAX_QUEUE, probeAudioConfig, probeVideoConfig, RESUME_QUEUE, type FromWorker } from "./lib/export-worker-protocol";
+import { MAX_QUEUE, AUDIO_CONFIG, probeAudioConfig, probeVideoConfig, RESUME_QUEUE, type FromWorker } from "./lib/export-worker-protocol";
 import { isPlatformId, platformPreset, type PlatformId } from "../shared/platform-presets";
 import { nextQueueIndex, parseQueueIdeas, queuePosition, WEEK_KEY } from "./lib/week-queue";
 import type { VisualEffect } from "../shared/visual-effects";
-
-const pack = loadPack("mstudio");
-const theme: Theme = pack.themes[1]!;
+import type { PackId } from "./lib/packs";
 
 const OUT_W = 720, OUT_H = 1280, OUT_NAME = "clipflow-916.mp4";
 
@@ -51,13 +51,13 @@ function safeStorageGet(key: string): string | null {
 function validSceneChoice(choice: unknown): choice is SceneChoice {
   if (!choice || typeof choice !== "object") return false;
   const kind = (choice as { kind?: unknown }).kind;
-  return kind === "auto-ai" || kind === "ai" || kind === "stock" || kind === "upload" || kind === "native";
+  return kind === "auto-ai" || kind === "ai" || kind === "stock" || kind === "upload" || kind === "native" || kind === "generated";
 }
 
 function readSession(): {
   idea: string; scriptOverrides: ScriptOverrides; sceneChoices: SceneChoice[];
   captionMode: CaptionMode; captionOverrides: Record<number, string>;
-  voiceOn: boolean; visualEffect: VisualEffect; platform: PlatformId; credit: boolean;
+  voiceOn: boolean; visualEffect: VisualEffect; platform: PlatformId; credit: boolean; pack: PackId;
 } | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
@@ -65,7 +65,7 @@ function readSession(): {
     const parsed = JSON.parse(raw) as {
       version?: unknown; idea?: unknown; scriptOverrides?: unknown; sceneChoices?: unknown;
       captionMode?: unknown; captionOverrides?: unknown; voiceOn?: unknown; visualEffect?: unknown;
-      platform?: unknown; credit?: unknown;
+      platform?: unknown; credit?: unknown; pack?: unknown;
     };
     if (!parsed || parsed.version !== 1 || typeof parsed.idea !== "string") return null;
     if (!Array.isArray(parsed.sceneChoices) || parsed.sceneChoices.length !== 5 || !parsed.sceneChoices.every(validSceneChoice)) return null;
@@ -84,6 +84,7 @@ function readSession(): {
       visualEffect: parsed.visualEffect as VisualEffect,
       platform: isPlatformId(parsed.platform) ? parsed.platform : "tiktok",
       credit: parsed.credit === true,
+      pack: typeof parsed.pack === "string" && (PACK_IDS as readonly string[]).includes(parsed.pack) ? parsed.pack as PackId : "mstudio",
     };
   } catch {
     return null;
@@ -236,6 +237,7 @@ export function App() {
   const exportAbortRef = useRef<AbortController | null>(null);
   const [niche, setNiche] = useState(() => initialProfile().niche);
   const [audience, setAudience] = useState(() => initialProfile().audience);
+  const [packId, setPackId] = useState<PackId>("mstudio");
   const [offer, setOffer] = useState(() => initialProfile().offer);
   const [tone, setTone] = useState(() => initialProfile().tone);
   const [proof, setProof] = useState(() => initialProfile().proof);
@@ -248,6 +250,40 @@ export function App() {
   const [selectedScene, setSelectedScene] = useState(0);
   const [sceneAssets, setSceneAssets] = useState<Array<StockAsset | null>>([]);
   const [assetLoading, setAssetLoading] = useState(false);
+  // Script-driven keyframes: one status per scene, plus caches. Generated
+  // media lives in its own maps (not uploadsRef) so the upload GC pass never
+  // evicts an image a scene choice still points at.
+  const [keyframeStatus, setKeyframeStatus] = useState<KeyframeStatus[]>(() => Array.from({ length: 5 }, () => "idle" as KeyframeStatus));
+  const [keyframeBump, setKeyframeBump] = useState(0);
+  const generatedRef = useRef<Map<string, StockAsset>>(new Map());
+  const generatedBlobRef = useRef<Map<string, Blob>>(new Map());
+  const generatedUrlRef = useRef<Map<string, string>>(new Map());
+  const keyframeQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const keyframeRunRef = useRef(0);
+  const [pollinationsKey, setPollinationsKey] = useState(() => {
+    try {
+      return loadPollinationsKey(localStorage) || sanitizePollinationsKey((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_POLLINATIONS_KEY ?? "");
+    } catch {
+      return "";
+    }
+  });
+  const pollinationsKeyRef = useRef(pollinationsKey);
+  pollinationsKeyRef.current = pollinationsKey;
+  // Optional app attribution for Pollinations earnings: anonymous + app-key
+  // generations carry this referrer so usage credits flow back to the app.
+  const pollinationsReferrer = useMemo(() => {
+    try {
+      return ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_POLLINATIONS_REFERRER ?? "").trim();
+    } catch {
+      return "";
+    }
+  }, []);
+  function handlePollinationsKeyChange(value: string): void {
+    setPollinationsKey(value.trim());
+    savePollinationsKey(localStorage, value);
+  }
+  const sceneChoicesRef = useRef(sceneChoices);
+  sceneChoicesRef.current = sceneChoices;
   const [voiceOn, setVoiceOn] = useState(true);
   const [captionMode, setCaptionMode] = useState<CaptionMode>("auto");
   const [platform, setPlatform] = useState<PlatformId>("tiktok");
@@ -277,6 +313,11 @@ export function App() {
         for (const asset of uploadsRef.current.values()) if (asset.kind === "image") (asset.el as ImageBitmap).close();
         uploadsRef.current.clear();
         uploadThumbsRef.current.clear();
+        for (const asset of generatedRef.current.values()) if (asset.kind === "image") (asset.el as ImageBitmap).close();
+        generatedRef.current.clear();
+        generatedBlobRef.current.clear();
+        for (const url of generatedUrlRef.current.values()) URL.revokeObjectURL(url);
+        generatedUrlRef.current.clear();
       } catch {
         // close on unmount is best-effort; never throw.
       }
@@ -284,11 +325,13 @@ export function App() {
   }, []);
 
   const profile = useMemo(() => ({ niche, audience, offer, tone, proof }), [niche, audience, offer, tone, proof]);
+  const pack = useMemo(() => loadPack(packId), [packId]);
+  const theme: Theme = pack.themes[1] ?? pack.themes[0]!;
   const preset = platformPreset(platform);
   const queueIdeas = useMemo(() => parseQueueIdeas(queueText), [queueText]);
   const queueNext = nextQueueIndex(queueIdeas, idea);
   const queuePos = queuePosition(queueIdeas, idea);
-  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, timing: safeStorageGet("clipflow.wordtimes") };
+  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: safeStorageGet("clipflow.wordtimes") };
   const projectSnapshot = projectFingerprint(projectDraft);
   const projectDirty = projectSnapshot !== savedSnapshot;
 
@@ -300,6 +343,10 @@ export function App() {
     setScriptOverrides(project.scriptOverrides); setSceneChoices(project.sceneChoices); setCaptionMode(project.captionMode); setCaptionOverrides(project.captionOverrides); setVoiceOn(project.voiceOn); setVisualEffect(project.visualEffect ?? "none");
     if (isPlatformId(project.platform)) setPlatform(project.platform);
     setCreditOn(project.credit === true);
+    if (typeof project.pack === "string" && (PACK_IDS as readonly string[]).includes(project.pack)) {
+      setPackId(project.pack as PackId);
+      setProjectBase(null);
+    }
     if (project.timing) localStorage.setItem("clipflow.wordtimes", project.timing); else localStorage.removeItem("clipflow.wordtimes");
     const { savedAt: _savedAt, ...draft } = project;
     setSavedSnapshot(projectFingerprint(draft)); setProjectPath(path); setSelectedScene(0); setNativeOutput(null); setExportUrl(null); setStatus("idle"); setErr("");
@@ -369,6 +416,8 @@ export function App() {
     setVisualEffect(session.visualEffect);
     setPlatform(session.platform);
     setCreditOn(session.credit);
+    setPackId(session.pack);
+    setProjectBase(null);
   }, []);
 
   useEffect(() => {
@@ -376,12 +425,12 @@ export function App() {
     try {
       localStorage.setItem(SESSION_KEY, JSON.stringify({
         version: 1, idea, scriptOverrides, sceneChoices,
-        captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn,
+        captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId,
       }));
     } catch {
       // Session restore is convenience; the editor works without it.
     }
-  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn]);
+  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn, packId]);
 
   useEffect(() => {
     try {
@@ -408,7 +457,7 @@ export function App() {
       const m = e instanceof Error ? e.message : String(e);
       return { generatedScript: null, err: m.includes("E_EMPTY_IDEA") ? "Enter your idea above." : m };
     }
-  }, [idea, profile, projectBase]);
+  }, [idea, profile, projectBase, pack]);
   const { script, err: editErr } = useMemo(() => {
     if (!generatedScript) return { script: null, err: "" };
     try { return { script: applyScriptOverrides(generatedScript, scriptOverrides), err: "" }; }
@@ -432,20 +481,126 @@ export function App() {
   const editingSceneLabels = resolveCaptionMode(captionMode, voiceOn, script?.cues.map(cue => cue.text).join(" ")) === "scene";
 
   const aiSuggestions = useMemo(() => assignAiBackgrounds(idea, profile, generatedScript?.cues.map((cue) => cue.text) ?? []), [idea, profile, generatedScript]);
-  const resolvedChoices = useMemo(() => resolveSceneChoices(sceneChoices, aiSuggestions, STOCK_POOL), [sceneChoices, aiSuggestions]);
+  const resolvedChoices = useMemo(() => resolveSceneChoices(sceneChoices, aiSuggestions, STOCK_POOL), [sceneChoices, aiSuggestions, keyframeBump]);
+
+  // --- Script-driven keyframes ---------------------------------------------
+  // A new script queues one keyframe per beat against the free image endpoint
+  // (no key, no cost); the shared generator spaces requests and retries the
+  // anonymous 402 throttle. Bytes are cached in OPFS like uploads, so reloads
+  // and reopened projects never re-hit the network. Anything the user picked
+  // manually (stock / upload / library) is never overwritten; failures stay
+  // on the offline AI pool.
+  const keyframeFp = useMemo(() => generatedScript ? String(hashSeed(`${idea}|${generatedScript.cues.map((cue) => cue.text).join("\u0001")}`)) : null, [idea, generatedScript]);
+
+  function keyframeTarget(index: number): { prompt: string; seed: number; id: string } {
+    const prompt = buildKeyframePrompt(generatedScript?.cues[index]?.text ?? "", profile);
+    const seed = hashSeed(`${idea}|${keyframeFp}|${index}|${prompt}`);
+    return { prompt, seed, id: keyframeId(seed) };
+  }
+
+  async function ensureKeyframe(index: number, target: { prompt: string; seed: number; id: string }, apply: "auto" | "force" | "skip"): Promise<void> {
+    const run = keyframeRunRef.current;
+    setKeyframeStatus((statuses) => statuses.map((status, i) => i === index ? "generating" : status));
+    try {
+      let blob = generatedBlobRef.current.get(target.id) ?? await loadUploadBlob(target.id);
+      if (!blob) {
+        blob = await generateKeyframe(keyframeUrl(target.prompt, target.seed, { key: pollinationsKeyRef.current, referrer: pollinationsReferrer }));
+        generatedBlobRef.current.set(target.id, blob);
+        try { await saveUpload(target.id, blob); } catch { /* session-only keyframe */ }
+      }
+      touchUpload(target.id);
+      if (run !== keyframeRunRef.current) return; // script changed mid-fetch
+      setKeyframeStatus((statuses) => statuses.map((status, i) => i === index ? "ready" : status));
+      if (apply !== "skip") {
+        setSceneChoices((choices) => choices.map((choice, i) => {
+          if (i !== index) return choice;
+          if (apply === "auto" && choice.kind !== "auto-ai" && choice.kind !== "generated") return choice;
+          return { kind: "generated", id: target.id, fp: keyframeFp ?? undefined };
+        }));
+      }
+      setKeyframeBump((n) => n + 1);
+    } catch {
+      // Offline or throttled: stay on the offline pool, surface status only.
+      if (run === keyframeRunRef.current) setKeyframeStatus((statuses) => statuses.map((status, i) => i === index ? "error" : status));
+    }
+  }
+
+  const keyframeRunOnceRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (keyframeFp === null) return;
+    if (keyframeRunOnceRef.current === keyframeFp) return;
+    keyframeRunOnceRef.current = keyframeFp;
+    const run = ++keyframeRunRef.current;
+    setKeyframeStatus(Array.from({ length: 5 }, () => "idle" as KeyframeStatus));
+    for (let index = 0; index < 5; index++) {
+      keyframeQueueRef.current = keyframeQueueRef.current.then(async () => {
+        if (run !== keyframeRunRef.current) return;
+        const choice = sceneChoicesRef.current[index];
+        if (!choice) return;
+        if (choice.kind === "auto-ai") {
+          await ensureKeyframe(index, keyframeTarget(index), "auto");
+          return;
+        }
+        if (choice.kind === "generated" && choice.fp !== keyframeFp) {
+          // Script changed since this keyframe was made → replace it.
+          await ensureKeyframe(index, keyframeTarget(index), "auto");
+          return;
+        }
+        if (choice.kind === "generated") {
+          // Same script (reload / reopened project): heal the cache only.
+          const cached = generatedBlobRef.current.has(choice.id) || !!(await loadUploadBlob(choice.id));
+          if (cached) {
+            setKeyframeStatus((statuses) => statuses.map((status, i) => i === index ? "ready" : status));
+            return;
+          }
+          const seed = keyframeSeedOf(choice.id);
+          const prompt = buildKeyframePrompt(generatedScript?.cues[index]?.text ?? "", profile);
+          await ensureKeyframe(index, { prompt, seed: seed ?? hashSeed(`${idea}|${keyframeFp}|${index}|${prompt}`), id: choice.id }, "skip");
+          return;
+        }
+        // User picked stock/upload/library for this scene — leave it alone.
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyframeFp]);
+
+  /** Manual generate (idle/error) or regenerate (ready) for one scene. */
+  function generateKeyframeNow(index: number, force: boolean): void {
+    if (!generatedScript) return;
+    keyframeQueueRef.current = keyframeQueueRef.current.then(async () => {
+      const base = keyframeTarget(index);
+      if (force) {
+        const seed = hashSeed(`${base.seed}|regen|${Date.now()}`);
+        await ensureKeyframe(index, { ...base, seed, id: keyframeId(seed) }, "force");
+      } else {
+        const choice = sceneChoicesRef.current[index];
+        // Already applied AND healthy → nothing to do. Stale/error states fall
+        // through so RETRY actually refetches.
+        if (choice?.kind === "generated" && choice.fp === keyframeFp && keyframeStatus[index] === "ready") return;
+        await ensureKeyframe(index, base, "force");
+      }
+    });
+  }
+
 
   async function loadSceneAsset(choice: ResolvedSceneChoice): Promise<StockAsset | null> {
-    if (choice.kind === "upload") {
-      const cached = uploadsRef.current.get(choice.id);
+    if (choice.kind === "upload" || choice.kind === "generated") {
+      const generated = choice.kind === "generated";
+      const cache = generated ? generatedRef.current : uploadsRef.current;
+      const cached = cache.get(choice.id);
       if (cached) return cached;
-      // Rehydrate: uploads persist in OPFS, so a reload or a reopened
-      // project recovers its media instead of silently losing footage.
+      // Rehydrate: uploads and generated keyframes persist in OPFS, so a
+      // reload or a reopened project recovers its media instead of silently
+      // losing footage.
       try {
-        const blob = await loadUploadBlob(choice.id);
+        const blob = (generated ? generatedBlobRef.current.get(choice.id) : null) ?? await loadUploadBlob(choice.id);
         if (!blob) return null;
         const bmp = await createImageBitmap(blob);
-        const asset: StockAsset = { kind: "image", src: `upload:${choice.id}`, el: bmp, keywords: [] };
-        uploadsRef.current.set(choice.id, asset);
+        const asset: StockAsset = { kind: "image", src: `${generated ? "generated" : "upload"}:${choice.id}`, el: bmp, keywords: [] };
+        cache.set(choice.id, asset);
+        if (generated) {
+          if (!generatedUrlRef.current.has(choice.id)) generatedUrlRef.current.set(choice.id, URL.createObjectURL(blob));
+        }
         touchUpload(choice.id);
         return asset;
       } catch {
@@ -591,27 +746,43 @@ export function App() {
         const approvedProofByCue = exportChoices.map((choice, index) => choice.kind === "upload" && choice.approvedProof === true && cueAssets[index]?.src === `upload:${choice.id}`);
         setExportProgress(35);
         let pcm: Float32Array | null = null;
+        // Real word timings when the timed model synthesized the voice; the
+        // sidecar/even-split memo stays the fallback — timed synthesis can
+        // only ever upgrade captions, never break the export.
+        let synthesizedCues: Array<TimedCueTiming | null> | null = null;
         if (voiceOn) {
-          const loader = createSpeechT5Loader();
-          const fullText = [script.hook, ...script.beats, script.cta].join(". ");
+          const cueTexts = script.cues.map((cue) => cue.text);
           setExportMsg("Rendering voice…");
           setExportProgress(50);
           try {
-            const raw = await loader(fullText);
-            const target = Math.round((timing?.total ?? VIDEO_SECS) * 16000);
+            let raw: Float32Array;
+            try {
+              const timed = await createKokoroTimedLoader()(cueTexts);
+              raw = timed.audio;
+              synthesizedCues = timed.cues;
+            } catch {
+              // Timestamped model unavailable or alignment failed → plain
+              // synthesis; captions keep the memoized (sidecar/even-split) timing.
+              raw = await createKokoroLoader()(cueTexts.join(". "));
+            }
+            const ceiling = Math.round(VIDEO_SECS * KOKORO_SAMPLE_RATE);
+            // Voice-fitted grid: when timed synthesis produced a span per
+            // cue, the audio defines the length (trimmed only past the 45s
+            // ceiling) instead of being padded to the fixed grid.
+            const target = synthesizedCues && voiceGridFromCues(synthesizedCues) ? Math.min(raw.length, ceiling) : Math.round((timing?.total ?? VIDEO_SECS) * KOKORO_SAMPLE_RATE);
             if (raw.length > target) {
-              const secs = (raw.length / 16000).toFixed(1);
+              const secs = (raw.length / KOKORO_SAMPLE_RATE).toFixed(1);
               setVoiceWarn(`Voice ran ${secs}s — trimmed to ${VIDEO_SECS}s video. Shorten the idea for a perfect fit.`);
               pcm = raw.slice(0, target);
-            } else if (raw.length < target) {
+            } else if (target === raw.length) {
+              pcm = raw;
+            } else {
               const fitted = new Float32Array(target);
               fitted.set(raw, 0);
               pcm = fitted;
-            } else {
-              pcm = raw;
             }
-            // Normalize: SpeechT5 peaks near 0.1 (whisper-quiet) — peak to
-            // 0.89 so the export is audible without cranking device volume.
+            // Normalize: local TTS runs quiet-to-moderate (Kokoro peaks ~0.5)
+            // — peak to 0.89 so every export is loud and consistent.
             if (pcm) {
               let peak = 0;
               for (let i = 0; i < pcm.length; i++) {
@@ -631,18 +802,48 @@ export function App() {
             setExportProgress(65);
           }
         }
+        // Captions for THIS export: real synthesized word times when the
+        // timed model ran, otherwise the memoized plan (sidecar/even-split).
+        const exportWords = synthesizedCues ? planWordsTimed(script, synthesizedCues) : words;
+        // Visuals follow the same timeline: synthesized cue spans drive the
+        // render grid and caption phrase windows (clamped at the 45s ceiling
+        // when the voice was trimmed). The fixed grid / sidecar stays the
+        // fallback whenever timed synthesis didn't run or has a gap.
+        const voiceWindows = synthesizedCues && pcm ? voiceGridFromCues(synthesizedCues) : null;
+        const voiceTotal = voiceWindows && pcm ? Math.min(pcm.length / KOKORO_SAMPLE_RATE, VIDEO_SECS) : null;
+        const exportWindows = voiceTotal !== null
+          ? voiceWindows!.map((span) => ({ start: Math.min(span.start, voiceTotal), end: Math.min(span.end, voiceTotal) }))
+          : timing?.windows ?? null;
+        const baseDuration = voiceTotal ?? timing?.total ?? VIDEO_SECS;
+        const synthesized = synthesizedCues;
+        const exportCaptions = synthesized
+          ? makeCaptionPlan({
+              mode: captionMode,
+              voiceOn,
+              labels: captionLabels,
+              words: exportWords,
+              scenes: script.cues.map((cue, index) => ({
+                ...cue,
+                ...(synthesized[index]?.span
+                  ? { start: synthesized[index]!.span[0], end: synthesized[index]!.span[1] }
+                  : timing?.windows?.[index] ?? { start: cue.start, end: cue.end }),
+              })),
+            })
+          : captions;
         if (desktop) {
           exportAbortRef.current.signal.throwIfAborted();
-          const baseDuration = timing?.total ?? VIDEO_SECS;
+          // The Rust WAV sink is pinned to 16 kHz (src-tauri/src/render.rs);
+          // Kokoro speaks 24 kHz — downsample once here, FFmpeg muxes it.
+          if (pcm) pcm = resampleLinear(pcm, KOKORO_SAMPLE_RATE, 16000);
           const totalDuration = baseDuration + (creditOn ? CREDIT_SECS : 0);
-          const baseFrames = planFrames(script, 30, timing?.windows ?? null, approvedProofByCue, cueAssets);
+          const baseFrames = planFrames(script, 30, exportWindows, approvedProofByCue, cueAssets);
           const lastCue = script.cues[script.cues.length - 1]!;
           const cardFrames: PlannedFrame[] = creditOn
             ? Array.from({ length: Math.round(CREDIT_SECS * 30) }, (_, i) => ({ t: baseDuration + i / 30, cue: lastCue }))
             : [];
           const output = await renderDesktop({
             frames: [...baseFrames, ...cardFrames], assets: cueAssets, theme,
-            extra: { captions, words, visualEffect, captionAnchor: preset.captionAnchor }, duration: totalDuration,
+            extra: { captions: exportCaptions, words: exportWords, visualEffect, captionAnchor: preset.captionAnchor }, duration: totalDuration,
             endCardAfter: creditOn ? baseDuration : undefined, pcm, signal: exportAbortRef.current.signal,
             cueIndex: frame => cueIndexOf(script, frame.cue), seek: seekVideo,
             progress: (percent,message) => { setExportProgress(percent); setExportMsg(message); },
@@ -659,6 +860,16 @@ export function App() {
         const withAudio = Boolean(voiceOn && pcm);
         const worker = new Worker(new URL("./lib/export-worker.ts", import.meta.url), { type: "module" });
         let buffer: ArrayBuffer;
+        // Stall watchdog: a hung encoder used to look identical to a slow
+        // one. After 45s without a worker message, say so and name the way
+        // out instead of spinning forever.
+        let lastWorkerMsgAt = Date.now();
+        const watchdog = setInterval(() => {
+          const silentSec = Math.round((Date.now() - lastWorkerMsgAt) / 1000);
+          if (silentSec >= 45) {
+            setExportMsg(`Still encoding — no encoder response for ${silentSec}s. If this persists, restart Chrome or use the desktop app.`);
+          }
+        }, 5000);
         try {
           buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
             let lastQueue = 0;
@@ -677,9 +888,16 @@ export function App() {
             };
             worker.onmessage = (event: MessageEvent<FromWorker>) => {
               const message = event.data;
+              lastWorkerMsgAt = Date.now();
               if (message.type === "accepted") {
                 lastQueue = message.queue;
                 if (message.queue <= RESUME_QUEUE) release();
+              } else if (message.type === "stage") {
+                setExportMsg(
+                  message.stage === "flushing-video" ? "Flushing video encoder…"
+                  : message.stage === "flushing-audio" ? "Flushing voice encoder…"
+                  : "Finalizing MP4…",
+                );
               } else if (message.type === "done") {
                 if (settled) return;
                 settled = true;
@@ -706,10 +924,9 @@ export function App() {
                 canvas.height = OUT_H;
                 const ctx = canvas.getContext("2d");
                 if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
-                const frames: PlannedFrame[] = planFrames(script, 30, timing?.windows ?? null, approvedProofByCue, cueAssets);
+                const frames: PlannedFrame[] = planFrames(script, 30, exportWindows, approvedProofByCue, cueAssets);
                 const assetByCue = new Map<number, StockAsset | null>();
                 script.cues.forEach((_cue, i) => assetByCue.set(i, cueAssets[i] ?? null));
-                const baseDuration = timing?.total ?? VIDEO_SECS;
                 const totalDuration = baseDuration + (creditOn ? CREDIT_SECS : 0);
                 const totalFrames = frames.length + (creditOn ? Math.round(CREDIT_SECS * 30) : 0);
                 const postFrame = async (vf: VideoFrame, keyFrame: boolean) => {
@@ -749,9 +966,9 @@ export function App() {
                   }
                   const extra: RenderExtra = {};
                   extra.visualEffect = visualEffect;
-                  extra.captions = captions;
+                  extra.captions = exportCaptions;
                   extra.captionAnchor = preset.captionAnchor;
-                  if (words) extra.words = words;
+                  if (exportWords) extra.words = exportWords;
                   if (asset) extra.asset = asset;
                   drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, extra, totalDuration);
                   const vf = new VideoFrame(canvas, { timestamp: Math.round(f.t * 1e6) });
@@ -768,16 +985,20 @@ export function App() {
                   }
                 }
                 if (withAudio && pcm) {
+                  // Chrome only encodes AAC at 44.1/48 kHz — Kokoro speaks
+                  // 24 kHz, so upsample here. The desktop FFmpeg path gets a
+                  // 16 kHz downsample instead (Rust sink is pinned).
+                  const voice = resampleLinear(pcm, KOKORO_SAMPLE_RATE, AUDIO_CONFIG.sampleRate);
                   const CHUNK = 1_000_000;
-                  for (let off = 0; off < pcm.length; off += CHUNK) {
+                  for (let off = 0; off < voice.length; off += CHUNK) {
                     exportAbortRef.current?.signal.throwIfAborted();
-                    const slice = pcm.slice(off, off + CHUNK);
+                    const slice = voice.slice(off, off + CHUNK);
                     const ad = new AudioData({
                       format: "f32",
-                      sampleRate: 16000,
+                      sampleRate: AUDIO_CONFIG.sampleRate,
                       numberOfFrames: slice.length,
                       numberOfChannels: 1,
-                      timestamp: Math.round((off * 1e6) / 16000),
+                      timestamp: Math.round((off * 1e6) / AUDIO_CONFIG.sampleRate),
                       data: slice,
                     });
                     try {
@@ -799,6 +1020,7 @@ export function App() {
             })();
           });
         } finally {
+          clearInterval(watchdog);
           worker.terminate();
         }
         setExportProgress(100);
@@ -837,6 +1059,7 @@ export function App() {
     const choice = sceneChoices[index];
     if (choice?.kind === "auto-ai") return aiSuggestions[index]?.src;
     if (choice?.kind === "ai") return AI_BACKGROUNDS.find((item) => item.id === choice.id)?.src;
+    if (choice?.kind === "generated") return generatedUrlRef.current.get(choice.id);
     if (choice?.kind === "stock") return STOCK_POOL.find((item) => item.src === choice.src)?.kind === "image" ? choice.src : undefined;
     if (choice?.kind === "upload") {
       const cached = uploadThumbsRef.current.get(choice.id);
@@ -869,23 +1092,33 @@ export function App() {
 
         <section className="cf-hero" aria-label="Clipflow studio">
           <div className="cf-hero-copy">
-            <span className="cf-kicker">A SMALL STUDIO FOR BIG IDEAS</span>
-            <h1>Your idea.<br /><em>A video worth posting.</em></h1>
-            <p>Shape the story, choose a visual world, then export a vertical video. All in one focused flow.</p>
+            <div className="cf-step-num">Clipflow</div>
+            <h1>Idea in.<br /><em>Video out.</em></h1>
+            <p>Four numbered steps on one page — idea, script, visuals, export.</p>
           </div>
-          <div className="cf-hero-index">01 / 04 <span>FROM IDEA TO FILE</span></div>
+          <div className="cf-journey" aria-label="Workflow steps">
+            <a href="#idea" className={idea.trim() ? "on" : undefined}><span>01</span> Idea</a>
+            <a href="#script" className={generatedScript ? "on" : undefined}><span>02</span> Script</a>
+            <a href="#visuals"><span>03</span> Visuals</a>
+            <a href="#export" className={exportUrl ? "on" : undefined}><span>04</span> Export</a>
+          </div>
         </section>
-
-        <nav className="cf-flow-nav" aria-label="Workflow steps">
-          <a href="#idea"><span>01</span> IDEA</a><a href="#script"><span>02</span> SCRIPT</a><a href="#visuals"><span>03</span> VISUALS</a><a href="#export"><span>04</span> EXPORT</a>
-        </nav>
 
         <div className="cf-workspace">
           <div className="cf-editor-column">
             <section className="cf-idea-panel" id="idea">
-              <div className="cf-panel-heading"><span className="cf-kicker">START HERE / 01</span><h2>What's the idea?</h2><p>One sentence is enough. We'll turn it into five editable beats.</p></div>
+              <div className="cf-panel-heading"><div className="cf-step-num">01</div><h2>What's the idea?</h2><p>One sentence is enough. We'll turn it into five editable beats.</p></div>
               <label className="cf-idea-label">YOUR VIDEO IDEA
                 <textarea value={idea} disabled={isWorking} rows={3} onChange={(e) => { setIdea(e.target.value); setScriptOverrides({}); }} placeholder="What should this video say?" />
+              </label>
+              <label className="cf-pack-label">NICHE PACK
+                <select aria-label="Niche pack" disabled={isWorking} value={packId} onChange={(e) => {
+                  setPackId(e.target.value as PackId);
+                  setScriptOverrides({});
+                  setProjectBase(null);
+                }}>
+                  {PACK_IDS.map((id) => <option key={id} value={id}>{packLabel(id)}</option>)}
+                </select>
               </label>
               {!idea.trim() && !isWorking && (
                 <button type="button" className="cf-button cf-button-secondary cf-sample-idea" onClick={() => { setIdea(SAMPLE_IDEA); setScriptOverrides({}); }}>
@@ -916,7 +1149,7 @@ export function App() {
               {err && <p role="alert" className="cf-error">{err}</p>}
             </section>
             {generatedScript && <section className="cf-script-panel" id="script">
-              <div className="cf-panel-heading"><span className="cf-kicker">STORY STRUCTURE / 02</span><h2>Make every beat count.</h2><p>Edit a line, then select it to inspect its frame. This script drives the narration, captions, and post copy.</p></div>
+              <div className="cf-panel-heading"><div className="cf-step-num">02</div><h2>Make every beat count.</h2><p>Edit a line, then select it to inspect its frame. This script drives the narration, captions, and post copy.</p></div>
               <ScriptBeats generated={generatedScript} overrides={scriptOverrides} selected={selectedScene} disabled={isWorking} onSelect={setSelectedScene}
                 captionLabels={editingSceneLabels ? captionLabels : undefined} onCaptionEdit={(index,value) => setCaptionOverrides((current) => ({ ...current, [index]: value }))}
                 onEdit={(index, value) => setScriptOverrides((current) => ({ ...current, [index]: value }))}
@@ -934,7 +1167,8 @@ export function App() {
           </section>
 
           {generatedScript && aiSuggestions[selectedScene] && <div id="visuals">
-            <SceneTray selected={selectedScene} choice={sceneChoices[selectedScene]!} suggestion={aiSuggestions[selectedScene]!} asset={sceneAssets[selectedScene] ?? null} loading={assetLoading} disabled={isWorking}
+            <SceneTray selected={selectedScene} choice={sceneChoices[selectedScene]!} suggestion={aiSuggestions[selectedScene]!} asset={sceneAssets[selectedScene] ?? null} loading={assetLoading} thumb={sceneThumb(selectedScene)} keyframeStatus={keyframeStatus} onGenerate={generateKeyframeNow} disabled={isWorking}
+              pollinationsKey={pollinationsKey} onPollinationsKeyChange={handlePollinationsKeyChange}
               onChoice={(choice) => setSceneChoices((choices) => choices.map((current, index) => index === selectedScene ? choice : current))}
               onUpload={(file) => void onUpload(file)} />
           </div>}

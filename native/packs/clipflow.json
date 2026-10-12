@@ -1,0 +1,30 @@
+{
+  "id": "clipflow",
+  "label": "Clipflow",
+  "hooks": [
+    "Editing a 30 second short still eats two hours.",
+    "Ideas die in notes apps because shipping is the hard part.",
+    "Posting daily is the whole game.",
+    "You bring the idea. Clipflow brings the video.",
+    "What if every idea shipped the same day?",
+    "One sentence in, one finished short out."
+  ],
+  "beats": [
+    "Type one line. Clipflow writes the script, records the voice, cuts the captions and renders the b-roll.",
+    "Local first video renders on your machine. No server, no keys, no uploads, footage stays yours.",
+    "Unlimited drafts with word level captions and platform ready exports. Set the style once, match every time.",
+    "This video was rendered on a laptop in under a minute. Voice, captions and b-roll included.",
+    "Free forever for drafts. No server, no keys, your footage never leaves your machine."
+  ],
+  "ctas": [
+    "Type one line. Post the short. Repeat daily.",
+    "Free, local, yours. Start your next clip now.",
+    "Your next 30 videos are one sentence each."
+  ],
+  "themes": [
+    { "bg": ["#080A0D", "#0d3b2e"], "accent": "#CFFF47", "font": "700 96px system-ui, sans-serif" },
+    { "bg": ["#080A0D", "#12306e"], "accent": "#246BFD", "font": "700 96px system-ui, sans-serif" }
+  ],
+  "hashtags": ["#buildinpublic", "#contentcreation", "#indiehacker", "#solopreneur"],
+  "banned": ["idea in, video out.", "mstudio", "early access", "waitlist", "join the waitlist"]
+}

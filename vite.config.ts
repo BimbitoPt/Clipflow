@@ -18,9 +18,13 @@ export default defineConfig({
       },
       manifest: {
         background_color: "#080A0D",
+        categories: ["creativity", "video", "productivity"],
+        description: "Idea in, video out — script, keyframes, captions and MP4 export, local-first.",
         display: "standalone",
         icons: [
-          { sizes: "any", src: "brand/mark.png", type: "image/png" },
+          { sizes: "192x192", src: "icon-192.png", type: "image/png", purpose: "any" },
+          { sizes: "512x512", src: "icon-512.png", type: "image/png", purpose: "any" },
+          { sizes: "512x512", src: "icon-512.png", type: "image/png", purpose: "maskable" },
         ],
         name: "Clipflow",
         short_name: "Clipflow",

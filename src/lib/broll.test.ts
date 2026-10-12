@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { applyAssetOverride, assignCueAssets, assetSize, matchAsset, preloadCueAssets, sourceOf, STOCK_POOL, tokenizeQuery, type PoolEntry } from "./broll";
+import { FETCHED_STOCK } from "./broll-fetched";
 import { MSTUDIO_PROFILE } from "./profile";
 
 describe("broll pool", () => {
@@ -19,8 +20,8 @@ describe("broll pool", () => {
     }
   });
   it("keeps 26 shipped images + 7 clip slots + 2 site case-study takes", () => {
-    expect(STOCK_POOL.filter((e) => e.kind === "image").length).toBe(26);
-    expect(STOCK_POOL.filter((e) => e.kind === "video").length).toBe(9);
+    expect(STOCK_POOL.filter((e) => e.kind === "image").length).toBe(26 + FETCHED_STOCK.filter((e) => e.kind === "image").length);
+    expect(STOCK_POOL.filter((e) => e.kind === "video").length).toBe(9 + FETCHED_STOCK.filter((e) => e.kind === "video").length);
   });
 
   it("tokenizes queries lowercase", () => {

@@ -6,6 +6,7 @@ import { nativeMediaUrl } from "./desktop";
 export type SceneChoice =
   | { kind: "auto-ai" }
   | { kind: "ai"; id: string }
+  | { kind: "generated"; id: string; fp?: string }
   | { kind: "stock"; src: string }
   | NativeMedia
   | { kind: "upload"; id: string; approvedProof?: boolean };
@@ -13,6 +14,7 @@ export type SceneChoice =
 export type ResolvedSceneChoice =
   | { kind: "static"; entry: PoolEntry }
   | { kind: "upload"; id: string }
+  | { kind: "generated"; id: string }
   | { kind: "fallback" };
 
 /** Validate a five-scene choice plan before loading image/video elements. */
@@ -20,6 +22,7 @@ export function resolveSceneChoices(choices: SceneChoice[], ai: AiBackground[], 
   return choices.map((choice, index) => {
     if (choice.kind === "native") return { kind: "static", entry: { kind: choice.mediaKind, src: nativeMediaUrl(choice.path), keywords: [] } };
     if (choice.kind === "upload") return choice.id ? { kind: "upload", id: choice.id } : { kind: "fallback" };
+    if (choice.kind === "generated") return choice.id ? { kind: "generated", id: choice.id } : { kind: "fallback" };
     if (choice.kind === "stock") {
       const entry = stock.find((item) => item.src === choice.src);
       return entry ? { kind: "static", entry } : { kind: "fallback" };

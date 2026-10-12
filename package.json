@@ -1,8 +1,9 @@
 {
   "dependencies": {
     "@tauri-apps/api": "^2.12.0",
-    "@xenova/transformers": "^2.17.0",
+    "kokoro-js": "^1.2.1",
     "mp4-muxer": "^5.2.1",
+    "phonemizer": "^1.2.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
@@ -25,8 +26,11 @@
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "dev": "vite --port 8081",
+    "model:install": "node scripts/install-kokoro-model.mjs",
+    "stock:fetch": "vite-node scripts/fetch-stock.ts",
     "preview": "vite preview --port 8081",
     "test": "vitest run",
+    "video": "node scripts/video.mjs",
     "desktop:dev": "node scripts/prepare-desktop.mjs && tauri dev",
     "desktop:build": "node scripts/prepare-desktop.mjs && tauri build"
   },

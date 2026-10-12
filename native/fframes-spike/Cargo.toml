@@ -1,0 +1,11 @@
+[package]
+name = "fframes-spike"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "fframes-spike"
+path = "src/main.rs"
+
+[dependencies]
+fframes = { version = "1.2", features = ["cli"] }

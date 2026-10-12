@@ -4,6 +4,7 @@ import { loadFont as loadCormorant } from "@remotion/google-fonts/CormorantGaram
 import { AbsoluteFill, Img, interpolate, spring, staticFile, useCurrentFrame, useVideoConfig } from "remotion";
 import type { CompositionProps, SceneSegment } from "../../lib/scene-plan";
 import { MotionGraphic } from "./MotionGraphic";
+import { SPRINGS } from "../../../../shared/motion-tokens";
 
 const sans = loadManrope("normal", { weights: ["500", "700", "800"], subsets: ["latin"] }).fontFamily;
 const serif = loadCormorant("italic", { weights: ["600"], subsets: ["latin"] }).fontFamily;
@@ -61,7 +62,7 @@ function Spine({ accent, frame, fps }: { accent: string; frame: number; fps: num
   return <div style={{ position: "absolute", top: 485, left: 145, right: 145, display: "flex", flexDirection: "column", gap: 37 }}>
     <div style={{ position: "absolute", left: 28, top: 22, bottom: 22, width: 5, background: `linear-gradient(${accent},${accent}33)` }} />
     {nodes.map((node, index) => {
-      const enter = spring({ frame: frame - 8 - index * 11, fps, config: { damping: 17, stiffness: 105 } });
+      const enter = spring({ frame: frame - 8 - index * 11, fps, config: SPRINGS.standard });
       return <div key={node} style={{ display: "flex", alignItems: "center", gap: 30, opacity: enter, transform: `translateX(${(1 - enter) * 90}px)` }}>
         <div style={{ width: 62, height: 62, borderRadius: "50%", border: `4px solid ${accent}`, background: index <= Math.floor((frame - 4) / 11) ? accent : "#0b1014", boxShadow: `0 0 28px ${accent}66`, flex: "none" }} />
         <div style={{ fontFamily: sans, fontSize: 51, fontWeight: 800, letterSpacing: "-.055em", textShadow: "0 4px 25px #000d" }}>{node}</div>
@@ -91,7 +92,7 @@ function StoryVisual({ visual, accent, frame, fps, motionIntent }: { visual: Non
     const wipe = interpolate(frame, [8, 34], [0, 100], { extrapolateLeft: "clamp", extrapolateRight: "clamp" });
     return <div style={{ position: "absolute", top: 535, left: 90, right: 90, height: 260, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
       {visual.items.slice(0, 2).map((item, index) => {
-        const enter = spring({ frame: frame - 8 - index * 7, fps, config: { damping: 17, stiffness: 105 } });
+        const enter = spring({ frame: frame - 8 - index * 7, fps, config: SPRINGS.standard });
         return <div key={`${item}-${index}`} style={{ position: "relative", overflow: "hidden", padding: "24px 27px", border: `2px solid ${accent}99`, borderRadius: 18, background: "#0a1323e8", boxShadow: `0 20px 70px #000a, inset 0 0 50px ${accent}18`, display: "flex", alignItems: "center", gap: 20, opacity: enter, transform: `translateX(${(1 - enter) * (index === 0 ? -100 : 100)}px)` }}>
           <div style={{ width: 9, height: 50, borderRadius: 5, background: accent, boxShadow: `0 0 18px ${accent}`, flex: "none" }} />
           <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1.04, letterSpacing: "-.055em" }}>{item.toUpperCase()}</div>
@@ -108,7 +109,7 @@ function StoryVisual({ visual, accent, frame, fps, motionIntent }: { visual: Non
     {visual.items.map((item, index) => {
       const delay = motionIntent === "sequence" ? index * 12 : motionIntent === "transform" ? index * 16 : index * (isSteps ? 12 : 16);
       const direction = motionIntent === "comparison" && index % 2 === 1 ? 1 : -1;
-      const enter = spring({ frame: frame - 7 - delay, fps, config: { damping: 17, stiffness: 105 } });
+      const enter = spring({ frame: frame - 7 - delay, fps, config: SPRINGS.standard });
       return isSteps
         ? <div key={`${item}-${index}`} style={{ height: 72, display: "flex", alignItems: "center", gap: 27, opacity: enter, transform: `translateX(${(1 - enter) * 110}px)` }}>
           <div style={{ width: 62, height: 62, borderRadius: "50%", border: `4px solid ${accent}`, background: index <= Math.floor((frame - 5) / 12) ? accent : "#0b1014", boxShadow: `0 0 28px ${accent}66`, flex: "none" }} />

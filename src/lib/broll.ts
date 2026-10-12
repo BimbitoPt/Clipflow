@@ -17,10 +17,13 @@ export interface PoolEntry {
 // site case-study takes (real client-proof footage — must outscore generic
 // stock on site-related queries so case-study videos open on the site).
 // Photos 1-9 Unsplash, 10-25 Picsum/Unsplash (free). Clips are local
-// Ken Burns motion renders (interim video stock) — replace with Pexels/
-// Coverr/Pixabay when verified IDs land. See docs/broll.md.
+// Ken Burns motion renders (interim video stock) — replaced with real
+// Pexels/Pixabay renditions via `npm run stock:fetch`, which appends to
+// FETCHED_STOCK (empty until keys are provided). See docs/broll.md.
 // Missing files fall back to gradient — never throw.
-export const STOCK_POOL: PoolEntry[] = [
+import { FETCHED_STOCK } from "./broll-fetched";
+
+const CURATED_POOL: PoolEntry[] = [
   { kind: "image", src: "/broll/1.jpg", keywords: ["desk", "office", "monitor", "laptop", "website", "dark", "workspace", "night", "work"] },
   { kind: "image", src: "/broll/2.jpg", keywords: ["code", "laptop", "keyboard", "screen", "developer", "vscode", "dark", "work"] },
   { kind: "image", src: "/broll/3.jpg", keywords: ["chair", "office", "desk", "monitor", "dark", "workspace", "night", "shelf"] },
@@ -58,6 +61,8 @@ export const STOCK_POOL: PoolEntry[] = [
   // Local-only dogfood footage for the Octane Archive Clipflow workflow.
   { kind: "video", src: "/broll/clips/porsche-gt3rs-dogfood.mp4", keywords: ["porsche", "gt3", "gt3rs", "911", "car", "racing", "track", "automotive", "nightdrive"] },
 ];
+
+export const STOCK_POOL: PoolEntry[] = [...CURATED_POOL, ...FETCHED_STOCK];
 
 export function tokenizeQuery(text: string): Set<string> {
   const out = new Set<string>();

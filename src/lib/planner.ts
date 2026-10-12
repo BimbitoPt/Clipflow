@@ -152,6 +152,64 @@ export function planWordsTimed(
   return out;
 }
 
+/** Strip punctuation and case so a join-merged token ("curious.") still matches its script token ("curious"). */
+const bareWord = (token: string): string => token.replace(/[^\p{L}\p{N}]+/gu, "").toLowerCase();
+
+/**
+ * Render-grid windows on the synthesized voice timeline: one span per cue,
+ * in order, for planFrames. Returns null unless EVERY cue produced a span —
+ * a single null cue (alignment fallback) means the fixed grid should run —
+ * and the spans are monotonic with positive length.
+ */
+export function voiceGridFromCues(cues: ReadonlyArray<TimedCueTiming | null>): Array<{ start: number; end: number }> | null {
+  const windows: Array<{ start: number; end: number }> = [];
+  let previous = 0;
+  for (const cue of cues) {
+    const span = cue?.span;
+    if (!span || !Number.isFinite(span[0]) || !Number.isFinite(span[1]) || span[1] <= span[0] || span[0] < previous - 1e-6) return null;
+    windows.push({ start: span[0], end: span[1] });
+    previous = span[1];
+  }
+  return windows.length ? windows : null;
+}
+
+/**
+ * Map whole-script synthesized token times back onto the cues they came
+ * from. Voice export synthesizes cues.join(". ") as one blob, so a period
+ * either merges into the previous cue's last token ("curious" → "curious.")
+ * or, when that cue already ends in punctuation, becomes its own token
+ * ("scrolling." + ". " → "scrolling." + ".."). Each cue claims its exact
+ * token-count slice only when the token texts also match after punctuation
+ * stripping; anything else yields that cue as null so planWordsTimed falls
+ * back to the measured-span split for that cue alone. The walk is structural
+ * (token counts + the join separator), never gated on a previous cue's
+ * match, so one bad cue can never shift the cues after it.
+ */
+export function alignCueWordTimings(
+  cueTexts: readonly string[],
+  tokens: readonly TimedWord[],
+): Array<TimedCueTiming | null> {
+  let cursor = 0;
+  return cueTexts.map((text) => {
+    const scriptTokens = text.split(/\s+/).filter(Boolean);
+    if (scriptTokens.length === 0) return null;
+    const slice = tokens.slice(cursor, cursor + scriptTokens.length);
+    cursor += scriptTokens.length;
+    // The ". " join only exists as its own token when the previous cue
+    // already ended with punctuation; otherwise it merged into the last word.
+    const separator = tokens[cursor];
+    if (separator && !/[\p{L}\p{N}]/u.test(separator.word)) cursor += 1;
+    const matched =
+      slice.length === scriptTokens.length &&
+      slice.every((token, index) => bareWord(token.word) === bareWord(scriptTokens[index]!));
+    if (!matched) return null;
+    return {
+      span: [slice[0]!.start, slice.at(-1)!.end] as [number, number],
+      words: slice.map((token) => ({ word: token.word, start: token.start, end: token.end })),
+    };
+  });
+}
+
 /**
  * Even-split word timing: each cue's [start, end) span is divided evenly
  * across its whitespace-separated tokens, so word windows are float seconds.

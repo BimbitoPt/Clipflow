@@ -364,6 +364,45 @@ describe("render", () => {
     expect(HOOK_CARD_SECS).toBe(4);
   });
 
+  it("shrinks an overlong hook headline to fit the frame", () => {
+    const ctx = stubCtx();
+    const full = hookHeadline("supercalifragilistic experimental phenomenology extraordinary situation extra words here");
+    drawFrame(
+      ctx,
+      { t: 1, cue: { start: 0, end: 4, kind: "hook", text: "supercalifragilistic experimental phenomenology extraordinary situation extra words here" } },
+      theme,
+      720,
+      1280,
+    );
+    // Split across two plate lines; first line carries the opening words.
+    expect(ctx.texts).toContain("supercalifragilistic experimental phenomenology extraordinary");
+    const at = ctx.texts.indexOf("supercalifragilistic experimental phenomenology extraordinary");
+    const px = Number(/(\d+)px/.exec(ctx.fonts[at] ?? "")?.[1]);
+    expect(px).toBeLessThan(Math.round(720 * 0.052));
+    expect(full.split(" ").length).toBeLessThanOrEqual(8);
+  });
+
+  it("fits the hook card inside the frame at preview width", () => {
+    const ctx = stubCtx();
+    const text = "Posting daily is the whole game. Posting daily";
+    drawFrame(
+      ctx,
+      { t: 1, cue: { start: 0, end: 4, kind: "hook", text } },
+      theme,
+      360,
+      640,
+    );
+    const top = ctx.textArgs.filter(([, , y]) => y < 640 * 0.3).map(([t]) => t);
+    // Whole headline present, no spill past the plate band.
+    expect(top.join(" ")).toBe(text);
+    ctx.textArgs.forEach(([line, x, y], index) => {
+      if (y >= 640 * 0.3) return;
+      const size = Number(/(\d+)px/.exec(ctx.fonts[index] ?? "")?.[1] ?? 0);
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(line.length * size * 0.55).toBeLessThanOrEqual(360 * 0.86 + 1);
+    });
+  });
+
   it("draws the opt-in credit card with no captions", () => {
     const ctx = stubCtx();
     drawFrame(

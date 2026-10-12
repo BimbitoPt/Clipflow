@@ -24,11 +24,12 @@ cargo run --manifest-path native/Cargo.toml -- render --idea "AI builds a site i
 All flags (with defaults):
 
 ```powershell
-cargo run --manifest-path native/Cargo.toml -- render --idea "..." --pack mstudio --voice auto --out ./exports --models ../public/models
+cargo run --manifest-path native/Cargo.toml -- render --idea "..." --pack mstudio --voice auto --plan short --out ./exports --models ../public/models
 ```
 
 - `--idea` (required): video topic, truncated to 140 chars at a word boundary.
-- `--pack` (default `mstudio`): script pack id (currently only `mstudio`).
+- `--pack` (default `mstudio`): script pack id: `mstudio` or `clipflow`.
+- `--plan` (default `short`): `short` (45s social/hero cut: hook + 3 beats + CTA) or `master` (75s converting cut: hook / problem / bridge / product / proof / objection / CTA with a 10s held exit).
 - `--voice` (default `auto`): `auto | on | sapi | off` — see Voice below.
 - `--out` (default `exports`): output directory (created if missing).
 - `--models` (default `../public/models`): directory holding the local ONNX TTS weights.

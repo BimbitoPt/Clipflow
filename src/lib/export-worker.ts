@@ -181,12 +181,15 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
       // finish
       void (async () => {
         try {
+          scope!.postMessage({ type: "stage", stage: "flushing-video" });
           await session!.video.flush();
           if (session!.videoErr) throw session!.videoErr;
           if (session!.voice && session!.audio) {
+            scope!.postMessage({ type: "stage", stage: "flushing-audio" });
             await session!.audio.flush();
             if (session!.audioErr) throw session!.audioErr;
           }
+          scope!.postMessage({ type: "stage", stage: "finalizing" });
           session!.muxer.finalize();
           session!.finished = true;
           const buffer = session!.muxer.target.buffer;

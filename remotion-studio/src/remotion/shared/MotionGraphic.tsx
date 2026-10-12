@@ -1,5 +1,6 @@
 import React from "react";
 import { interpolate, spring } from "remotion";
+import { SPRINGS } from "../../../../shared/motion-tokens";
 import type { SceneSegment } from "../../lib/scene-plan";
 import type { ResolvedMotionIntent } from "../../lib/domain";
 
@@ -88,7 +89,7 @@ function Sequence({ accent, progress, fps, labels }: { accent: string; progress:
     <line x1={nodes[0]} y1="150" x2={nodes[0]! + (nodes.at(-1)! - nodes[0]!) * p} y2="150" stroke={accent} strokeWidth="6" style={{ filter: `drop-shadow(0 0 9px ${accent})` }} />
     {nodes.map((cx, index) => {
       const active = p >= index / nodes.length;
-      const scale = spring({ frame: progress * fps * 2 - index * 7, fps, config: { damping: 16, stiffness: 115 } });
+      const scale = spring({ frame: progress * fps * 2 - index * 7, fps, config: SPRINGS.lively });
       return <g key={cx} opacity={active ? 1 : 0.45} transform={`translate(${cx},150) scale(${0.72 + scale * 0.28})`}>
         <circle r="28" fill={active ? accent : "#172016"} stroke={accent} strokeWidth="3" />
         <circle r="8" fill={active ? "#11170c" : "#c8d2c0"} />
@@ -155,7 +156,7 @@ type MotionGraphicProps = {
 };
 
 export function MotionGraphic({ kind, intent, accent, frame, fps, sceneIndex, sceneDurationInFrames = fps * 4, hasScreen = false, labels = [] }: MotionGraphicProps) {
-  const reveal = spring({ frame: frame - 8, fps, config: { damping: 19, stiffness: 95 } });
+  const reveal = spring({ frame: frame - 8, fps, config: SPRINGS.soft });
   if (intent === "none") return null;
   if (intent) {
     const progress = interpolate(frame, [0, Math.max(1, sceneDurationInFrames)], [0, 1], clamp);

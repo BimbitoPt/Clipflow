@@ -72,13 +72,13 @@ pub fn cue_bounds(counts: &[usize], total_secs: f64) -> Vec<(f64, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::script::build_script;
+    use crate::script::{build_script, Plan};
 
     const EPS: f64 = 1e-9;
 
     #[test]
     fn words_partition_every_cue_without_gaps() {
-        let s = build_script("fixed-price websites that ship in two weeks").unwrap();
+        let s = build_script("fixed-price websites that ship in two weeks", "mstudio", Plan::Short).unwrap();
         let words = plan_words(&s);
         assert!(!words.is_empty());
         assert!((words.first().unwrap().start - 0.0).abs() < EPS);
@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn rescale_maps_45s_words_to_wav_duration() {
-        let s = build_script("fixed-price websites that ship in two weeks").unwrap();
+        let s = build_script("fixed-price websites that ship in two weeks", "mstudio", Plan::Short).unwrap();
         let words = plan_words(&s);
         let scaled = rescale(&words, 42.12);
         assert!((scaled.first().unwrap().start - 0.0).abs() < EPS);

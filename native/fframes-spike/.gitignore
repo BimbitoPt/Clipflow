@@ -1,0 +1,6 @@
+target/
+deps/
+out/
+frames/
+*.mp4
+*.png

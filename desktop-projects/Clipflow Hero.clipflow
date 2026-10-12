@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "idea": "Type one line and post a finished short the same day",
+  "profile": {
+    "niche": "Short-form video tools",
+    "audience": "Solo creators",
+    "offer": "a local-first studio that turns one line into a finished short",
+    "tone": "Direct and practical",
+    "proof": "Exports real 720p MP4s on your machine"
+  },
+  "scriptOverrides": {},
+  "sceneChoices": [
+    { "kind": "auto-ai" },
+    { "kind": "auto-ai" },
+    { "kind": "auto-ai" },
+    { "kind": "auto-ai" },
+    { "kind": "auto-ai" }
+  ],
+  "captionMode": "auto",
+  "captionOverrides": {},
+  "voiceOn": true,
+  "visualEffect": "none",
+  "timing": null,
+  "savedAt": "2026-10-06",
+  "platform": "tiktok",
+  "credit": false,
+  "pack": "clipflow",
+  "baseScript": null,
+  "renderPlan": null
+}

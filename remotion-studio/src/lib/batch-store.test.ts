@@ -20,9 +20,13 @@ describe("batch persistence", () => {
     expect(created.clips.every((clip) => clip.status === "needs_review")).toBe(true);
     expect(created.clips.every((clip) => clip.creative?.template === "cinematic-story")).toBe(true);
     expect(created.clips.every((clip) => clip.creative?.scenes.length === 4)).toBe(true);
-    expect(created.clips.find((clip) => clip.brandId === "clipflow")?.creative?.scenes[0].motionGraphic).toBe("filmstrip");
-    expect(created.clips.find((clip) => clip.brandId === "mstudio")?.creative?.scenes[0].motionGraphic).toBe("site-network");
-    expect(created.clips.find((clip) => clip.brandId === "mstudio")?.creative?.scenes[2].visual?.kind).toBe("cards");
+    // Adaptive-motion spec (4a89976): treatments plan motion from real copy —
+    // no canned per-scene graphics; brands differ through curated stills/music.
+    expect(created.clips.every((clip) => clip.creative?.scenes.every((scene) => scene.motionIntent === "auto" && !scene.visual && !scene.motionGraphic))).toBe(true);
+    expect(created.clips.find((clip) => clip.brandId === "clipflow")?.creative?.scenes[0].bg?.imagePath).toContain("clipflow-spine");
+    expect(created.clips.find((clip) => clip.brandId === "mstudio")?.creative?.scenes[0].bg?.imagePath).toContain("mstudio-pricing");
+    expect(created.clips.find((clip) => clip.brandId === "clipflow")?.creative?.musicPath).toBe("scene-audio/clipflow-bed.wav");
+    expect(created.clips.find((clip) => clip.brandId === "mstudio")?.creative?.musicPath).toBe("scene-audio/mstudio-bed.wav");
     expect((await getBatch(created.batch.id, root))?.clips).toHaveLength(10);
     expect((await listBatches(root))).toHaveLength(1);
     expect((await createBatch("Twenty", briefs(20), root)).clips).toHaveLength(20);

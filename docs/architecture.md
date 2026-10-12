@@ -67,7 +67,9 @@ Stage contracts:
    thread (video elements can't cross the boundary) and transfer as
    `VideoFrame`s to `src/lib/export-worker.ts`, which owns
    `VideoEncoder`/`AudioEncoder` + `mp4-muxer` off-thread (AVC `720×1280`
-   5 Mbps + AAC 16 kHz mono, `clipflow-916.mp4`). Backpressure at
+   5 Mbps + AAC 44.1 kHz mono — Chrome refuses AAC at 16 kHz, so the 16 kHz
+   model output is upsampled at the browser branch; desktop FFmpeg keeps
+   16 kHz — `clipflow-916.mp4`). Backpressure at
    `MAX_QUEUE=24` (resume at 8); yields every 30 frames keep the UI alive;
    abort terminates the worker. The worker ships as its own chunk so
    initial load never pays for export. Opt-in credit (`creditOn`) appends

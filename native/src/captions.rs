@@ -264,7 +264,7 @@ pub fn write_ass_timed(
 mod tests {
     use super::*;
     use crate::planner::{cue_bounds, plan_words};
-    use crate::script::build_script;
+    use crate::script::{build_script, Plan};
 
     const IDEA: &str = "AI builds a site in 15 minutes, but creators still pay for sites that convert";
 
@@ -272,7 +272,7 @@ mod tests {
     fn trending_ass_has_chunk_captions_without_pills() {
         // Engine word count follows the current pack copy (79 words after
         // the 2026-09-17 agency-voice pack). Asserts structure, not magic.
-        let s = build_script(IDEA).unwrap();
+        let s = build_script(IDEA, "mstudio", Plan::Short).unwrap();
         let words = plan_words(&s);
         assert!(words.len() >= 70 && words.len() <= 90, "{}", words.len());
         assert_eq!(words.len(), 79);

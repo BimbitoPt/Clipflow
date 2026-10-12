@@ -19,4 +19,14 @@ describe("scene asset choices", () => {
     expect(resolved[3]).toEqual({ kind: "upload", id: "session-photo" });
     expect(resolved[4]).toEqual({ kind: "fallback" });
   });
+
+  it("resolves generated keyframes by id and drops empty ids", () => {
+    const choices: SceneChoice[] = [
+      { kind: "generated", id: "gen-abc123", fp: "42" },
+      { kind: "generated", id: "" },
+    ];
+    const resolved = resolveSceneChoices(choices, AI_BACKGROUNDS, STOCK_POOL);
+    expect(resolved[0]).toEqual({ kind: "generated", id: "gen-abc123" });
+    expect(resolved[1]).toEqual({ kind: "fallback" });
+  });
 });

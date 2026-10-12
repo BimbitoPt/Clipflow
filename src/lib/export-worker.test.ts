@@ -140,6 +140,9 @@ describe("export-worker", () => {
     await tick();
     const done = h.posted.at(-1)!;
     expect(done.type).toBe("done");
+    // Finish stages are visible so a stall is attributable, not a mystery.
+    expect(h.posted).toContainEqual({ type: "stage", stage: "flushing-video" });
+    expect(h.posted).toContainEqual({ type: "stage", stage: "finalizing" });
     expect((done as { buffer: ArrayBuffer }).buffer.byteLength).toBe(8);
     expect(h.finalized()).toBe(true);
     expect(h.chunks).toEqual([{ kind: "video" }, { kind: "audio" }]);
@@ -181,8 +184,8 @@ describe("export-worker", () => {
   it("pins the shipping codec configs", () => {
     expect(VIDEO_CONFIG.codec).toBe("avc1.42001f");
     expect([VIDEO_CONFIG.width, VIDEO_CONFIG.height]).toEqual([720, 1280]);
-    expect(AUDIO_CONFIG.codec).toBe("mpac");
-    expect(AUDIO_CONFIG.sampleRate).toBe(16000);
+    expect(AUDIO_CONFIG.codec).toBe("mp4a.40.2");
+    expect(AUDIO_CONFIG.sampleRate).toBe(44100);
   });
 
   it("probes report missing encoders without throwing", async () => {

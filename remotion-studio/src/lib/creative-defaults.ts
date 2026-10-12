@@ -6,12 +6,6 @@ const curated = {
   mstudio: { folder: "mstudio-pricing", music: "scene-audio/mstudio-bed.wav" },
 } as const;
 
-const visualLabels: Record<ClipFormat, string[]> = {
-  explainer: ["HOOK", "INSIGHT", "ACTION"],
-  demo: ["INPUT", "PROCESS", "RESULT"],
-  proof: ["CLAIM", "EVIDENCE", "NEXT STEP"],
-};
-
 export function defaultCreativeTreatment(brandId: string, format: ClipFormat, sceneCount = 4): NonNullable<ClipBrief["creative"]> {
   const pack = curated[brandId as keyof typeof curated];
   const scenes = Array.from({ length: sceneCount }, (_, index) => {

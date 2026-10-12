@@ -6,8 +6,10 @@ target/
 public/.broll-usage.json
 
 # Local weights, databases and render/debug output
+/outputs/inspect/
 /public/models/*
 !/public/models/.gitkeep
+/public/ort/
 /data/
 /temp/
 /C
@@ -21,6 +23,7 @@ public/.broll-usage.json
 /public/broll/clips/sync-*.mp4
 /public/broll/clips/vo-*.mp4
 /public/broll/clips/post2-*.mp4
+/public/broll/fetched/
 .env
 .env.*
 !.env.example
@@ -35,4 +38,16 @@ public/.broll-usage.json
 # Temporary upstream Laravel starter clone; the app is in /signal-house-app.
 /signal-house/
 /public/desktop-runtime/
+
+# Generated render/compute artifacts (local, never committed)
+/outputs/
+.fx-tmp/
+/test-results/
+diag-shot.png
+inspect.html
+
+# Agent tooling - regenerated per task, never part of the repo
+/context/
+/system/
+
 /.desktop-public/
