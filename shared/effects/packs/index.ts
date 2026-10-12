@@ -7,6 +7,8 @@ import "./finance";
 import "./fitness";
 import "./food";
 import "./edu";
+import "./product-demo";
+import "./shortform";
 import { getEffect } from "../registry";
 
 export { NICHE_PROFILES, loadNicheProfiles, nicheProfile, nicheIds } from "../niches";

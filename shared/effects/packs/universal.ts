@@ -1,5 +1,5 @@
 import { registerEffect } from "../registry";
-import { beatFlash, captionPop, flashCut, punchZoom, progressBar, shake, softFade, slowPush } from "../fx";
+import { beatFlash, captionPop, cornerTicks, flashCut, punchZoom, progressBar, shake, softFade, slowPush } from "../fx";
 import type { BuildParams, EffectDef, FxCtx } from "../types";
 
 function def(d: EffectDef): void {
@@ -89,4 +89,14 @@ uni({
   heavy: false,
   describe: "Word pop in the caption zone.",
   build: (p: BuildParams, ctx: FxCtx) => ({ filters: captionPop({ p, ctx }) }),
+});
+
+uni({
+  id: "corner-ticks",
+  name: "Corner ticks",
+  category: "overlay",
+  intensities: ["subtle"],
+  heavy: false,
+  describe: "Full-clip editorial framing: hairline border + accent corners.",
+  build: (p: BuildParams, ctx: FxCtx) => ({ filters: cornerTicks({ p, ctx }) }),
 });

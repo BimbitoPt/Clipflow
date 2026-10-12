@@ -150,8 +150,9 @@ export function rgbSplit({ p }: Prim): { filters: string[]; requires: string[] }
 export function glitchBurst(prim: Prim): { filters: string[]; requires: string[] } {
   const { p } = prim;
   const rgb = rgbSplit(prim);
+  const noise = { subtle: 10, medium: 16, hype: 22 }[p.intensity];
   return {
-    filters: [...rgb.filters, `noise=alls=22:allf=t:enable='${win(p)}'`],
+    filters: [...rgb.filters, `noise=alls=${noise}:allf=t:enable='${win(p)}'`],
     requires: rgb.requires,
   };
 }
@@ -319,6 +320,60 @@ export function stickerPop({ p, ctx }: Prim): string[] {
   ];
 }
 
+/** Stat pop: big quantified claim ("10x", "$0 to $10k") with plate. */
+export function statPop({ p, ctx }: Prim): string[] {
+  const text = (p.text ?? "10x FASTER").toUpperCase();
+  const fs = `h/13`;
+  const k = `(t-${p.start})/${Math.min(0.25, p.duration / 2)}`;
+  const pop = `0.6+0.4*sin(PI*min(1,${k}))`;
+  return [
+    `drawbox=x='(iw-(${text.length}*0.6*${fs}+60))/2':y='ih*0.30':w='(${text.length}*0.6*${fs}+60)':h='2.0*${fs}':c=black@0.78:t=fill:enable='${win(p)}'`,
+    `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize='${fs}*${pop}':fontcolor=${acc(p, ctx)}:x='(w-text_w)/2':y='h*0.30+0.42*${fs}':enable='${win(p)}'`,
+  ];
+}
+
+/** End card: full-cover CTA held to the end (pinned by the composer). */
+export function ctaCard({ p, ctx }: Prim): string[] {
+  const title = p.text ?? "TRY IT NOW";
+  const alpha = `if(lt(t-${p.start},0.3),(t-${p.start})/0.3,1)`;
+  return [
+    `drawbox=x=0:y=0:w=iw:h=ih:c=${ctx.bg}:t=fill:enable='${win(p)}'`,
+    `drawbox=x=0:y=0:w=iw:h=12:c=${acc(p, ctx)}:t=fill:enable='${win(p)}'`,
+    `drawtext=fontfile=${ctx.fontFile}:text=${escText(title)}:fontsize=h/14:fontcolor=white:x='(w-text_w)/2':y='h*0.38':alpha='${alpha}':enable='${win(p)}'`,
+    `drawtext=fontfile=${ctx.fontFile}:text=${escText("One click. Thirty seconds.")}:fontsize=h/28:fontcolor=${acc(p, ctx)}:x='(w-text_w)/2':y='h*0.52':alpha='${alpha}':enable='${win(p)}'`,
+  ];
+}
+
+/** VHS camcorder stamp: PLAY + running timecode, top-left. */
+export function vhsStamp({ p, ctx }: Prim): string[] {
+  const raw = `PLAY %{pts\\:hms}`;
+  const text = `'${raw.replace(/%/g, "\\%")}'`;
+  return [
+    `drawtext=fontfile=${ctx.fontFile}:text=${text}:fontsize=h/36:fontcolor=white@0.85:x='w*0.033':y='h*0.019':enable='${win(p)}'`,
+    `drawbox=x='iw*0.022':y='ih*0.0125':w=10:h=10:c=red:t=fill:enable='${win(p)}*lt(mod(t,1),0.7)'`,
+  ];
+}
+
+/** Editorial corner framing (brief §4): hairline inset border + accent
+ * corner ticks. Static full-clip overlay — structure, not motion. */
+export function cornerTicks({ p, ctx }: Prim): string[] {
+  void p;
+  const m = "iw*0.045";
+  const L = "iw*0.085";
+  const A = acc(p, ctx);
+  const corners: Array<[string, string]> = [
+    [m, m],
+    [`iw-${m}-${L}`, m],
+    [m, `ih-${m}-3`],
+    [`iw-${m}-${L}`, `ih-${m}-3`],
+  ];
+  const out = [`drawbox=x='${m}':y='${m}':w='iw-2*${m}':h='ih-2*${m}':c=white@0.22:t=2`];
+  for (const [cx, cy] of corners) {
+    out.push(`drawbox=x='${cx}':y='${cy}':w='${L}':h=3:c=${A}@0.85:t=fill`);
+    out.push(`drawbox=x='${cx}':y='${cy}':w=3:h='ih*0.045':c=${A}@0.85:t=fill`);
+  }
+  return out;
+}
 /** Highlight-box callout (edu): stroked box, blinking while active. */
 export function calloutBox({ p, ctx }: Prim): string[] {
   const blink = `${win(p)}*lt(mod(t-${p.start},1.0),0.7)`;
@@ -358,5 +413,55 @@ export function captionPop({ p, ctx }: Prim): string[] {
   const text = (p.text ?? "WATCH").toUpperCase();
   return [
     `drawtext=fontfile=${ctx.fontFile}:text=${escText(text)}:fontsize=h/19:fontcolor=white:borderw=4:bordercolor=black:x='(w-text_w)/2':y='h*0.62':alpha='if(lt(t-${p.start},0.12),(t-${p.start})/0.12,1)':enable='${win(p)}'`,
+  ];
+}
+
+/** Follow-zoom: smooth zoom into a seeded point with a slow drift, then
+ * hold. Procedural stand-in for cursor-follow zoom (no tracking data).
+ * NOTE: zoompan expressions use `time`, not `t`. */
+export function followZoom({ p, ctx }: Prim): string[] {
+  const px = (0.3 + p.variant * 0.4).toFixed(2);
+  const ramp = `min(1,(time-${p.start})/1.2)`;
+  const z = `1+0.6*${ramp}`;
+  return [
+    `zoompan=z='${z}':x='(iw-iw/zoom)*${px}+20*sin(2*PI*0.3*time)':y='(ih-ih/zoom)*0.45':d=1:s=${ctx.W}x${ctx.H}:fps=${ctx.fps},setsar=1`,
+  ];
+}
+
+/** Device-frame mockup: shrink onto black with nested accent borders.
+ * (True 3D tilt needs the perspective filter; this 2.5D frame is the
+ * safe primitive.) */
+export function deviceFrame({ p, ctx }: Prim): string[] {
+  const k = 0.86;
+  const sw = Math.round(ctx.W * k);
+  const sh = Math.round(ctx.H * k);
+  return [
+    `scale=${sw}:${sh},pad=${ctx.W}:${ctx.H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1`,
+    `drawbox=x='(iw-iw*${k})/2+18':y='(ih-ih*${k})/2+22':w='iw*${k}':h='ih*${k}':c=black@0.55:t=fill`,
+    `drawbox=x='(iw-iw*${k})/2-3':y='(ih-ih*${k})/2-3':w='iw*${k}+6':h='ih*${k}+6':c=${acc(p, ctx)}:t=3`,
+  ];
+}
+
+/** Before/after split: left region desaturated via a single geq (no stream
+ * split needed), animated divider wipe, BEFORE/AFTER labels. */
+export function beforeAfter({ p, ctx }: Prim): string[] {
+  // NOTE: geq's expression evaluator in static ffmpeg builds chokes on nested
+  // functions (min/clip/nested-if all probed failing 2026-10-07). The wipe ramp
+  // is plain arithmetic over the effect's own window, so no clamp is needed:
+  // enable gates evaluation to t in [start, start+duration].
+  // Inside geq, the timestamp variable is T (not t) — probed 2026-10-07.
+  const ramp = Math.max(0.05, p.duration);
+  const Sg = `0.5*(T-${p.start})/${ramp}`; // geq evaluator: timestamp is T
+  const Sx = `0.5*(t-${p.start})/${ramp}`; // drawbox/drawtext evaluators: t
+  const L = `(0.3*r(X,Y)+0.6*g(X,Y)+0.1*b(X,Y))*0.55`;
+  const geq =
+    `geq=r='if(lt(X,W*${Sg}),${L},r(X,Y))':` +
+    `g='if(lt(X,W*${Sg}),${L},g(X,Y))':` +
+    `b='if(lt(X,W*${Sg}),${L},b(X,Y))':enable='${win(p)}'`;
+  return [
+    geq,
+    `drawbox=x='iw*(${Sx})-2':y=0:w=4:h=ih:c=white:t=fill:enable='${win(p)}'`,
+    `drawtext=fontfile=${ctx.fontFile}:text='BEFORE':fontsize=h/34:fontcolor=white@0.9:x='(w*(${Sx})-text_w)/2':y='h*0.06':enable='${win(p)}'`,
+    `drawtext=fontfile=${ctx.fontFile}:text='AFTER':fontsize=h/34:fontcolor=white@0.9:x='w*(${Sx})+(w*(1-(${Sx}))-text_w)/2':y='h*0.06':enable='${win(p)}'`,
   ];
 }

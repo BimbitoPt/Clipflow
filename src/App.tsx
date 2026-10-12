@@ -21,6 +21,7 @@ import DesktopToolbar from "./components/DesktopToolbar";
 import { desktop, importNativeMedia, openDesktopProject, initialDesktopProject, saveDesktopProject, nativeMediaUrl, showInFolder, confirmDiscard, projectFingerprint, type DesktopProjectV1 } from "./lib/desktop";
 import { renderDesktop } from "./lib/desktop-render";
 import { deleteUpload, gcUploads, loadUploadBlob, saveUpload, touchUpload } from "./lib/upload-store";
+import { buildKeyframePrompt, generateKeyframe, hashSeed, keyframeId, keyframeSeedOf, keyframeUrl, loadPollinationsKey, sanitizePollinationsKey, savePollinationsKey, type KeyframeStatus } from "./lib/keyframes";
 import { markMilestone, recordExport, SAMPLE_IDEA } from "./lib/activation";
 import { MAX_QUEUE, AUDIO_CONFIG, probeAudioConfig, probeVideoConfig, RESUME_QUEUE, type FromWorker } from "./lib/export-worker-protocol";
 import { isPlatformId, platformPreset, type PlatformId } from "../shared/platform-presets";
@@ -39,7 +40,7 @@ const SESSION_KEY = "clipflow.session";
 function validSceneChoice(choice: unknown): choice is SceneChoice {
   if (!choice || typeof choice !== "object") return false;
   const kind = (choice as { kind?: unknown }).kind;
-  return kind === "auto-ai" || kind === "ai" || kind === "stock" || kind === "upload" || kind === "native";
+  return kind === "auto-ai" || kind === "ai" || kind === "stock" || kind === "upload" || kind === "native" || kind === "generated";
 }
 
 function readSession(): {
@@ -238,6 +239,40 @@ export function App() {
   const [selectedScene, setSelectedScene] = useState(0);
   const [sceneAssets, setSceneAssets] = useState<Array<StockAsset | null>>([]);
   const [assetLoading, setAssetLoading] = useState(false);
+  // Script-driven keyframes: one status per scene, plus caches. Generated
+  // media lives in its own maps (not uploadsRef) so the upload GC pass never
+  // evicts an image a scene choice still points at.
+  const [keyframeStatus, setKeyframeStatus] = useState<KeyframeStatus[]>(() => Array.from({ length: 5 }, () => "idle" as KeyframeStatus));
+  const [keyframeBump, setKeyframeBump] = useState(0);
+  const generatedRef = useRef<Map<string, StockAsset>>(new Map());
+  const generatedBlobRef = useRef<Map<string, Blob>>(new Map());
+  const generatedUrlRef = useRef<Map<string, string>>(new Map());
+  const keyframeQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const keyframeRunRef = useRef(0);
+  const [pollinationsKey, setPollinationsKey] = useState(() => {
+    try {
+      return loadPollinationsKey(localStorage) || sanitizePollinationsKey((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_POLLINATIONS_KEY ?? "");
+    } catch {
+      return "";
+    }
+  });
+  const pollinationsKeyRef = useRef(pollinationsKey);
+  pollinationsKeyRef.current = pollinationsKey;
+  // Optional app attribution for Pollinations earnings: anonymous + app-key
+  // generations carry this referrer so usage credits flow back to the app.
+  const pollinationsReferrer = useMemo(() => {
+    try {
+      return ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_POLLINATIONS_REFERRER ?? "").trim();
+    } catch {
+      return "";
+    }
+  }, []);
+  function handlePollinationsKeyChange(value: string): void {
+    setPollinationsKey(value.trim());
+    savePollinationsKey(localStorage, value);
+  }
+  const sceneChoicesRef = useRef(sceneChoices);
+  sceneChoicesRef.current = sceneChoices;
   const [voiceOn, setVoiceOn] = useState(true);
   const [captionMode, setCaptionMode] = useState<CaptionMode>("auto");
   const [platform, setPlatform] = useState<PlatformId>("tiktok");
@@ -267,6 +302,11 @@ export function App() {
         for (const asset of uploadsRef.current.values()) if (asset.kind === "image") (asset.el as ImageBitmap).close();
         uploadsRef.current.clear();
         uploadThumbsRef.current.clear();
+        for (const asset of generatedRef.current.values()) if (asset.kind === "image") (asset.el as ImageBitmap).close();
+        generatedRef.current.clear();
+        generatedBlobRef.current.clear();
+        for (const url of generatedUrlRef.current.values()) URL.revokeObjectURL(url);
+        generatedUrlRef.current.clear();
       } catch {
         // close on unmount is best-effort; never throw.
       }
@@ -430,20 +470,126 @@ export function App() {
   const editingSceneLabels = resolveCaptionMode(captionMode, voiceOn, script?.cues.map(cue => cue.text).join(" ")) === "scene";
 
   const aiSuggestions = useMemo(() => assignAiBackgrounds(idea, profile, generatedScript?.cues.map((cue) => cue.text) ?? []), [idea, profile, generatedScript]);
-  const resolvedChoices = useMemo(() => resolveSceneChoices(sceneChoices, aiSuggestions, STOCK_POOL), [sceneChoices, aiSuggestions]);
+  const resolvedChoices = useMemo(() => resolveSceneChoices(sceneChoices, aiSuggestions, STOCK_POOL), [sceneChoices, aiSuggestions, keyframeBump]);
+
+  // --- Script-driven keyframes ---------------------------------------------
+  // A new script queues one keyframe per beat against the free image endpoint
+  // (no key, no cost); the shared generator spaces requests and retries the
+  // anonymous 402 throttle. Bytes are cached in OPFS like uploads, so reloads
+  // and reopened projects never re-hit the network. Anything the user picked
+  // manually (stock / upload / library) is never overwritten; failures stay
+  // on the offline AI pool.
+  const keyframeFp = useMemo(() => generatedScript ? String(hashSeed(`${idea}|${generatedScript.cues.map((cue) => cue.text).join("\u0001")}`)) : null, [idea, generatedScript]);
+
+  function keyframeTarget(index: number): { prompt: string; seed: number; id: string } {
+    const prompt = buildKeyframePrompt(generatedScript?.cues[index]?.text ?? "", profile);
+    const seed = hashSeed(`${idea}|${keyframeFp}|${index}|${prompt}`);
+    return { prompt, seed, id: keyframeId(seed) };
+  }
+
+  async function ensureKeyframe(index: number, target: { prompt: string; seed: number; id: string }, apply: "auto" | "force" | "skip"): Promise<void> {
+    const run = keyframeRunRef.current;
+    setKeyframeStatus((statuses) => statuses.map((status, i) => i === index ? "generating" : status));
+    try {
+      let blob = generatedBlobRef.current.get(target.id) ?? await loadUploadBlob(target.id);
+      if (!blob) {
+        blob = await generateKeyframe(keyframeUrl(target.prompt, target.seed, { key: pollinationsKeyRef.current, referrer: pollinationsReferrer }));
+        generatedBlobRef.current.set(target.id, blob);
+        try { await saveUpload(target.id, blob); } catch { /* session-only keyframe */ }
+      }
+      touchUpload(target.id);
+      if (run !== keyframeRunRef.current) return; // script changed mid-fetch
+      setKeyframeStatus((statuses) => statuses.map((status, i) => i === index ? "ready" : status));
+      if (apply !== "skip") {
+        setSceneChoices((choices) => choices.map((choice, i) => {
+          if (i !== index) return choice;
+          if (apply === "auto" && choice.kind !== "auto-ai" && choice.kind !== "generated") return choice;
+          return { kind: "generated", id: target.id, fp: keyframeFp ?? undefined };
+        }));
+      }
+      setKeyframeBump((n) => n + 1);
+    } catch {
+      // Offline or throttled: stay on the offline pool, surface status only.
+      if (run === keyframeRunRef.current) setKeyframeStatus((statuses) => statuses.map((status, i) => i === index ? "error" : status));
+    }
+  }
+
+  const keyframeRunOnceRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (keyframeFp === null) return;
+    if (keyframeRunOnceRef.current === keyframeFp) return;
+    keyframeRunOnceRef.current = keyframeFp;
+    const run = ++keyframeRunRef.current;
+    setKeyframeStatus(Array.from({ length: 5 }, () => "idle" as KeyframeStatus));
+    for (let index = 0; index < 5; index++) {
+      keyframeQueueRef.current = keyframeQueueRef.current.then(async () => {
+        if (run !== keyframeRunRef.current) return;
+        const choice = sceneChoicesRef.current[index];
+        if (!choice) return;
+        if (choice.kind === "auto-ai") {
+          await ensureKeyframe(index, keyframeTarget(index), "auto");
+          return;
+        }
+        if (choice.kind === "generated" && choice.fp !== keyframeFp) {
+          // Script changed since this keyframe was made → replace it.
+          await ensureKeyframe(index, keyframeTarget(index), "auto");
+          return;
+        }
+        if (choice.kind === "generated") {
+          // Same script (reload / reopened project): heal the cache only.
+          const cached = generatedBlobRef.current.has(choice.id) || !!(await loadUploadBlob(choice.id));
+          if (cached) {
+            setKeyframeStatus((statuses) => statuses.map((status, i) => i === index ? "ready" : status));
+            return;
+          }
+          const seed = keyframeSeedOf(choice.id);
+          const prompt = buildKeyframePrompt(generatedScript?.cues[index]?.text ?? "", profile);
+          await ensureKeyframe(index, { prompt, seed: seed ?? hashSeed(`${idea}|${keyframeFp}|${index}|${prompt}`), id: choice.id }, "skip");
+          return;
+        }
+        // User picked stock/upload/library for this scene — leave it alone.
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyframeFp]);
+
+  /** Manual generate (idle/error) or regenerate (ready) for one scene. */
+  function generateKeyframeNow(index: number, force: boolean): void {
+    if (!generatedScript) return;
+    keyframeQueueRef.current = keyframeQueueRef.current.then(async () => {
+      const base = keyframeTarget(index);
+      if (force) {
+        const seed = hashSeed(`${base.seed}|regen|${Date.now()}`);
+        await ensureKeyframe(index, { ...base, seed, id: keyframeId(seed) }, "force");
+      } else {
+        const choice = sceneChoicesRef.current[index];
+        // Already applied AND healthy → nothing to do. Stale/error states fall
+        // through so RETRY actually refetches.
+        if (choice?.kind === "generated" && choice.fp === keyframeFp && keyframeStatus[index] === "ready") return;
+        await ensureKeyframe(index, base, "force");
+      }
+    });
+  }
+
 
   async function loadSceneAsset(choice: ResolvedSceneChoice): Promise<StockAsset | null> {
-    if (choice.kind === "upload") {
-      const cached = uploadsRef.current.get(choice.id);
+    if (choice.kind === "upload" || choice.kind === "generated") {
+      const generated = choice.kind === "generated";
+      const cache = generated ? generatedRef.current : uploadsRef.current;
+      const cached = cache.get(choice.id);
       if (cached) return cached;
-      // Rehydrate: uploads persist in OPFS, so a reload or a reopened
-      // project recovers its media instead of silently losing footage.
+      // Rehydrate: uploads and generated keyframes persist in OPFS, so a
+      // reload or a reopened project recovers its media instead of silently
+      // losing footage.
       try {
-        const blob = await loadUploadBlob(choice.id);
+        const blob = (generated ? generatedBlobRef.current.get(choice.id) : null) ?? await loadUploadBlob(choice.id);
         if (!blob) return null;
         const bmp = await createImageBitmap(blob);
-        const asset: StockAsset = { kind: "image", src: `upload:${choice.id}`, el: bmp, keywords: [] };
-        uploadsRef.current.set(choice.id, asset);
+        const asset: StockAsset = { kind: "image", src: `${generated ? "generated" : "upload"}:${choice.id}`, el: bmp, keywords: [] };
+        cache.set(choice.id, asset);
+        if (generated) {
+          if (!generatedUrlRef.current.has(choice.id)) generatedUrlRef.current.set(choice.id, URL.createObjectURL(blob));
+        }
         touchUpload(choice.id);
         return asset;
       } catch {
@@ -899,6 +1045,7 @@ export function App() {
     const choice = sceneChoices[index];
     if (choice?.kind === "auto-ai") return aiSuggestions[index]?.src;
     if (choice?.kind === "ai") return AI_BACKGROUNDS.find((item) => item.id === choice.id)?.src;
+    if (choice?.kind === "generated") return generatedUrlRef.current.get(choice.id);
     if (choice?.kind === "stock") return STOCK_POOL.find((item) => item.src === choice.src)?.kind === "image" ? choice.src : undefined;
     if (choice?.kind === "upload") {
       const cached = uploadThumbsRef.current.get(choice.id);
@@ -931,21 +1078,22 @@ export function App() {
 
         <section className="cf-hero" aria-label="Clipflow studio">
           <div className="cf-hero-copy">
-            <span className="cf-kicker">A SMALL STUDIO FOR BIG IDEAS</span>
-            <h1>Your idea.<br /><em>A video worth posting.</em></h1>
-            <p>Shape the story, choose a visual world, then export a vertical video. All in one focused flow.</p>
+            <div className="cf-step-num">Clipflow</div>
+            <h1>Idea in.<br /><em>Video out.</em></h1>
+            <p>Four numbered steps on one page — idea, script, visuals, export.</p>
           </div>
-          <div className="cf-hero-index">01 / 04 <span>FROM IDEA TO FILE</span></div>
+          <div className="cf-journey" aria-label="Workflow steps">
+            <a href="#idea" className={idea.trim() ? "on" : undefined}><span>01</span> Idea</a>
+            <a href="#script" className={generatedScript ? "on" : undefined}><span>02</span> Script</a>
+            <a href="#visuals"><span>03</span> Visuals</a>
+            <a href="#export" className={exportUrl ? "on" : undefined}><span>04</span> Export</a>
+          </div>
         </section>
-
-        <nav className="cf-flow-nav" aria-label="Workflow steps">
-          <a href="#idea"><span>01</span> IDEA</a><a href="#script"><span>02</span> SCRIPT</a><a href="#visuals"><span>03</span> VISUALS</a><a href="#export"><span>04</span> EXPORT</a>
-        </nav>
 
         <div className="cf-workspace">
           <div className="cf-editor-column">
             <section className="cf-idea-panel" id="idea">
-              <div className="cf-panel-heading"><span className="cf-kicker">START HERE / 01</span><h2>What's the idea?</h2><p>One sentence is enough. We'll turn it into five editable beats.</p></div>
+              <div className="cf-panel-heading"><div className="cf-step-num">01</div><h2>What's the idea?</h2><p>One sentence is enough. We'll turn it into five editable beats.</p></div>
               <label className="cf-idea-label">YOUR VIDEO IDEA
                 <textarea value={idea} disabled={isWorking} rows={3} onChange={(e) => { setIdea(e.target.value); setScriptOverrides({}); }} placeholder="What should this video say?" />
               </label>
@@ -987,7 +1135,7 @@ export function App() {
               {err && <p role="alert" className="cf-error">{err}</p>}
             </section>
             {generatedScript && <section className="cf-script-panel" id="script">
-              <div className="cf-panel-heading"><span className="cf-kicker">STORY STRUCTURE / 02</span><h2>Make every beat count.</h2><p>Edit a line, then select it to inspect its frame. This script drives the narration, captions, and post copy.</p></div>
+              <div className="cf-panel-heading"><div className="cf-step-num">02</div><h2>Make every beat count.</h2><p>Edit a line, then select it to inspect its frame. This script drives the narration, captions, and post copy.</p></div>
               <ScriptBeats generated={generatedScript} overrides={scriptOverrides} selected={selectedScene} disabled={isWorking} onSelect={setSelectedScene}
                 captionLabels={editingSceneLabels ? captionLabels : undefined} onCaptionEdit={(index,value) => setCaptionOverrides((current) => ({ ...current, [index]: value }))}
                 onEdit={(index, value) => setScriptOverrides((current) => ({ ...current, [index]: value }))}
@@ -1005,7 +1153,8 @@ export function App() {
           </section>
 
           {generatedScript && aiSuggestions[selectedScene] && <div id="visuals">
-            <SceneTray selected={selectedScene} choice={sceneChoices[selectedScene]!} suggestion={aiSuggestions[selectedScene]!} asset={sceneAssets[selectedScene] ?? null} loading={assetLoading} disabled={isWorking}
+            <SceneTray selected={selectedScene} choice={sceneChoices[selectedScene]!} suggestion={aiSuggestions[selectedScene]!} asset={sceneAssets[selectedScene] ?? null} loading={assetLoading} thumb={sceneThumb(selectedScene)} keyframeStatus={keyframeStatus} onGenerate={generateKeyframeNow} disabled={isWorking}
+              pollinationsKey={pollinationsKey} onPollinationsKeyChange={handlePollinationsKeyChange}
               onChoice={(choice) => setSceneChoices((choices) => choices.map((current, index) => index === selectedScene ? choice : current))}
               onUpload={(file) => void onUpload(file)} />
           </div>}

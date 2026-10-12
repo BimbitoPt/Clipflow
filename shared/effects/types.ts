@@ -14,7 +14,7 @@ export type Intensity = "subtle" | "medium" | "hype";
 export type EffectsLevel = "off" | "subtle" | "medium" | "hype";
 
 /** Trigger source that placed an effect on the timeline. */
-export type TriggerKind = "cut" | "beat" | "keyword" | "ambient" | "full";
+export type TriggerKind = "cut" | "beat" | "keyword" | "ambient" | "full" | "endcap";
 
 /** Render-wide context every effect build receives. */
 export interface FxCtx {
@@ -104,6 +104,8 @@ export interface NicheProfile {
     grade?: string;
     /** Transition effect id preferred on cuts. */
     transition?: string;
+    /** End-cap effect id pinned to the final seconds (exit frame). */
+    endcap?: string;
     /** ASS caption style id. */
     captionStyle: string;
     /** Seconds between ambient effects. */

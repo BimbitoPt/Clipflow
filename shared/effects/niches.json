@@ -9,7 +9,8 @@
           { "id": "punch-zoom", "weight": 3 },
           { "id": "flash-cut", "weight": 2 },
           { "id": "progress-bar", "weight": 2 },
-          { "id": "caption-pop", "weight": 2 }
+          { "id": "caption-pop", "weight": 2 },
+          { "id": "corner-ticks", "weight": 1 }
         ],
         "grade": "grade-clean",
         "transition": "flash-cut",
@@ -28,7 +29,9 @@
           { "id": "glitch-burst", "weight": 3 },
           { "id": "punch-zoom", "weight": 2 },
           { "id": "rec-dot", "weight": 2 },
-          { "id": "progress-bar", "weight": 2 }
+          { "id": "progress-bar", "weight": 2 },
+          { "id": "caption-pop", "weight": 2 },
+          { "id": "corner-ticks", "weight": 1 }
         ],
         "grade": "grade-clean",
         "transition": "glitch-burst",
@@ -48,7 +51,8 @@
           { "id": "neon-title", "weight": 2 },
           { "id": "typewriter", "weight": 2 },
           { "id": "pulse-box", "weight": 2 },
-          { "id": "code-rain", "weight": 1 }
+          { "id": "code-rain", "weight": 1 },
+          { "id": "corner-ticks", "weight": 1 }
         ],
         "grade": "grade-neon",
         "transition": "scanline-sweep",
@@ -67,7 +71,8 @@
           { "id": "hitmarker", "weight": 3 },
           { "id": "score-pop", "weight": 3 },
           { "id": "crt-lines", "weight": 2 },
-          { "id": "whip-pan", "weight": 2 }
+          { "id": "whip-pan", "weight": 2 },
+          { "id": "corner-ticks", "weight": 1 }
         ],
         "grade": "grade-arcade",
         "transition": "whip-pan",
@@ -84,7 +89,8 @@
           { "id": "lower-third", "weight": 4 },
           { "id": "counter-up", "weight": 4 },
           { "id": "trend-steps", "weight": 3 },
-          { "id": "slow-push", "weight": 2 }
+          { "id": "slow-push", "weight": 2 },
+          { "id": "corner-ticks", "weight": 1 }
         ],
         "grade": "grade-gold",
         "transition": "flash-cut",
@@ -101,7 +107,8 @@
           { "id": "punch-zoom", "weight": 4 },
           { "id": "beat-flash", "weight": 4 },
           { "id": "kinetic-caption", "weight": 3 },
-          { "id": "grade-punch", "weight": 2 }
+          { "id": "grade-punch", "weight": 2 },
+          { "id": "corner-ticks", "weight": 1 }
         ],
         "grade": "grade-punch",
         "transition": "beat-flash",
@@ -117,7 +124,8 @@
         "effects": [
           { "id": "sticker-pop", "weight": 4 },
           { "id": "soft-vignette", "weight": 2 },
-          { "id": "slow-push", "weight": 2 }
+          { "id": "slow-push", "weight": 2 },
+          { "id": "corner-ticks", "weight": 1 }
         ],
         "grade": "grade-warm",
         "transition": "soft-fade",
@@ -134,12 +142,77 @@
           { "id": "callout-box", "weight": 4 },
           { "id": "arrow-note", "weight": 3 },
           { "id": "step-counter", "weight": 3 },
-          { "id": "key-pop", "weight": 3 }
+          { "id": "key-pop", "weight": 3 },
+          { "id": "corner-ticks", "weight": 1 }
         ],
         "grade": "grade-clean",
         "transition": "flash-cut",
         "captionStyle": "pop",
         "pacing": 7
+      }
+    },
+    {
+      "id": "product-demo",
+      "label": "Product demo (X, LinkedIn, Product Hunt)",
+      "keywords": ["demo", "walkthrough", "product tour", "feature tour", "onboarding", "how it works", "getting started", "launch"],
+      "pack": {
+        "effects": [
+          { "id": "follow-zoom", "weight": 4 },
+          { "id": "click-ripple", "weight": 3 },
+          { "id": "callout-box", "weight": 3 },
+          { "id": "before-after", "weight": 3 },
+          { "id": "stat-pop", "weight": 2 },
+          { "id": "kinetic-caption", "weight": 2 },
+          { "id": "typewriter", "weight": 2 },
+          { "id": "device-frame", "weight": 1 },
+          { "id": "corner-ticks", "weight": 1 }
+        ],
+        "grade": "grade-clean",
+        "transition": "whip-pan",
+        "endcap": "cta-card",
+        "captionStyle": "karaoke",
+        "pacing": 7
+      }
+    },
+    {
+      "id": "social-x",
+      "label": "X / Reddit launch posts",
+      "keywords": ["twitter", "x post", "reddit", "launch", "shipped", "built in public", "show hn", "side project", "mvp"],
+      "pack": {
+        "effects": [
+          { "id": "neon-title", "weight": 4 },
+          { "id": "punch-zoom", "weight": 3 },
+          { "id": "flash-cut", "weight": 2 },
+          { "id": "step-counter", "weight": 2 },
+          { "id": "progress-bar", "weight": 2 },
+          { "id": "corner-ticks", "weight": 1 }
+        ],
+        "grade": "grade-clean",
+        "transition": "flash-cut",
+        "captionStyle": "pop",
+        "pacing": 5
+      }
+    },
+    {
+      "id": "shortform",
+      "label": "Short form (TikTok, Reels, Shorts)",
+      "keywords": ["tiktok", "reels", "shorts", "vertical", "9:16", "short form", "viral", "hook"],
+      "pack": {
+        "effects": [
+          { "id": "kinetic-caption", "weight": 3 },
+          { "id": "punch-zoom", "weight": 3 },
+          { "id": "beat-flash", "weight": 3 },
+          { "id": "sticker-pop", "weight": 3 },
+          { "id": "vhs-stamp", "weight": 2 },
+          { "id": "crt-lines", "weight": 1 },
+          { "id": "rgb-split", "weight": 2 },
+          { "id": "corner-ticks", "weight": 1 }
+        ],
+        "grade": "grade-punch",
+        "transition": "flash-cut",
+        "endcap": "cta-card",
+        "captionStyle": "karaoke",
+        "pacing": 4
       }
     }
   ]
