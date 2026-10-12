@@ -37,6 +37,16 @@ const OUT_W = 720, OUT_H = 1280, OUT_NAME = "clipflow-916.mp4";
 // the native `.clipflow` project is the source of truth there.
 const SESSION_KEY = "clipflow.session";
 
+// Browser storage is optional: privacy settings and storage failures must not
+// crash rendering or dirty-state calculation.
+function safeStorageGet(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
 function validSceneChoice(choice: unknown): choice is SceneChoice {
   if (!choice || typeof choice !== "object") return false;
   const kind = (choice as { kind?: unknown }).kind;
@@ -130,7 +140,7 @@ function readWordTiming(
   assets: Array<string | null> | null;
 } | null {
   try {
-    const raw = localStorage.getItem("clipflow.wordtimes");
+    const raw = safeStorageGet("clipflow.wordtimes");
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       idea?: unknown;
@@ -277,7 +287,7 @@ export function App() {
   const queueIdeas = useMemo(() => parseQueueIdeas(queueText), [queueText]);
   const queueNext = nextQueueIndex(queueIdeas, idea);
   const queuePos = queuePosition(queueIdeas, idea);
-  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, timing: localStorage.getItem("clipflow.wordtimes") };
+  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, timing: safeStorageGet("clipflow.wordtimes") };
   const projectSnapshot = projectFingerprint(projectDraft);
   const projectDirty = projectSnapshot !== savedSnapshot;
 
@@ -468,6 +478,9 @@ export function App() {
   }, [sceneChoices, sceneAssets]);
 
   async function onUpload(file: File) {
+    // Keep the upload target stable if the user changes scenes while decoding
+    // or persisting the selected file.
+    const targetScene = selectedScene;
     try {
       const bmp = await createImageBitmap(file);
       const id = crypto.randomUUID();
@@ -480,7 +493,7 @@ export function App() {
       } catch {
         console.warn("Clipflow: upload runs session-only, persist failed.");
       }
-      setSceneChoices((choices) => choices.map((choice, index) => index === selectedScene ? { kind: "upload", id, approvedProof: false } : choice));
+      setSceneChoices((choices) => choices.map((choice, index) => index === targetScene ? { kind: "upload", id, approvedProof: false } : choice));
       setErr("");
     } catch {
       setErr("Could not load that image — try another file.");
