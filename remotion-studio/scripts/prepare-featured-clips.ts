@@ -4,7 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { getBatch, updateClip } from "../src/lib/batch-store";
-import { encodePcmWav, generateVoiceover } from "../src/lib/voiceover";
+import { encodePcmWav, generateVoiceover, voiceoverDigest } from "../src/lib/voiceover";
 import type { ClipBrief, WordTiming } from "../src/lib/domain";
 
 const exec = promisify(execFile);
@@ -106,7 +106,7 @@ async function normalizeVoice(clip: ClipBrief, voicePath: string, tempo: number)
 }
 
 async function prepare(clip: ClipBrief, story: Story) {
-  const cached = clip.voiceover.script === story.script && clip.voiceover.audioPath?.endsWith("-lufs14.wav") && clip.voiceover.wordTimings.length > 0;
+  const cached = clip.voiceover.script === story.script && clip.voiceover.generatedFor === voiceoverDigest(clip.voiceover.voiceId, story.script) && clip.voiceover.audioPath?.endsWith("-lufs14.wav") && clip.voiceover.wordTimings.length > 0;
   let normalizedPath: string;
   let wordTimings: WordTiming[];
   let generatedFor: string | null;

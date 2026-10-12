@@ -60,6 +60,16 @@ async function getProductionSynth(): Promise<Synth> {
   };
 }
 
+/**
+ * Digest salt covers the synthesis stack (model + word-alignment era):
+ * bumping it makes every produce pipeline regenerate voiceovers, picking up
+ * whatever the newer stack produces (e.g. real word timings).
+ */
+export function voiceoverDigest(voiceId: VoiceId, text: string): string {
+  const script = text.trim().replace(/\s+/g, " ");
+  return createHash("sha256").update("kokoro-ts-v1.0-q8\0").update(voiceId).update("\0").update(script).digest("hex").slice(0, 12);
+}
+
 export function estimateWordTimings(text: string, durationSeconds: number): WordTiming[] {
   const words = text.trim().split(/\s+/).filter(Boolean);
   if (!words.length || !Number.isFinite(durationSeconds) || durationSeconds <= 0) return [];
@@ -105,7 +115,7 @@ export async function generateVoiceover(text: string, clipId: string, appRoot = 
   if (options.maxDurationSeconds && durationSeconds > options.maxDurationSeconds - 0.25) {
     throw new Error(`Narration is ${durationSeconds.toFixed(1)}s; shorten it to fit this ${options.maxDurationSeconds}s clip.`);
   }
-  const digest = createHash("sha256").update("kokoro-v1.0-q8\0").update(voiceId).update("\0").update(script).digest("hex").slice(0, 12);
+  const digest = voiceoverDigest(voiceId, script);
   const filename = `voiceovers/${clipId}-${digest}.wav`;
   const absolute = path.resolve(appRoot, "public", "local-assets", filename);
   await mkdir(path.dirname(absolute), { recursive: true });

@@ -4,7 +4,7 @@ import path from "node:path";
 import { appendClips, getBatch, updateClip, type CreateBrief } from "../src/lib/batch-store";
 import { alignCaptionPhrases } from "../src/lib/caption-cues";
 import type { ClipBrief } from "../src/lib/domain";
-import { generateVoiceover } from "../src/lib/voiceover";
+import { generateVoiceover, voiceoverDigest } from "../src/lib/voiceover";
 import { normalizeVoiceover } from "../src/lib/voiceover-production";
 
 const batchId = "batch-3329024d-d228-4a1a-b2dc-5b3110fca943";
@@ -98,7 +98,8 @@ function brief(story: (typeof stories)[number]): CreateBrief {
 async function prepare(clip: ClipBrief, story: (typeof stories)[number]) {
   if (clip.status === "rendering") throw new Error(`${clip.concept} is already rendering`);
   let voice: Awaited<ReturnType<typeof normalizeVoiceover>>;
-  if (clip.voiceover.script === story.script && clip.voiceover.audioPath?.endsWith("-lufs14.wav") && clip.voiceover.wordTimings.length) {
+  const cached = clip.voiceover.script === story.script && clip.voiceover.generatedFor === voiceoverDigest(clip.voiceover.voiceId, story.script) && clip.voiceover.audioPath?.endsWith("-lufs14.wav") && clip.voiceover.wordTimings.length > 0;
+  if (cached && clip.voiceover.audioPath) {
     await readFile(path.join(process.cwd(), "public", clip.voiceover.audioPath));
     voice = { audioPath: clip.voiceover.audioPath, durationSeconds: clip.voiceover.wordTimings.at(-1)!.end, wordTimings: clip.voiceover.wordTimings, generatedFor: clip.voiceover.generatedFor ?? "cached", measuredLufs: -14 };
   } else {
