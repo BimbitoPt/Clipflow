@@ -45,6 +45,9 @@ const STILLS: Record<string, [string, string]> = {
   fitness: ["public/ai-backgrounds/lime-five-frames.png", "public/ai-backgrounds/series-stair.png"],
   food: ["public/ai-backgrounds/lime-dawn.png", "public/ai-backgrounds/series-horizon.png"],
   edu: ["public/ai-backgrounds/blue-blueprint.png", "public/ai-backgrounds/blue-search-result.png"],
+  "product-demo": ["public/ai-backgrounds/proof-site-hero.png", "public/ai-backgrounds/proof-site-faq.png"],
+  "social-x": ["public/ai-backgrounds/series-horizon.png", "public/ai-backgrounds/lime-dawn.png"],
+  shortform: ["public/ai-backgrounds/lime-five-frames.png", "public/ai-backgrounds/series-stair.png"],
 };
 
 const ACCENTS: Record<string, string> = {
@@ -56,6 +59,9 @@ const ACCENTS: Record<string, string> = {
   fitness: "#FF5A3C",
   food: "#FFB066",
   edu: "#6FA8FF",
+  "product-demo": "#CFFF47",
+  "social-x": "#6FA8FF",
+  shortform: "#FF5A3C",
 };
 
 const args = Object.fromEntries(
@@ -122,11 +128,14 @@ for (const profile of niches) {
     console.log(`[fx-samples] ${profile.id}: missing filters ${missing.join(",")} — recomposing without them`);
   }
   const g = new FilterGraph();
+  // Brief §3 (story-driven motion): pre-cut pushes in on a fixed center;
+  // post-cut recedes and slides — the background punctuates the cut
+  // instead of looping the same drift through it.
   const v0 = g.chain("[0:v]", [
     `scale=${pw * 2}:${ph * 2},zoompan=z='min(zoom+0.0015,1.25)':d=120:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${pw}x${ph}:fps=30,setsar=1`,
   ]);
   const v1 = g.chain("[1:v]", [
-    `scale=${pw * 2}:${ph * 2},zoompan=z='min(zoom+0.0015,1.25)':d=120:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${pw}x${ph}:fps=30,setsar=1`,
+    `scale=${pw * 2}:${ph * 2},zoompan=z='max(1.25-0.0015*on,1.0)':d=120:x='iw/2-(iw/zoom/2)+30*on/120':y='ih/2-(ih/zoom/2)':s=${pw}x${ph}:fps=30,setsar=1`,
   ]);
   const vcat = g.chain(`[${v0}][${v1}]`, ["concat=n=2:v=1:a=0"]);
   const composed = composeTimeline({

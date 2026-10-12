@@ -145,10 +145,13 @@ try {
   env.localModelPath = path.join(root, "public", "models");
   env.allowRemoteModels = false;
   env.allowLocalModels = true;
+  const mixBundle = path.join(tmp, "audio-mix.bundled.mjs");
+  buildSync({ entryPoints: [path.join(root, "shared", "audio-mix.ts")], bundle: true, platform: "node", format: "esm", outfile: mixBundle });
+  const mix = await import(pathToFileURL(mixBundle).href);
   const tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" });
   function encodeWav(pcm, sampleRate) {
     const peak = pcm.reduce((largest, sample) => Math.max(largest, Math.abs(sample)), 0);
-    const gain = peak > 0.001 ? Math.min(8, 0.89 / peak) : 1;
+    const gain = mix.peakGain(peak);
     const wavBytes = pcm.length * 2;
     const wav = Buffer.alloc(44 + wavBytes);
     wav.write("RIFF", 0); wav.writeUInt32LE(36 + wavBytes, 4); wav.write("WAVE", 8);
@@ -164,25 +167,21 @@ try {
   }
   const voiceInputs = [];
   const voiceFilters = [];
-  const mixLabels = [];
   for (let ci = 0; ci < DEMO.assCues.length; ci++) {
     const cue = DEMO.assCues[ci];
     const window = cue.end - cue.start;
-    const spoken = await tts.generate(cue.text, { voice: "af_heart" });
+    const spoken = await tts.generate(cue.text, { voice: mix.VOICE.kokoroVoice });
     const secs = spoken.audio.length / spoken.sampling_rate;
     // Squeeze an overrunning cue into its window (atempo>1 speeds up); leave
     // headroom otherwise so cues breathe instead of back-to-back talking.
-    const fit = Math.min(window - 0.4, secs);
-    const tempo = secs > window - 0.4 ? secs / fit : 1;
+    const { tempo } = mix.cueFit(secs, window);
     console.log(`[product-demo] cue ${ci}: voice ${secs.toFixed(1)}s in ${window.toFixed(1)}s window${tempo > 1 ? `, tempo ${tempo.toFixed(2)}` : ""}`);
     const voicePath = path.join(tmp, `demo-voice-${ci}.wav`).replace(/\\/g, "/");
     writeFileSync(voicePath, encodeWav(spoken.audio, spoken.sampling_rate));
     voiceInputs.push("-i", voicePath);
-    const chain = tempo > 1 ? `atempo=${tempo.toFixed(4)},` : "";
-    voiceFilters.push(`[${ci + 1}:a]${chain}adelay=${Math.round(cue.start * 1000)}:all=1[a${ci}]`);
-    mixLabels.push(`[a${ci}]`);
+    voiceFilters.push(mix.voicePlacement(ci + 1, cue.start, tempo, `a${ci}`));
   }
-  const muxFilter = `${voiceFilters.join(";")};${mixLabels.join("")}amix=inputs=${DEMO.assCues.length}:duration=longest:normalize=0[mix];[mix]apad=whole_dur=${DEMO.duration}[a]`;
+  const muxFilter = `${voiceFilters.join(";")};${mix.voiceMixTail(DEMO.assCues.length, DEMO.duration)}`;
   const mux = spawnSync(ffmpegPath, ["-y", "-i", silentOut, ...voiceInputs, "-filter_complex", muxFilter, "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "128k", "-t", String(DEMO.duration), "-movflags", "+faststart", out], { stdio: "inherit" });
   if (mux.status !== 0) process.exit(mux.status ?? 1);
   console.log(`[product-demo] wrote ${path.relative(root, out)} with voiceover placed=[${composed.placed.map((p) => `${p.defId}@${p.start.toFixed(1)}s`).join(", ")}]`);

@@ -48,6 +48,12 @@ Append to `niches.json`: `id`, `label`, `keywords[]` (scorer), and `pack`
 Add stills + accent in `scripts/fx-sample-runner.ts` (`STILLS`, `ACCENTS`),
 then `node scripts/render-fx-samples.mjs --niche=<id>`.
 
+Packs come in two flavors: **topic** profiles (editing, tech, gaming,
+finance, fitness, food, edu — *what* the video is about) and **channel**
+profiles (product-demo, social-x, shortform — *where* it plays and which
+player behavior it needs: endcaps, timecodes, follow-zooms). Both are the
+same config shape; selection is single-profile via override today.
+
 ## Integrate into a pipeline
 
 ```ts

@@ -30,6 +30,8 @@ export interface ComposeOpts {
   unavailable?: Set<string>;
   /** Transcript cues for ASS caption burn-in (optional). */
   assCues?: { text: string; start: number; end: number }[];
+  /** Base ASS caption font size override (defaults to H/22). */
+  assSize?: number;
   /** Label the fx chain reads from (default: the first input stream). */
   fromLabel?: string;
   /** Existing graph to chain onto (default: a fresh FilterGraph). */
@@ -40,6 +42,8 @@ export interface ComposeResult {
   graph: FilterGraph;
   /** Label of the chain output. */
   outLabel: string;
+  /** The ordered video-filter chain (same filters as in graph). */
+  filters: string[];
   placed: PlacedEffect[];
   /** Extra `-i` args, in declaration order (append after main inputs). */
   extraInputs: string[];
@@ -105,6 +109,7 @@ export function composeTimeline(opts: ComposeOpts): ComposeResult {
   const result: ComposeResult = {
     graph,
     outLabel: fromLabel.replace(/^\[(.+)\]$/, "$1"),
+    filters: [],
     placed: [],
     extraInputs: [],
     skipped,
@@ -296,9 +301,24 @@ export function composeTimeline(opts: ComposeOpts): ComposeResult {
     }
   }
 
+  // Endcap: pinned exit frame (budget-exempt, still honors disabled —
+  // the CTA moment is conversion-critical).
+  if (profile.pack.endcap && !disabled.has(profile.pack.endcap)) {
+    const dur = Math.min(3.2, D);
+    try {
+      const ok = place(profile.pack.endcap, D - dur, dur, "medium");
+      if (ok) {
+        result.placed.push({ defId: profile.pack.endcap, start: D - dur, duration: dur, intensity: "medium", trigger: "endcap" });
+      }
+    } catch {
+      skipped.push({ id: profile.pack.endcap, reason: "build-failed" });
+    }
+  }
+
   if (running.length > 0) {
     result.outLabel = graph.chain(fromLabel, running);
   }
+  result.filters = [...running];
   result.requires = [...requires];
 
   if (opts.assCues?.length) {
@@ -309,6 +329,7 @@ export function composeTimeline(opts: ComposeOpts): ComposeResult {
       H: opts.ctx.H,
       accent: opts.ctx.accent,
       ink: opts.ctx.ink,
+      ...(opts.assSize ? { size: opts.assSize } : {}),
     });
   }
   return result;

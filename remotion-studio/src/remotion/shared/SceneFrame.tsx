@@ -78,7 +78,7 @@ function StandardScene({ props, scene, variant }: { props: CompositionProps; sce
       <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: ".19em", color: accent, marginBottom: 24 }}>{label}</div>
       <div style={{ fontSize: headingSize, lineHeight: .99, letterSpacing: "-.065em", fontWeight: 800, overflowWrap: "anywhere", textWrap: "balance" as React.CSSProperties["textWrap"] }}>{scene.copy}</div>
       {variant === "demo" && <div style={{ marginTop: 38, padding: 14, border: `1px solid ${accent}66`, borderRadius: 14, background: "#10151ddd", boxShadow: `0 24px 90px ${accent}20`, transform: `translateX(${(1 - entrance) * 55}px) rotate(-1deg)` }}>
-        {imagePath ? <Img src={staticFile(imagePath)} style={{ width: "100%", maxHeight: 520, objectFit: "cover", borderRadius: 8 }} /> : <ProductMock accent={accent} />}
+        {imagePath ? <Img src={staticFile(imagePath)} style={{ width: "100%", maxHeight: 520, objectFit: "cover", borderRadius: 8 }} /> : <ProductMock accent={accent} brand={brand} />}
       </div>}
       {variant === "proof" && scene.index === props.scenes.length - 2 && <div style={{ marginTop: 28, padding: "18px 22px", borderLeft: `5px solid ${accent}`, background: "#ffffff0b", fontSize: 27, fontWeight: 600, lineHeight: 1.25 }}>{clip.proof}</div>}
     </div>
@@ -97,9 +97,16 @@ function StandardScene({ props, scene, variant }: { props: CompositionProps; sce
   </AbsoluteFill>;
 }
 
-function ProductMock({ accent }: { accent: string }) {
+function ProductMock({ accent, brand }: { accent: string; brand?: { logoPath?: string | null; name: string } }) {
   return <div style={{ height: 365, padding: 24, borderRadius: 9, background: "linear-gradient(140deg,#1b2430,#0b0e12)", display: "grid", gridTemplateColumns: "1fr .62fr", gap: 15 }}>
-    <div style={{ borderRadius: 6, background: "#222d3a", padding: 18, display: "flex", flexDirection: "column", justifyContent: "space-between" }}><div style={{ display: "flex", gap: 6 }}><i style={{ width: 7, height: 7, borderRadius: "50%", background: "#ed786e" }} /><i style={{ width: 7, height: 7, borderRadius: "50%", background: "#e7c965" }} /><i style={{ width: 7, height: 7, borderRadius: "50%", background: accent }} /></div><div><div style={{ width: "65%", height: 13, background: "#ffffffc4", marginBottom: 10 }} /><div style={{ width: "90%", height: 6, background: "#8994a1" }} /></div><div style={{ width: 92, padding: 9, background: accent, color: "#080a0d", fontSize: 9, fontWeight: 800 }}>LIVE PREVIEW</div></div>
+    <div style={{ borderRadius: 6, background: "#080A0D", padding: 18, display: "flex", flexDirection: "column", justifyContent: "space-between", border: `1px solid ${accent}44` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {brand?.logoPath ? <Img src={staticFile(brand.logoPath)} style={{ width: 30, height: 30, objectFit: "contain" }} /> : <i style={{ width: 30, height: 30, borderRadius: 8, background: accent, display: "block" }} />}
+        <span style={{ fontSize: 17, fontWeight: 800, letterSpacing: "-.04em", color: "#F7F8FA" }}>{(brand?.name ?? "CLIPFLOW").toUpperCase()}</span>
+      </div>
+      <div><div style={{ width: "65%", height: 13, background: "#ffffffc4", marginBottom: 10 }} /><div style={{ width: "90%", height: 6, background: "#8994a1" }} /></div>
+      <div style={{ width: 92, padding: 9, background: accent, color: "#080a0d", fontSize: 9, fontWeight: 800 }}>LIVE PREVIEW</div>
+    </div>
     <div style={{ display: "grid", gridTemplateRows: "1fr 1fr", gap: 12 }}><div style={{ borderRadius: 6, background: `${accent}36`, border: `1px solid ${accent}80` }} /><div style={{ borderRadius: 6, background: "#18202a", padding: 13, display: "flex", flexDirection: "column", justifyContent: "center", gap: 9 }}>{[75, 55, 86, 63].map((width) => <div key={width} style={{ width: `${width}%`, height: 5, background: "#7c8997" }} />)}</div></div>
   </div>;
 }

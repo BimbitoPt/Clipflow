@@ -1,22 +1,23 @@
 /**
  * Re-renders landing/public/brand/hero.mp4 with current caption language.
  *
- * The old hero burned in oversized mid-frame karaoke words with no plate.
- * This script rebuilds the 45s demo deterministically with ffmpeg only:
- * stills + slow zoom, phrase captions on a safe-zone plate with active-word
- * accent, hook card over the opening seconds, progress + accent bars.
- * Silent (no voice track), like the file it replaces.
+ * Clipflow demo, not an MSTUDIO ad: stills + slow zoom, phrase captions on
+ * a safe-zone plate with active-word accent, hook card over the opening
+ * seconds, progress + accent bars, plus a per-cue Kokoro voiceover track
+ * (each cue spoken inside its own caption window) so the landing sound
+ * toggle actually does something.
  *
  * Timing mirrors src/lib/planner.ts planWords (even split per cue) and
  * shared/caption-plan.ts speechPhrases (<=5-word groups, break on
  * punctuation). Width estimates mirror render.ts (0.55 x size per char).
  *
- * Usage: node scripts/render-landing-hero.mjs
+ * Usage: node scripts/render-landing-hero.mjs [--silent]
+ *   --silent skips the voiceover (silent hero, sound toggle does nothing).
  */
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import ffmpegPath from "ffmpeg-static";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -38,16 +39,29 @@ const INK = "#F7F8FA";
 const BG = "#080A0D";
 
 const CUES = [
-  { kind: "hook", start: 0, end: 4, image: "public/ai-backgrounds/lime-spark.png", text: "Your website should sell while you sleep." },
-  { kind: "beat", start: 4, end: 16, image: "public/ai-backgrounds/series-episode.png", text: "Most brands post content. Winners build systems that sell." },
-  { kind: "beat", start: 16, end: 28, image: "public/ai-backgrounds/series-chain.png", text: "MSTUDIO ships brand and web builds in one to two weeks." },
-  { kind: "beat", start: 28, end: 40, image: "public/ai-backgrounds/lime-spine.png", text: "Fixed price, fixed timeline, code you own." },
-  { kind: "cta", start: 40, end: 45, image: "public/ai-backgrounds/series-stair.png", text: "Book MSTUDIO. Start at mstudioweb.pt." },
+  { kind: "hook", start: 0, end: 4, image: "public/ai-backgrounds/lime-spark.png", text: "Idea in, video out. Your next short starts here." },
+  { kind: "beat", start: 4, end: 16, image: "public/ai-backgrounds/series-episode.png", text: "Editing a thirty second short still eats two hours. Ideas die in your notes app because shipping is the hard part." },
+  { kind: "beat", start: 16, end: 28, image: "public/ai-backgrounds/lime-spine.png", text: "Clipflow writes the script, records the voice, cuts the captions and renders the b-roll. You type one line. You get a finished short." },
+  { kind: "beat", start: 28, end: 40, image: "public/ai-backgrounds/series-chain.png", text: "Set colours, voice and caption style once. Every video after matches. Unlimited drafts, clean 720p, free forever." },
+  { kind: "cta", start: 40, end: 45, image: "public/ai-backgrounds/series-stair.png", text: "Your next thirty videos are one sentence each. Join the waitlist." },
 ];
 
-// Conservative advance for Arial Bold (browser measures for real; here we
-// must never overflow a plate, so we overestimate slightly).
-const estW = (text, size) => text.length * size * 0.6;
+// Measured Arial Bold advances (PIL/freetype at 46px; advances scale
+// linearly with size). The old flat 0.6em/char overshot real glyphs by
+// ~25-35px per word, which is what blew the spacing apart (real space is
+// 13px, not 27.6px). Regenerate with measure-font.py if the copy changes;
+// unknown words fall back to 0.5em/char.
+const MEASURED_BASE = 46;
+const MEASURED_SPACE = 13.0;
+const MEASURED = {"720p,":119.0,"Clipflow":179.0,"Editing":156.0,"Every":127.0,"Idea":93.0,"Ideas":119.0,"Join":95.0,"Set":72.0,"Unlimited":210.0,"You":86.95,"Your":104.95,"a":26.0,"after":100.0,"and":82.0,"app":82.0,"are":70.0,"b-roll.":128.0,"because":186.0,"caption":164.0,"captions":190.0,"clean":119.0,"colours,":180.0,"cuts":95.0,"die":67.0,"drafts,":141.0,"each.":119.0,"eats":93.0,"finished":177.0,"forever.":169.95,"free":85.0,"get":69.0,"hard":100.0,"here.":111.0,"hours.":141.0,"in":41.0,"in,":54.0,"is":39.0,"line.":93.0,"matches.":201.0,"next":95.0,"notes":123.0,"once.":121.0,"one":82.0,"out.":84.0,"part.":100.0,"records":170.0,"renders":170.0,"script,":139.0,"second":162.0,"sentence":201.0,"shipping":192.0,"short":115.0,"short.":128.0,"starts":126.0,"still":80.0,"style":106.0,"the":69.0,"thirty":115.0,"two":79.0,"type":95.0,"video":121.0,"videos":147.0,"voice":119.0,"voice,":132.0,"waitlist.":170.0,"writes":134.0,"your":100.0};
+const spaceW = (size) => MEASURED_SPACE * size / MEASURED_BASE;
+const estW = (text, size) => {
+  const words = text.split(" ").filter(Boolean);
+  if (!words.length) return 0;
+  const k = size / MEASURED_BASE;
+  const body = words.reduce((sum, w) => sum + (MEASURED[w] ?? w.length * MEASURED_BASE * 0.5), 0);
+  return (body + (words.length - 1) * MEASURED_SPACE) * k;
+};
 
 function planWords(cue) {
   const tokens = cue.text.split(/\s+/).filter(Boolean);
@@ -150,7 +164,7 @@ for (const cue of CUES) {
   for (const phrase of groupPhrases(planWords(cue))) {
     const lines = splitLines(phrase.text, SIZE, MAX_W);
     const y0 = Math.round(H * 0.64 - SIZE);
-    const boxW = Math.min(W * 0.86, Math.max(...lines.map((line) => estW(line, SIZE))) + W * 0.045);
+    const boxW = Math.min(W * 0.86, Math.max(...lines.map((line) => estW(line, SIZE))) + W * 0.06);
     const boxH = lines.length * LINE_H + W * 0.03;
     const boxY = Math.round(H * 0.64 - SIZE);
     const boxX = Math.round((W - boxW) / 2);
@@ -175,7 +189,7 @@ for (const cue of CUES) {
           `drawtext=fontfile=${FONT}:text=${escText(token)}:fontsize=${SIZE}:fontcolor=${INK}:` +
             `x=${cursor}:y=${y}:alpha='${lineFade}':enable='${lineWindow}'`,
         );
-        cursor += Math.round(estW(`${token} `, SIZE));
+        cursor += Math.round(estW(token, SIZE) + spaceW(SIZE));
       }
     });
     // Active word in accent at the SAME size and position as its base
@@ -189,7 +203,8 @@ for (const cue of CUES) {
       const tokens = line.split(" ");
       const hit = tokens.indexOf(clean);
       const lineOrigin = Math.round((W - estW(line, SIZE)) / 2);
-      const x = lineOrigin + Math.round(estW(`${tokens.slice(0, hit).join(" ")}${hit > 0 ? " " : ""}`, SIZE));
+      const before = tokens.slice(0, hit).join(" ");
+      const x = lineOrigin + Math.round(estW(before, SIZE) + (hit > 0 ? spaceW(SIZE) : 0));
       const y = y0 + lineIndex * LINE_H;
       const window = `between(t,${word.start},${word.end})`;
       const wordFade = fade(word.start, word.end);
@@ -203,7 +218,78 @@ for (const cue of CUES) {
 
 const filter = `${maps.join(";")};${concat};[base]${overlays.join(",")}[out]`;
 const out = path.join(root, "landing/public/brand/hero.mp4").replace(/\\/g, "/");
-const args = [...inputs, "-filter_complex", filter, "-map", "[out]", "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-pix_fmt", "yuv420p", "-r", String(FPS), "-movflags", "+faststart", "-y", out];
-const result = spawnSync(ffmpegPath, args, { stdio: "inherit" });
-if (result.status !== 0) process.exit(result.status ?? 1);
-console.log(`Wrote ${out}`);
+// Word-by-word karaoke makes the graph far too long for Win32's 32k
+// CreateProcess limit — pass it via file instead of argv.
+const filterPath = path.join(tmp, "hero-filter.txt").replace(/\\/g, "/");
+writeFileSync(filterPath, filter);
+// Stage silent video in tmp, then mux voiceover. Two stages keep the video
+// filter_complex readable and let a voice failure fail loudly instead of
+// silently shipping another mute hero.
+const silentOut = path.join(tmp, "hero-silent.mp4").replace(/\\/g, "/");
+const silentArgs = [...inputs, "-filter_complex_script", filterPath, "-map", "[out]", "-c:v", "libx264", "-preset", "medium", "-crf", "23", "-pix_fmt", "yuv420p", "-r", String(FPS), "-y", silentOut];
+const silent = spawnSync(ffmpegPath, silentArgs, { stdio: "inherit" });
+if (silent.status !== 0) process.exit(silent.status ?? 1);
+
+const SILENT = process.argv.includes("--silent");
+const TOTAL = CUES[CUES.length - 1].end;
+if (SILENT) {
+  const copy = spawnSync(ffmpegPath, ["-i", silentOut, "-c:v", "copy", "-movflags", "+faststart", "-y", out], { stdio: "inherit" });
+  if (copy.status !== 0) process.exit(copy.status ?? 1);
+  console.log(`Wrote ${out} (silent — sound toggle will do nothing)`);
+  process.exit(0);
+}
+
+console.log(`[hero] synthesizing per-cue voiceover (${CUES.length} cues, af_heart)…`);
+const { createRequire } = await import("node:module");
+const requirePackage = createRequire(import.meta.url);
+const { env } = requirePackage("@huggingface/transformers");
+const { KokoroTTS } = requirePackage("kokoro-js");
+env.localModelPath = path.join(root, "public", "models");
+env.allowRemoteModels = false;
+env.allowLocalModels = true;
+const { buildSync } = requirePackage("esbuild");
+const mixBundle = path.join(tmp, "audio-mix.bundled.mjs");
+buildSync({ entryPoints: [path.join(root, "shared", "audio-mix.ts")], bundle: true, platform: "node", format: "esm", outfile: mixBundle });
+const mix = await import(pathToFileURL(mixBundle).href);
+const tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", { dtype: "q8", device: "cpu" });
+// One voice file per cue, each placed at its caption window: narration stays
+// spread across the full 45s instead of burning through in the first 20s.
+// Encode 16-bit PCM WAV with peak normalization (shared/audio-mix policy).
+function encodeWav(pcm, sampleRate) {
+  const peak = pcm.reduce((largest, sample) => Math.max(largest, Math.abs(sample)), 0);
+  const gain = mix.peakGain(peak);
+  const wavBytes = pcm.length * 2;
+  const wav = Buffer.alloc(44 + wavBytes);
+  wav.write("RIFF", 0); wav.writeUInt32LE(36 + wavBytes, 4); wav.write("WAVE", 8);
+  wav.write("fmt ", 12); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22); wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * 2, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
+  wav.write("data", 36); wav.writeUInt32LE(wavBytes, 40);
+  for (let i = 0; i < pcm.length; i++) {
+    const sample = Math.max(-1, Math.min(1, pcm[i] * gain));
+    wav.writeInt16LE(Math.round(sample * (sample < 0 ? 32768 : 32767)), 44 + i * 2);
+  }
+  return wav;
+}
+const voiceInputs = [];
+const voiceFilters = [];
+for (let ci = 0; ci < CUES.length; ci++) {
+  const cue = CUES[ci];
+  const window = cue.end - cue.start;
+  const spoken = await tts.generate(cue.text, { voice: mix.VOICE.kokoroVoice });
+  const secs = spoken.audio.length / spoken.sampling_rate;
+  // Squeeze an overrunning cue into its window (atempo>1 speeds up); leave
+  // headroom otherwise so cues breathe instead of back-to-back talking.
+  const { tempo } = mix.cueFit(secs, window);
+  console.log(`[hero] cue ${ci} (${cue.kind}): voice ${secs.toFixed(1)}s in ${window}s window${tempo > 1 ? `, tempo ${tempo.toFixed(2)}` : ""}`);
+  const voicePath = path.join(tmp, `hero-voice-${ci}.wav`).replace(/\\/g, "/");
+  writeFileSync(voicePath, encodeWav(spoken.audio, spoken.sampling_rate));
+  voiceInputs.push("-i", voicePath);
+  voiceFilters.push(mix.voicePlacement(ci + 1, cue.start, tempo, `a${ci}`));
+}
+// Mix placed cues, pad with silence to the full duration.
+const muxFilter = `${voiceFilters.join(";")};${mix.voiceMixTail(CUES.length, TOTAL)}`;
+const muxArgs = ["-i", silentOut, ...voiceInputs, "-filter_complex", muxFilter, "-map", "0:v", "-map", "[a]", "-c:v", "copy", "-c:a", "aac", "-b:a", "128k", "-t", String(TOTAL), "-movflags", "+faststart", "-y", out];
+const mux = spawnSync(ffmpegPath, muxArgs, { stdio: "inherit" });
+if (mux.status !== 0) process.exit(mux.status ?? 1);
+console.log(`Wrote ${out} with voiceover`);
