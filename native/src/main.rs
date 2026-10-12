@@ -261,11 +261,14 @@ fn render_lane(
                         )?;
                         (Some(wav_path), proportional_timed(script, dur))
                     }
-                    Voice::Off => (None, proportional_timed(script, 45.0)),
+                    Voice::Off => {
+                        let total = script.cues.last().map(|c| c.end).unwrap_or(45.0);
+                        (None, proportional_timed(script, total))
+                    }
                 };
 
             // Retention cuts: subdivide every cue span into ≤2.4s segments,
-            // cycling the 5 assigned assets round-robin (never repeating the
+            // cycling the assigned assets round-robin (never repeating the
             // previous segment). Segment spans derive from the timed words.
             let mut seg_images: Vec<std::path::PathBuf> = Vec::new();
             let mut seg_spans: Vec<(f64, f64)> = Vec::new();
@@ -361,13 +364,15 @@ fn main() -> Result<()> {
             pack,
             voice,
             out,
+            plan,
             models,
             cue_assets,
             variants,
         } => {
-            if pack != "mstudio" {
-                anyhow::bail!("unsupported pack {pack:?} — supported: mstudio");
+            if pack != "mstudio" && pack != "clipflow" {
+                anyhow::bail!("unsupported pack {pack:?} — supported: mstudio, clipflow");
             }
+            let plan = clipflow::script::plan_from_str(&plan)?;
             if cue_assets.is_some() && variants > 1 {
                 anyhow::bail!("--cue-assets is mutually exclusive with --variants: pin one take or let the engine vary");
             }
@@ -375,7 +380,7 @@ fn main() -> Result<()> {
             std::fs::create_dir_all(&out_dir)?;
             let models_dir = resolve_models_dir(&models)?;
 
-            let script = clipflow::script::build_script(&idea)?;
+            let script = clipflow::script::build_script(&idea, &pack, plan)?;
             let public_dir = models_dir
                 .parent()
                 .map(|p| p.to_path_buf())

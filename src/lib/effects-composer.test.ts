@@ -127,6 +127,25 @@ describe("composeTimeline", () => {
     expect(r.skipped.some((s) => s.reason === "missing-filter:rgbashift")).toBe(true);
   });
 
+  it("pins the endcap exit frame last", () => {
+    clearRegistry();
+    registerEffect(stub("cap", "text"));
+    const prof = { ...PROFILE, pack: { ...PROFILE.pack, effects: [], endcap: "cap" } };
+    const r = composeTimeline({
+      profile: prof,
+      duration: 10,
+      level: "subtle",
+      seed: 1,
+      ctx: CTX,
+      cues: { cuts: [], beats: [], keywords: [] },
+    });
+    expect(r.placed.length).toBe(1);
+    expect(r.placed[0].defId).toBe("cap");
+    expect(r.placed[0].trigger).toBe("endcap");
+    expect(r.placed[0].start).toBeCloseTo(6.8, 9);
+    expect(r.placed[0].duration).toBeCloseTo(3.2, 9);
+  });
+
   it("emits ASS content when cues are given", () => {
     const r = composeTimeline({
       profile: PROFILE,

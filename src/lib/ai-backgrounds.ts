@@ -26,6 +26,8 @@ export const AI_BACKGROUNDS: AiBackground[] = [
   { id: "blue-search-path", src: "/ai-backgrounds/blue-search-path.png", label: "The path forward", keywords: ["hook", "website", "search", "discovery", "start"], focalY: 0.5 },
   { id: "blue-search-signal", src: "/ai-backgrounds/blue-search-signal.png", label: "Signal in the dark", keywords: ["proof", "signal", "business", "growth", "search"], focalY: 0.5 },
   { id: "blue-search-result", src: "/ai-backgrounds/blue-search-result.png", label: "Find the answer", keywords: ["result", "outcome", "website", "search", "cta"], focalY: 0.5 },
+  { id: "proof-site-hero", src: "/ai-backgrounds/proof-site-hero.png", label: "Real site hero", keywords: ["result", "outcome", "website", "cta", "product"], focalY: 0.42 },
+  { id: "proof-site-faq", src: "/ai-backgrounds/proof-site-faq.png", label: "Real site FAQ", keywords: ["proof", "website", "product", "offer", "cta"], focalY: 0.5 },
 ];
 
 function tokens(value: string): Set<string> {

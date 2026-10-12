@@ -19,10 +19,13 @@ pub enum Cmd {
         voice: String,
         #[arg(long, default_value = "exports")]
         out: String,
+        #[arg(long, default_value = "short", help = "Render plan: short (45s social/hero cut) or master (75s converting cut)")]
+        plan: String,
         #[arg(long, default_value = "../public/models")]
         models: String,
         /// Pin visuals per cue with pool srcs, comma-separated, one per cue
-        /// (hook, beat1, beat2, beat3, cta). Pool srcs only.
+        /// (short: hook, beat1..3, cta; master: hook, beats 1..5, cta).
+        /// Pool srcs only.
         #[arg(long)]
         cue_assets: Option<String>,
         /// Render N takes of the same idea with salted pool picks

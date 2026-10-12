@@ -82,7 +82,10 @@ onnxruntime-web). Advisory JSON beside the clip; no schema change needed.
 ## Pick order (value / effort)
 
 1. **Moondream scene QA** — smallest effort, catches real regressions, local.
-2. **Pexels + Pixabay stock** — unlocks real b-roll over the static pool;
-   needs two free keys.
+   (In progress: `scripts/qa-scene-frames.ts` + `moondream_qa.py`, venv at
+   `remotion-studio/data/qa-venv`; CUDA graphs disabled — Kestrel's capture
+   crashes on Turing.)
+2. **Pexels + Pixabay stock** — ✅ shipped (`npm run stock:fetch`, commit
+   6daf9ff); needs two free keys to activate, graceful skip without them.
 3. **ACE-Step 1.5 beds** — one-off script, big production-value win per brand.
 4. **GL Transitions via wgpu** — defer until the spike is a committed path.

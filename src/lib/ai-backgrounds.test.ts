@@ -5,9 +5,9 @@ import { AI_BACKGROUNDS, assignAiBackgrounds } from "./ai-backgrounds";
 import { MSTUDIO_PROFILE } from "./profile";
 
 describe("local AI background library", () => {
-  it("ships fifteen image files with stable IDs", () => {
-    expect(AI_BACKGROUNDS).toHaveLength(15);
-    expect(new Set(AI_BACKGROUNDS.map((item) => item.id)).size).toBe(15);
+  it("ships seventeen image files with stable IDs", () => {
+    expect(AI_BACKGROUNDS).toHaveLength(17);
+    expect(new Set(AI_BACKGROUNDS.map((item) => item.id)).size).toBe(17);
     for (const item of AI_BACKGROUNDS) {
       expect(item.src).toMatch(/^\/ai-backgrounds\/[a-z0-9-]+\.png$/);
       expect(existsSync(join(process.cwd(), "public", item.src.slice(1)))).toBe(true);

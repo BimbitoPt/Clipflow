@@ -30,6 +30,7 @@
     "stock:fetch": "vite-node scripts/fetch-stock.ts",
     "preview": "vite preview --port 8081",
     "test": "vitest run",
+    "video": "node scripts/video.mjs",
     "desktop:dev": "node scripts/prepare-desktop.mjs && tauri dev",
     "desktop:build": "node scripts/prepare-desktop.mjs && tauri build"
   },

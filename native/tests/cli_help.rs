@@ -16,7 +16,7 @@ fn help_lists_render() {
         .expect("run clipflow render --help");
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success());
-    for flag in ["--idea", "--pack", "--voice", "--out", "--models"] {
+    for flag in ["--idea", "--pack", "--voice", "--out", "--models", "--plan"] {
         assert!(text.contains(flag), "render help missing {flag}: {text}");
     }
 

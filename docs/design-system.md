@@ -13,17 +13,17 @@ Sources: `src/index.css`, `src/packs/mstudio.json`,
 
 | Token | Value | Use |
 |---|---|---|
-| `--cf-bg` / app base | `#080A0D` (`body`), `#090C0B` (`.cf-app`) | Page background. Never pure black in UI chrome. |
-| Panel | `#111713` | All panels (`.cf-idea-panel`, `.cf-script-panel`, `.cf-preview-panel`, `.cf-scene-tray`, `.cf-export-panel`). |
+| `--cf-bg` / app base | `#080A0D` (`body`), radial lime glow `#1A2410 → #080A0D` (`.cf-app`) | Page background. Never pure black in UI chrome. |
+| Panel | `#0B0F14` | All panels (`.cf-idea-panel`, `.cf-script-panel`, `.cf-preview-panel`, `.cf-scene-tray`, `.cf-export-panel`). |
 | Panel deep | `#0B110D` / `#090E0B` | Beat cards, inputs, textarea wells. |
-| Border | `#2B3A2E` (default), `#344737` (inputs), `#374235` (toolbar) | 1px borders everywhere. No border without a token color. |
+| Border | `#2A3340` (cards/panels), `#344737` (inputs), `#374235` (toolbar) | 1px borders everywhere. No border without a token color. |
 | Text primary | `#F2F5ED` / `#F7F8FA` | Headings, body. |
 | Text secondary | `#9BAC9B` | Panel descriptions. |
 | Text muted | `#7B8C7B` / `#849784` | Notes, hints, footers. |
-| Accent | `#B8F36B` (UI), `#CFFF47` (render theme 2), `#246BFD` (render theme 1) | The only CTA/focus color. |
+| Accent | `#CFFF47` (UI + render theme 2), `#246BFD` (render theme 1) | The only CTA/focus color. |
 | Danger | `#FFB6A9` | Errors and warnings only (`.cf-error`, `.cf-warning`). |
-| Radius | `5px` buttons, `7px` inputs/cards, `10px` panels, `14px` toolbar | Round up with size, never down. |
-| Focus ring | `border-color: #B8F36B` + `box-shadow: 0 0 0 2px #B8F36B24` | All focusable inputs. |
+| Radius | `999px` buttons (pill), `7px` inputs/cards, `24px` panels, `14px` toolbar | Round up with size, never down. |
+| Focus ring | `border-color: #CFFF47` + `box-shadow: 0 0 0 2px #CFFF4724` | All focusable inputs. |
 | Disabled | `opacity: .52`, `cursor: not-allowed` | Buttons only. |
 
 Accent rule: exactly one accent element per viewport section. The accent is
@@ -67,13 +67,18 @@ All class names live in `src/index.css` under the `cf-` prefix. Reuse, don't
 reinvent.
 
 - **Panels** (`.cf-idea-panel`, `.cf-script-panel`, `.cf-preview-panel`,
-  `.cf-scene-tray`, `.cf-export-panel`): `#111713`, `1px #2B3A2E`,
-  `10px` radius, `24px` padding, heading block `.cf-panel-heading`
-  (kicker + `h2` + 13px description).
-- **Kicker** (`.cf-kicker`): mono 11px, accent, bold — every panel opens
-  with `SECTION / NN` (e.g. `STORY STRUCTURE / 02`).
-- **Buttons** (`.cf-button`): mono 11px bold, `11px 13px` padding, `5px`
-  radius. Primary = accent fill on dark text; secondary = `#172318` fill.
+  `.cf-scene-tray`, `.cf-export-panel`): `#0B0F14`, `1px #2A3340`,
+  `24px` radius, `28px` padding, heading block `.cf-panel-heading`
+  (step number + `h2` + 13px description).
+- **Step number** (`.cf-step-num`): lime `#CFFF47` bold label stacked above
+  the panel `h2` — boards-style headers: `01` Idea, `02` Script,
+  `03` Visuals, `04` Export.
+- **Journey** (`.cf-journey`): dot-progress in the hero doubling as in-page
+  navigation — hollow `○` idle, lime `●` + filled pill on active/done steps.
+- **Kicker** (`.cf-kicker`): mono 11px, accent, bold — secondary labels
+  (e.g. `LIVE FRAME`, `DESKTOP STUDIO`).
+- **Buttons** (`.cf-button`): mono 11px bold, `11px 20px` padding, `999px`
+  pill radius. Primary = accent fill on dark text; secondary = `#172318` fill.
   Hover brightens (`brightness(1.12)`); never change hue on hover.
   `.cf-sample-idea` is the full-width empty-state variant (warm start).
 - **Beats** (`.cf-beat`): deep card, textarea inside; `.selected` gets

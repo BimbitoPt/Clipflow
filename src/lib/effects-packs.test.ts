@@ -47,9 +47,11 @@ describe("packs", () => {
       }
       // drawbox (unlike drawtext) has no w/h vars — only iw/ih.
       // drawtext (unlike drawbox) has no iw/ih vars — only w/h/text_w.
+      // zoompan knows time/on — never bare t.
       for (const f of built.filters) {
         if (f.startsWith("drawbox") && /'[wh]\*/.test(f)) bad.push(`drawbox w/h: ${f.slice(0, 60)}`);
         if (f.startsWith("drawtext") && /'[^']*\bi[wh]\b[^']*'/.test(f)) bad.push(`drawtext iw/ih: ${f.slice(0, 60)}`);
+        if (/\bzoompan\b/.test(f) && /\bt\b/.test(f)) bad.push(`zoompan t: ${f.slice(0, 80)}`);
       }
       expect(bad, def.id).toEqual([]);
     }
