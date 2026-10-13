@@ -1,0 +1,206 @@
+import type { CaptionMode } from "../../shared/caption-plan";
+import type { VisualEffect } from "../../shared/visual-effects";
+import { isPlatformId, type PlatformId } from "../../shared/platform-presets";
+import { PACK_IDS, type PackId } from "./packs";
+import type { Profile } from "./profile";
+import type { ScriptOverrides } from "./script-draft";
+import type { SceneChoice } from "./scene-assets";
+import { isTimedCueTimingArray } from "./word-timing-validation";
+import type { TimedCueTiming } from "./planner";
+import { safeStorageGet, type KeyValueStore } from "./storage";
+
+/** localStorage key for the browser-only editor session snapshot. */
+export const SESSION_KEY = "clipflow.session";
+
+/** localStorage key for the voice-timed karaoke sidecar. */
+export const WORDTIMES_KEY = "clipflow.wordtimes";
+
+/**
+ * Browser session snapshot. React state (idea, beats, scene choices) dies with
+ * the tab while uploads/timing/profile already persist — without this a reload
+ * orphaned persisted uploads. Desktop skips it entirely: the native `.clipflow`
+ * project is the source of truth there.
+ */
+export interface SessionSnapshot {
+  idea: string;
+  scriptOverrides: ScriptOverrides;
+  sceneChoices: SceneChoice[];
+  captionMode: CaptionMode;
+  captionOverrides: Record<number, string>;
+  voiceOn: boolean;
+  visualEffect: VisualEffect;
+  platform: PlatformId;
+  credit: boolean;
+  pack: PackId;
+}
+
+const CAPTION_MODES = ["auto", "scene", "speech", "off"] as const;
+const VISUAL_EFFECTS = ["none", "cinematic", "mono", "vivid", "analog"] as const;
+
+/** Runtime guard for one persisted scene choice. */
+export function validSceneChoice(choice: unknown): choice is SceneChoice {
+  if (!choice || typeof choice !== "object") return false;
+  const kind = (choice as { kind?: unknown }).kind;
+  return (
+    kind === "auto-ai" ||
+    kind === "ai" ||
+    kind === "stock" ||
+    kind === "upload" ||
+    kind === "native" ||
+    kind === "generated"
+  );
+}
+
+/**
+ * Read and validate the browser session snapshot. Returns `null` on any
+ * missing, malformed or version-mismatched payload — session restore is a
+ * convenience, never a hard requirement.
+ */
+export function readSession(store: KeyValueStore): SessionSnapshot | null {
+  try {
+    const raw = store.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      version?: unknown;
+      idea?: unknown;
+      scriptOverrides?: unknown;
+      sceneChoices?: unknown;
+      captionMode?: unknown;
+      captionOverrides?: unknown;
+      voiceOn?: unknown;
+      visualEffect?: unknown;
+      platform?: unknown;
+      credit?: unknown;
+      pack?: unknown;
+    };
+    if (!parsed || parsed.version !== 1 || typeof parsed.idea !== "string") return null;
+    if (!Array.isArray(parsed.sceneChoices) || parsed.sceneChoices.length !== 5 || !parsed.sceneChoices.every(validSceneChoice)) return null;
+    if (parsed.scriptOverrides === null || typeof parsed.scriptOverrides !== "object" || Array.isArray(parsed.scriptOverrides)) return null;
+    if (!CAPTION_MODES.includes(parsed.captionMode as CaptionMode)) return null;
+    if (parsed.captionOverrides === null || typeof parsed.captionOverrides !== "object") return null;
+    if (typeof parsed.voiceOn !== "boolean") return null;
+    if (!VISUAL_EFFECTS.includes(parsed.visualEffect as VisualEffect)) return null;
+    return {
+      idea: parsed.idea,
+      scriptOverrides: parsed.scriptOverrides as ScriptOverrides,
+      sceneChoices: parsed.sceneChoices,
+      captionMode: parsed.captionMode as CaptionMode,
+      captionOverrides: parsed.captionOverrides as Record<number, string>,
+      voiceOn: parsed.voiceOn,
+      visualEffect: parsed.visualEffect as VisualEffect,
+      platform: isPlatformId(parsed.platform) ? parsed.platform : "tiktok",
+      credit: parsed.credit === true,
+      pack:
+        typeof parsed.pack === "string" && (PACK_IDS as readonly string[]).includes(parsed.pack)
+          ? (parsed.pack as PackId)
+          : "mstudio",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Persist the browser session snapshot. Best-effort: storage may be unavailable. */
+export function writeSession(store: KeyValueStore, snapshot: SessionSnapshot): void {
+  try {
+    store.setItem(
+      SESSION_KEY,
+      JSON.stringify({
+        version: 1,
+        idea: snapshot.idea,
+        scriptOverrides: snapshot.scriptOverrides,
+        sceneChoices: snapshot.sceneChoices,
+        captionMode: snapshot.captionMode,
+        captionOverrides: snapshot.captionOverrides,
+        voiceOn: snapshot.voiceOn,
+        visualEffect: snapshot.visualEffect,
+        platform: snapshot.platform,
+        credit: snapshot.credit,
+        pack: snapshot.pack,
+      }),
+    );
+  } catch {
+    // Session restore is convenience; the editor works without it.
+  }
+}
+
+/**
+ * Voice-timed karaoke sidecar (localStorage `clipflow.wordtimes`), written by
+ * the headless VO pipeline next to the wav it was measured from. Applied only
+ * on an exact idea+profile match — otherwise the deterministic even-split grid
+ * is used, so stale timings can never leak into another video.
+ */
+export interface WordTiming {
+  cues: TimedCueTiming[];
+  windows: Array<{ start: number; end: number }> | null;
+  total: number | null;
+  assets: Array<string | null> | null;
+}
+
+/**
+ * Read and validate the word-timing sidecar for an exact idea+profile match.
+ * Every field is validated independently; a malformed field degrades to `null`
+ * rather than rejecting the whole sidecar, except the cues themselves which
+ * gate the entire result.
+ */
+export function readWordTiming(store: KeyValueStore, idea: string, profile: Profile): WordTiming | null {
+  try {
+    const raw = safeStorageGet(store, WORDTIMES_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      idea?: unknown;
+      profile?: Partial<Profile>;
+      cues?: unknown;
+      windows?: unknown;
+      total?: unknown;
+      assets?: unknown;
+    };
+    if (!parsed || parsed.idea !== idea) return null;
+    const p = parsed.profile;
+    if (
+      !p ||
+      p.niche !== profile.niche ||
+      p.audience !== profile.audience ||
+      p.offer !== profile.offer ||
+      p.tone !== profile.tone ||
+      p.proof !== profile.proof
+    ) {
+      return null;
+    }
+    if (!isTimedCueTimingArray(parsed.cues)) return null;
+    let windows: Array<{ start: number; end: number }> | null = null;
+    if (
+      Array.isArray(parsed.windows) &&
+      parsed.windows.length === parsed.cues.length &&
+      parsed.windows.every(
+        (w) =>
+          w &&
+          typeof (w as { start: unknown }).start === "number" &&
+          typeof (w as { end: unknown }).end === "number",
+      )
+    ) {
+      windows = parsed.windows as Array<{ start: number; end: number }>;
+    }
+    const total =
+      typeof parsed.total === "number" && Number.isFinite(parsed.total) && parsed.total > 0
+        ? parsed.total
+        : null;
+    let assets: Array<string | null> | null = null;
+    if (Array.isArray(parsed.assets) && parsed.assets.every((a) => a === null || typeof a === "string")) {
+      assets = parsed.assets as Array<string | null>;
+    }
+    return { cues: parsed.cues, windows, total, assets };
+  } catch {
+    return null;
+  }
+}
+
+/** Persist or clear the word-timing sidecar. `null` removes it. */
+export function writeWordTiming(store: KeyValueStore, raw: string | null): void {
+  try {
+    if (raw) store.setItem(WORDTIMES_KEY, raw);
+    else store.removeItem(WORDTIMES_KEY);
+  } catch {
+    // Timing is optional; a storage failure must not break project restore.
+  }
+}

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { makeCaptionPlan, resolveCaptionMode, suggestSceneLabel, type CaptionMode } from "../shared/caption-plan";
 import { loadPack, PACK_IDS, packLabel, type Theme } from "./lib/packs";
-import { MSTUDIO_PROFILE, loadProfile, saveProfile, type Profile } from "./lib/profile";
+import { saveProfile, loadInitialProfile, type Profile } from "./lib/profile";
 import { buildScript } from "./lib/script";
 import { planFrames, planWordsTimed, voiceGridFromCues, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
-import { isTimedCueTimingArray } from "./lib/word-timing-validation";
+import { browserStore, safeStorageGet } from "./lib/storage";
+import { readSession, readWordTiming, writeSession, writeWordTiming, WORDTIMES_KEY, type SessionSnapshot } from "./lib/session";
 import { drawFrame, CREDIT_SECS, type DrawCtx, type RenderExtra } from "./lib/render";
 import { preloadAsset, STOCK_POOL, type StockAsset } from "./lib/broll";
 import { AI_BACKGROUNDS, assignAiBackgrounds } from "./lib/ai-backgrounds";
@@ -32,76 +33,11 @@ import type { PackId } from "./lib/packs";
 
 const OUT_W = 720, OUT_H = 1280, OUT_NAME = "clipflow-916.mp4";
 
-// Browser session snapshot: React state (idea, beats, scene choices) dies
-// with the tab while uploads/timing/profile already persist — without this,
-// a browser reload orphaned persisted uploads. Desktop skips it entirely:
-// the native `.clipflow` project is the source of truth there.
-const SESSION_KEY = "clipflow.session";
-
-// Browser storage is optional: privacy settings and storage failures must not
-// crash rendering or dirty-state calculation.
-function safeStorageGet(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function validSceneChoice(choice: unknown): choice is SceneChoice {
-  if (!choice || typeof choice !== "object") return false;
-  const kind = (choice as { kind?: unknown }).kind;
-  return kind === "auto-ai" || kind === "ai" || kind === "stock" || kind === "upload" || kind === "native" || kind === "generated";
-}
-
-function readSession(): {
-  idea: string; scriptOverrides: ScriptOverrides; sceneChoices: SceneChoice[];
-  captionMode: CaptionMode; captionOverrides: Record<number, string>;
-  voiceOn: boolean; visualEffect: VisualEffect; platform: PlatformId; credit: boolean; pack: PackId;
-} | null {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as {
-      version?: unknown; idea?: unknown; scriptOverrides?: unknown; sceneChoices?: unknown;
-      captionMode?: unknown; captionOverrides?: unknown; voiceOn?: unknown; visualEffect?: unknown;
-      platform?: unknown; credit?: unknown; pack?: unknown;
-    };
-    if (!parsed || parsed.version !== 1 || typeof parsed.idea !== "string") return null;
-    if (!Array.isArray(parsed.sceneChoices) || parsed.sceneChoices.length !== 5 || !parsed.sceneChoices.every(validSceneChoice)) return null;
-    if (parsed.scriptOverrides === null || typeof parsed.scriptOverrides !== "object" || Array.isArray(parsed.scriptOverrides)) return null;
-    if (!["auto", "scene", "speech", "off"].includes(parsed.captionMode as string)) return null;
-    if (parsed.captionOverrides === null || typeof parsed.captionOverrides !== "object") return null;
-    if (typeof parsed.voiceOn !== "boolean") return null;
-    if (!["none", "cinematic", "mono", "vivid", "analog"].includes(parsed.visualEffect as string)) return null;
-    return {
-      idea: parsed.idea,
-      scriptOverrides: parsed.scriptOverrides as ScriptOverrides,
-      sceneChoices: parsed.sceneChoices,
-      captionMode: parsed.captionMode as CaptionMode,
-      captionOverrides: parsed.captionOverrides as Record<number, string>,
-      voiceOn: parsed.voiceOn,
-      visualEffect: parsed.visualEffect as VisualEffect,
-      platform: isPlatformId(parsed.platform) ? parsed.platform : "tiktok",
-      credit: parsed.credit === true,
-      pack: typeof parsed.pack === "string" && (PACK_IDS as readonly string[]).includes(parsed.pack) ? parsed.pack as PackId : "mstudio",
-    };
-  } catch {
-    return null;
-  }
-}
-
-function store() {
-  return { getItem: (k: string) => localStorage.getItem(k), setItem: (k: string, v: string) => localStorage.setItem(k, v) };
-}
-
-function initialProfile() {
-  try {
-    return loadProfile({ getItem: (k) => localStorage.getItem(k), setItem: (k, v) => localStorage.setItem(k, v) }) ?? MSTUDIO_PROFILE;
-  } catch {
-    return MSTUDIO_PROFILE;
-  }
-}
+// Browser persistence is centralised in src/lib/session.ts (session snapshot +
+// word timing) and src/lib/storage.ts (the localStorage access point). The
+// editor reads/writes through that single injected store so a privacy setting
+// or storage failure degrades gracefully instead of crashing render.
+const storage = browserStore();
 
 async function copyText(s: string): Promise<void> {
   try {
@@ -123,76 +59,6 @@ function cueIndexOf(script: { cues: Array<{ start: number; kind: string }> }, cu
   if (byRef >= 0) return byRef;
   const byStart = script.cues.findIndex((c) => c.start === cue.start && c.kind === cue.kind);
   return byStart >= 0 ? byStart : 0;
-}
-
-// Voice-timed karaoke sidecar (localStorage `clipflow.wordtimes`), written
-// by the headless VO pipeline next to the wav it was measured from. Applied
-// only on exact idea+profile match — otherwise the deterministic even-split
-// grid is used, so stale timings can never leak into another video.
-// Optional voice-driven render grid (windows + total): when present and
-// valid, the video renders the measured cue spans instead of the fixed 45s
-// grid, so a tightly packed VO yields a shorter video.
-function readWordTiming(
-  idea: string,
-  profile: Profile,
-): {
-  cues: TimedCueTiming[];
-  windows: Array<{ start: number; end: number }> | null;
-  total: number | null;
-  assets: Array<string | null> | null;
-} | null {
-  try {
-    const raw = safeStorageGet("clipflow.wordtimes");
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as {
-      idea?: unknown;
-      profile?: Partial<Profile>;
-      cues?: unknown;
-      windows?: unknown;
-      total?: unknown;
-      assets?: unknown;
-    };
-    if (!parsed || parsed.idea !== idea) return null;
-    const p = parsed.profile;
-    if (
-      !p ||
-      p.niche !== profile.niche ||
-      p.audience !== profile.audience ||
-      p.offer !== profile.offer ||
-      p.tone !== profile.tone ||
-      p.proof !== profile.proof
-    ) {
-      return null;
-    }
-    if (!isTimedCueTimingArray(parsed.cues)) return null;
-    let windows: Array<{ start: number; end: number }> | null = null;
-    if (
-      Array.isArray(parsed.windows) &&
-      parsed.windows.length === parsed.cues.length &&
-      parsed.windows.every(
-        (w) =>
-          w &&
-          typeof (w as { start: unknown }).start === "number" &&
-          typeof (w as { end: unknown }).end === "number",
-      )
-    ) {
-      windows = parsed.windows as Array<{ start: number; end: number }>;
-    }
-    const total =
-      typeof parsed.total === "number" && Number.isFinite(parsed.total) && parsed.total > 0
-        ? parsed.total
-        : null;
-    let assets: Array<string | null> | null = null;
-    if (
-      Array.isArray(parsed.assets) &&
-      parsed.assets.every((a) => a === null || typeof a === "string")
-    ) {
-      assets = parsed.assets as Array<string | null>;
-    }
-    return { cues: parsed.cues, windows, total, assets };
-  } catch {
-    return null;
-  }
 }
 
 async function seekVideo(el: HTMLVideoElement, t: number): Promise<void> {
@@ -235,12 +101,15 @@ export function App() {
   const [projectBase, setProjectBase] = useState<{idea: string; profile: string; script: ReturnType<typeof buildScript>} | null>(null);
   const [nativeOutput, setNativeOutput] = useState<string | null>(null);
   const exportAbortRef = useRef<AbortController | null>(null);
-  const [niche, setNiche] = useState(() => initialProfile().niche);
-  const [audience, setAudience] = useState(() => initialProfile().audience);
+  // A single read feeds every profile-backed field: loadInitialProfile falls
+  // back to the default profile when the persisted one is absent or unreadable.
+  const initialProfile = useMemo(() => loadInitialProfile(storage), []);
+  const [niche, setNiche] = useState(initialProfile.niche);
+  const [audience, setAudience] = useState(initialProfile.audience);
   const [packId, setPackId] = useState<PackId>("mstudio");
-  const [offer, setOffer] = useState(() => initialProfile().offer);
-  const [tone, setTone] = useState(() => initialProfile().tone);
-  const [proof, setProof] = useState(() => initialProfile().proof);
+  const [offer, setOffer] = useState(initialProfile.offer);
+  const [tone, setTone] = useState(initialProfile.tone);
+  const [proof, setProof] = useState(initialProfile.proof);
   const [saved, setSaved] = useState("");
   const [idea, setIdea] = useState("fixed-price websites that ship in two weeks");
   const [err, setErr] = useState("");
@@ -262,7 +131,7 @@ export function App() {
   const keyframeRunRef = useRef(0);
   const [pollinationsKey, setPollinationsKey] = useState(() => {
     try {
-      return loadPollinationsKey(localStorage) || sanitizePollinationsKey((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_POLLINATIONS_KEY ?? "");
+      return loadPollinationsKey(storage) || sanitizePollinationsKey((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_POLLINATIONS_KEY ?? "");
     } catch {
       return "";
     }
@@ -280,7 +149,7 @@ export function App() {
   }, []);
   function handlePollinationsKeyChange(value: string): void {
     setPollinationsKey(value.trim());
-    savePollinationsKey(localStorage, value);
+    savePollinationsKey(storage, value);
   }
   const sceneChoicesRef = useRef(sceneChoices);
   sceneChoicesRef.current = sceneChoices;
@@ -290,7 +159,7 @@ export function App() {
   const [creditOn, setCreditOn] = useState(false);
   const [queueText, setQueueText] = useState(() => {
     try {
-      return localStorage.getItem(WEEK_KEY) ?? "";
+      return storage.getItem(WEEK_KEY) ?? "";
     } catch {
       return "";
     }
@@ -331,7 +200,7 @@ export function App() {
   const queueIdeas = useMemo(() => parseQueueIdeas(queueText), [queueText]);
   const queueNext = nextQueueIndex(queueIdeas, idea);
   const queuePos = queuePosition(queueIdeas, idea);
-  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: safeStorageGet("clipflow.wordtimes") };
+  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: safeStorageGet(storage, WORDTIMES_KEY) };
   const projectSnapshot = projectFingerprint(projectDraft);
   const projectDirty = projectSnapshot !== savedSnapshot;
 
@@ -347,7 +216,7 @@ export function App() {
       setPackId(project.pack as PackId);
       setProjectBase(null);
     }
-    if (project.timing) localStorage.setItem("clipflow.wordtimes", project.timing); else localStorage.removeItem("clipflow.wordtimes");
+    writeWordTiming(storage, project.timing ?? null);
     const { savedAt: _savedAt, ...draft } = project;
     setSavedSnapshot(projectFingerprint(draft)); setProjectPath(path); setSelectedScene(0); setNativeOutput(null); setExportUrl(null); setStatus("idle"); setErr("");
   }
@@ -401,11 +270,11 @@ export function App() {
     if (desktop) return;
     void gcUploads().catch(() => {});
     try {
-      markMilestone(store(), "firstVisit");
+      markMilestone(storage, "firstVisit");
     } catch {
       // Instrumentation never breaks the editor.
     }
-    const session = readSession();
+    const session = readSession(storage);
     if (!session) return;
     setIdea(session.idea);
     setScriptOverrides(session.scriptOverrides);
@@ -422,19 +291,12 @@ export function App() {
 
   useEffect(() => {
     if (desktop) return;
-    try {
-      localStorage.setItem(SESSION_KEY, JSON.stringify({
-        version: 1, idea, scriptOverrides, sceneChoices,
-        captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId,
-      }));
-    } catch {
-      // Session restore is convenience; the editor works without it.
-    }
+    writeSession(storage, { idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId } satisfies SessionSnapshot);
   }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn, packId]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(WEEK_KEY, queueText);
+      storage.setItem(WEEK_KEY, queueText);
     } catch {
       // Queue persistence is convenience; the editor works without it.
     }
@@ -469,7 +331,7 @@ export function App() {
     setErr(scriptErr);
   }, [scriptErr]);
 
-  const timing = useMemo(() => hasScriptOverrides(scriptOverrides) ? null : readWordTiming(idea, profile), [idea, profile, scriptOverrides]);
+  const timing = useMemo(() => hasScriptOverrides(scriptOverrides) ? null : readWordTiming(storage, idea, profile), [idea, profile, scriptOverrides]);
   const words = useMemo(
     () => (script ? planWordsTimed(script, timing?.cues ?? null) : undefined),
     [script, timing],
@@ -679,7 +541,7 @@ export function App() {
       if (asset) extra.asset = asset;
       drawFrame(ctx as DrawCtx, frame, theme, 360, 640, extra, timing?.total ?? VIDEO_SECS);
       try {
-        markMilestone(store(), "firstPreview");
+        markMilestone(storage, "firstPreview");
       } catch {
         // Instrumentation never breaks the editor.
       }
@@ -690,7 +552,7 @@ export function App() {
 
   function onSave() {
     try {
-      saveProfile(store(), { niche, audience, offer, tone, proof });
+      saveProfile(storage, { niche, audience, offer, tone, proof });
       setSaved("Saved.");
     } catch {
       setSaved("Storage quota exceeded — profile not saved.");
@@ -848,7 +710,7 @@ export function App() {
             cueIndex: frame => cueIndexOf(script, frame.cue), seek: seekVideo,
             progress: (percent,message) => { setExportProgress(percent); setExportMsg(message); },
           });
-          if (output) { setNativeOutput(output); setStatus("exported"); setExportMsg(""); try { recordExport(store(), Date.now()); } catch { /* instrumentation never breaks export */ } }
+          if (output) { setNativeOutput(output); setStatus("exported"); setExportMsg(""); try { recordExport(storage, Date.now()); } catch { /* instrumentation never breaks export */ } }
           else { setStatus("idle"); setExportMsg(""); }
           return;
         }
@@ -1029,7 +891,7 @@ export function App() {
         const url = URL.createObjectURL(blob);
         setExportUrl(url);
         try {
-          recordExport(store(), Date.now());
+          recordExport(storage, Date.now());
         } catch {
           // Activation stamp is instrumentation; the download already fired.
         }
