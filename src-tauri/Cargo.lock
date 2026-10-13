@@ -296,7 +296,6 @@ dependencies = [
 name = "clipflow-desktop"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
  "hound",
  "serde",
  "serde_json",

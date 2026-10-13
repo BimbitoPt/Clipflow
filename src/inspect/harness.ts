@@ -754,6 +754,178 @@ async function parseRangeBounds(spec: string | undefined, opts?: InspectOpts): P
   return parseRange(spec, c);
 }
 
+/**
+ * Measure the two desktop frame transports on real rendered frames.
+ *
+ * `png` is what shipped: `canvas.toDataURL("image/png")` plus the base64 split,
+ * one IPC call per frame. `raw` is the replacement: `getImageData` plus a copy
+ * into a fixed batch buffer, several frames per call.
+ *
+ * Also checks that both transports agree byte for byte. `toDataURL` encodes
+ * the same canvas `getImageData` reads and PNG is lossless, so any difference
+ * here would mean dropping the PNG round trip silently changes exported pixels.
+ */
+async function transport(n: number, opts?: InspectOpts) {
+  const c = await getCtx(opts);
+  const { real, canvas } = getCanvas();
+  const count = Math.max(1, Math.floor(n));
+  const frameBytes = W * H * 4;
+  const frameOf = (i: number) => c.frames[i % c.frames.length]!;
+  const assetOf = (i: number) => {
+    const f = frameOf(i);
+    const idx = c.script.cues.indexOf(f.cue);
+    return idx >= 0 ? c.assets[idx] ?? undefined : undefined;
+  };
+  // Freeze videos once, as bench does, so the two passes draw identical pixels.
+  const frozen = new Set<StockAsset>();
+  for (let i = 0; i < count; i++) {
+    const asset = assetOf(i);
+    if (asset && asset.kind === "video" && !frozen.has(asset)) {
+      frozen.add(asset);
+      await seekVideoOnce(asset.el as HTMLVideoElement, 0);
+      await seekVideoForFrame(asset, frameOf(i).t);
+    }
+  }
+  // Warm up both paths so the first measured frame is not paying JIT/codec cost.
+  for (let i = 0; i < 8; i++) {
+    clearFrame(real);
+    await drawOne(real, frameOf(i), c, false, true);
+    canvas.toDataURL("image/png");
+    real.getImageData(0, 0, W, H);
+  }
+
+  const pngMs: number[] = [];
+  const rawMs: number[] = [];
+  const copyMs: number[] = [];
+  let pngBytes = 0;
+  let rawBytes = 0;
+  let mismatched = 0;
+  let firstMismatch = -1;
+  let peakBatchBytes = 0;
+  const heap = () => (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0;
+  // Sampled around each path separately: toDataURL builds a ~5 MB base64 string
+  // per frame, the raw path builds none, so the delta is the point.
+  let pngPeakHeap = 0;
+  let rawPeakHeap = 0;
+  // Two slots, exactly as FrameBatcher allocates: 4 frames x 720x1280x4.
+  const slots = [new Uint8Array(frameBytes * 4), new Uint8Array(frameBytes * 4)];
+  const samplePng: string[] = [];
+
+  const scratch = document.createElement("canvas");
+  scratch.width = W;
+  scratch.height = H;
+  const sctx = scratch.getContext("2d", { willReadFrequently: true })!;
+
+  // Only the first frames get the parity probe: re-decoding a PNG and
+  // comparing 3.7 MB of pixels costs more than the timing loops themselves.
+  const PARITY_FRAMES = 12;
+  // Frames handed to the Node side, which replays them through both FFmpeg
+  // demuxers. Enough to get past encoder startup into steady state.
+  const SAMPLE_FRAMES = 30;
+  // A default (GPU-backed) canvas, mirroring what the old production path drew
+  // on. Production now uses willReadFrequently (see desktop-render.ts); if the
+  // rasterizer differs between the two, exported pixels would change for
+  // reasons unrelated to the transport. This probe keeps that honest.
+  const gpuCanvas = document.createElement("canvas");
+  gpuCanvas.width = W;
+  gpuCanvas.height = H;
+  const gpu = gpuCanvas.getContext("2d")!;
+  const gpuReadMs: number[] = [];
+  let canvasMismatched = 0;
+  let canvasFirstMismatch = -1;
+  let canvasMaxDelta = 0;
+  for (let i = 0; i < count; i++) {
+    clearFrame(real);
+    await drawOne(real, frameOf(i), c, false, true);
+
+    const t0 = performance.now();
+    const h0 = heap();
+    const dataUrl = canvas.toDataURL("image/png");
+    const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    pngMs.push(performance.now() - t0);
+    pngPeakHeap = Math.max(pngPeakHeap, heap() - h0);
+    pngBytes += b64.length;
+    if (samplePng.length < SAMPLE_FRAMES) samplePng.push(b64);
+
+    const t1 = performance.now();
+    const h1 = heap();
+    const img = real.getImageData(0, 0, W, H);
+    rawMs.push(performance.now() - t1);
+
+    const t2 = performance.now();
+    const slot = slots[i % 2]!;
+    slot.set(img.data, 0);
+    copyMs.push(performance.now() - t2);
+    rawPeakHeap = Math.max(rawPeakHeap, heap() - h1);
+    rawBytes += frameBytes;
+    peakBatchBytes = Math.max(peakBatchBytes, frameBytes * 4);
+
+    // Parity: re-decode the PNG we just produced and compare to raw pixels.
+    // Plus: draw the same frame on a default-context canvas and compare, so a
+    // rasterizer difference from willReadFrequently cannot hide here.
+    if (i < PARITY_FRAMES) {
+      const blob = await (await fetch(dataUrl)).blob();
+      const bmp = await createImageBitmap(blob);
+      sctx.clearRect(0, 0, W, H);
+      sctx.drawImage(bmp, 0, 0);
+      bmp.close();
+      const roundTrip = sctx.getImageData(0, 0, W, H).data;
+      for (let k = 0; k < frameBytes; k++) {
+        if (roundTrip[k] !== img.data[k]) {
+          mismatched++;
+          if (firstMismatch < 0) firstMismatch = i;
+          break;
+        }
+      }
+      gpu.save();
+      gpu.setTransform(1, 0, 0, 1, 0, 0);
+      gpu.filter = "none";
+      gpu.globalAlpha = 1;
+      gpu.fillStyle = "#000000";
+      gpu.fillRect(0, 0, W, H);
+      gpu.restore();
+      await drawOne(gpu as unknown as CanvasRenderingContext2D, frameOf(i), c, false, true);
+      const t3 = performance.now();
+      const gpuPx = gpu.getImageData(0, 0, W, H).data;
+      gpuReadMs.push(performance.now() - t3);
+      for (let k = 0; k < frameBytes; k++) {
+        const d = Math.abs(gpuPx[k]! - img.data[k]!);
+        if (d > canvasMaxDelta) canvasMaxDelta = d;
+        if (d !== 0) {
+          canvasMismatched++;
+          if (canvasFirstMismatch < 0) canvasFirstMismatch = i;
+          break;
+        }
+      }
+    }
+  }
+  const sum = (v: number[]) => v.reduce((a, b) => a + b, 0);
+  return {
+    frames: count, width: W, height: H, frameBytes,
+    png: {
+      totalMs: +sum(pngMs).toFixed(1), avgMs: +(sum(pngMs) / count).toFixed(3),
+      bytes: pngBytes, ipcCalls: count, peakHeapBytes: pngPeakHeap,
+    },
+    raw: {
+      totalMs: +(sum(rawMs) + sum(copyMs)).toFixed(1),
+      getImageDataMs: +(sum(rawMs) / count).toFixed(3),
+      copyMs: +(sum(copyMs) / count).toFixed(3),
+      avgMs: +((sum(rawMs) + sum(copyMs)) / count).toFixed(3),
+      bytes: rawBytes, ipcCalls: Math.ceil(count / 4), peakBatchBytes, peakHeapBytes: rawPeakHeap,
+    },
+    parity: { checked: Math.min(PARITY_FRAMES, count), mismatched, firstMismatch },
+    canvasParity: {
+      checked: Math.min(PARITY_FRAMES, count),
+      mismatched: canvasMismatched,
+      firstMismatch: canvasFirstMismatch,
+      maxDelta: canvasMaxDelta,
+      gpuGetImageDataMs: gpuReadMs.length > 0 ? +(sum(gpuReadMs) / gpuReadMs.length).toFixed(3) : 0,
+    },
+    samplePng,
+    heapAvailable: heap() > 0,
+  };
+}
+
 export interface HarnessApi {
   timeline: typeof timeline;
   inspect: typeof inspect;
@@ -764,9 +936,10 @@ export interface HarnessApi {
   parseTimes: typeof parseTimes;
   parseRangeTimes: typeof parseRangeTimes;
   parseRangeBounds: typeof parseRangeBounds;
+  transport: typeof transport;
 }
 
-window.__cf = { timeline, inspect, frames, strip, onion, bench, parseTimes, parseRangeTimes, parseRangeBounds };
+window.__cf = { timeline, inspect, frames, strip, onion, bench, parseTimes, parseRangeTimes, parseRangeBounds, transport };
 
 declare global {
   interface Window {
