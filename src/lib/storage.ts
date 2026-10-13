@@ -29,6 +29,12 @@ export function browserStore(): KeyValueStore {
 }
 
 /**
+ * The one store instance the app shares (App shell, hooks, services). Same
+ * underlying `localStorage`, one place to swap in tests.
+ */
+export const browserStorage: KeyValueStore = browserStore();
+
+/**
  * Crash-safe single read. Browser storage is optional: privacy settings and
  * storage failures must not crash rendering or dirty-state calculation, so a
  * throw here becomes `null` and the caller falls back to its default.

@@ -1,44 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { makeCaptionPlan, resolveCaptionMode, suggestSceneLabel, type CaptionMode } from "../shared/caption-plan";
 import { loadPack, PACK_IDS, packLabel, type Theme } from "./lib/packs";
-import { saveProfile, loadInitialProfile, type Profile } from "./lib/profile";
+import { saveProfile, loadInitialProfile } from "./lib/profile";
 import { buildScript } from "./lib/script";
-import { planFrames, planWordsTimed, voiceGridFromCues, VIDEO_SECS, type PlannedFrame, type TimedCueTiming } from "./lib/planner";
-import { browserStore, safeStorageGet } from "./lib/storage";
+import { planFrames, planWordsTimed, VIDEO_SECS } from "./lib/planner";
+import { browserStorage as storage, safeStorageGet } from "./lib/storage";
 import { readSession, readWordTiming, writeSession, writeWordTiming, WORDTIMES_KEY, type SessionSnapshot } from "./lib/session";
-import { drawFrame, CREDIT_SECS, type DrawCtx, type RenderExtra } from "./lib/render";
+import { drawFrame, type DrawCtx, type RenderExtra } from "./lib/render";
 import { preloadAsset, STOCK_POOL, type StockAsset } from "./lib/broll";
 import { AI_BACKGROUNDS, assignAiBackgrounds } from "./lib/ai-backgrounds";
 import { resolveSceneChoices, type ResolvedSceneChoice, type SceneChoice } from "./lib/scene-assets";
 import { applyScriptOverrides, hasScriptOverrides, type ScriptOverrides } from "./lib/script-draft";
 import { previewSpeak } from "./lib/tts";
-import { createKokoroLoader, KOKORO_SAMPLE_RATE, resampleLinear } from "./lib/tts-local";
-import { createKokoroTimedLoader } from "./lib/tts-timed";
 import ProfileSettings from "./components/ProfileSettings";
+import { useExportController, type ExportContext } from "./hooks/useExportController";
 import ScriptBeats from "./components/ScriptBeats";
 import SceneTray from "./components/SceneTray";
 import ExportPanel from "./components/ExportPanel";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import DesktopToolbar from "./components/DesktopToolbar";
 import { desktop, importNativeMedia, openDesktopProject, initialDesktopProject, saveDesktopProject, nativeMediaUrl, showInFolder, confirmDiscard, projectFingerprint, type DesktopProjectV1 } from "./lib/desktop";
-import { renderDesktop } from "./lib/desktop-render";
 import { deleteUpload, gcUploads, loadUploadBlob, saveUpload, touchUpload } from "./lib/upload-store";
 import { buildKeyframePrompt, generateKeyframe, hashSeed, keyframeId, keyframeSeedOf, keyframeUrl, loadPollinationsKey, sanitizePollinationsKey, savePollinationsKey, type KeyframeStatus } from "./lib/keyframes";
-import { markMilestone, recordExport, SAMPLE_IDEA } from "./lib/activation";
-import { probeAudioConfig, probeVideoConfig } from "./lib/export-worker-protocol";
+import { markMilestone, SAMPLE_IDEA } from "./lib/activation";
 import { isPlatformId, platformPreset, type PlatformId } from "../shared/platform-presets";
 import { nextQueueIndex, parseQueueIdeas, queuePosition, WEEK_KEY } from "./lib/week-queue";
 import type { VisualEffect } from "../shared/visual-effects";
 import type { PackId } from "./lib/packs";
-
-import { copyText, cueIndexOf, seekVideo } from "./lib/app-utils";
-import { OUT_NAME, runBrowserExport } from "./lib/browser-export";
+import { copyText, cueIndexOf } from "./lib/app-utils";
 
 // Browser persistence is centralised in src/lib/session.ts (session snapshot +
-// word timing) and src/lib/storage.ts (the localStorage access point). The
-// editor reads/writes through that single injected store so a privacy setting
-// or storage failure degrades gracefully instead of crashing render.
-const storage = browserStore();
+// word timing) and src/lib/storage.ts (the single injected localStorage access
+// point, shared with every hook). The editor reads/writes through that store so
+// a privacy setting or storage failure degrades gracefully instead of crashing
+// render.
 
 export function App() {
   const [projectPath, setProjectPath] = useState<string | null>(null);
@@ -46,8 +41,6 @@ export function App() {
   const [projectBusy, setProjectBusy] = useState(false);
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const [projectBase, setProjectBase] = useState<{idea: string; profile: string; script: ReturnType<typeof buildScript>} | null>(null);
-  const [nativeOutput, setNativeOutput] = useState<string | null>(null);
-  const exportAbortRef = useRef<AbortController | null>(null);
   // A single read feeds every profile-backed field: loadInitialProfile falls
   // back to the default profile when the persisted one is absent or unreadable.
   const initialProfile = useMemo(() => loadInitialProfile(storage), []);
@@ -60,7 +53,9 @@ export function App() {
   const [saved, setSaved] = useState("");
   const [idea, setIdea] = useState("fixed-price websites that ship in two weeks");
   const [err, setErr] = useState("");
-  const [status, setStatus] = useState<"idle" | "working" | "exported" | "error">("idle");
+  // Export lifecycle: status, progress, messages, download/native output,
+  // cancellation and the whole export run live behind the controller.
+  const { status, exportMsg, exportProgress, exportUrl, voiceWarn, nativeOutput, busyRef, exportAbortRef, reset: resetExport, cancel: cancelExport, runExport } = useExportController(setErr);
   const [scriptOverrides, setScriptOverrides] = useState<ScriptOverrides>({});
   const [sceneChoices, setSceneChoices] = useState<SceneChoice[]>(() => Array.from({ length: 5 }, () => ({ kind: "auto-ai" })));
   const [selectedScene, setSelectedScene] = useState(0);
@@ -113,13 +108,7 @@ export function App() {
   });
   const [visualEffect, setVisualEffect] = useState<VisualEffect>("none");
   const [captionOverrides, setCaptionOverrides] = useState<Record<number, string>>({});
-  const [exportMsg, setExportMsg] = useState("");
-  const [exportProgress, setExportProgress] = useState(0);
-  const [exportUrl, setExportUrl] = useState<string | null>(null);
-  useEffect(() => () => { if (exportUrl) URL.revokeObjectURL(exportUrl); }, [exportUrl]);
-  const [voiceWarn, setVoiceWarn] = useState("");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const busyRef = useRef(false);
   const uploadsRef = useRef<Map<string, StockAsset>>(new Map());
   const uploadThumbsRef = useRef<Map<string, string>>(new Map());
 
@@ -165,7 +154,7 @@ export function App() {
     }
     writeWordTiming(storage, project.timing ?? null);
     const { savedAt: _savedAt, ...draft } = project;
-    setSavedSnapshot(projectFingerprint(draft)); setProjectPath(path); setSelectedScene(0); setNativeOutput(null); setExportUrl(null); setStatus("idle"); setErr("");
+    setSavedSnapshot(projectFingerprint(draft)); setProjectPath(path); setSelectedScene(0); resetExport(); setErr("");
   }
 
   async function desktopAction(action: "open" | "save" | "import" | "new") {
@@ -506,203 +495,9 @@ export function App() {
     }
   }
 
-  async function onExport() {
-    if (!script) return;
-    if (busyRef.current) return;
-    busyRef.current = true;
-    try {
-      // Capability probe first: fail fast with a named cause instead of
-      // dying mid-export. The desktop app (FFmpeg) is the universal fallback.
-      if (!desktop) {
-        const videoProbe = await probeVideoConfig();
-        if (!videoProbe.supported) {
-          setStatus("error");
-          setErr(videoProbe.reason === "missing"
-            ? "This browser can't hardware-encode — open in Chrome/Edge, or use the desktop app."
-            : "This browser refused the 720x1280 H.264 export config — update Chrome/Edge, or use the desktop app.");
-          return;
-        }
-        if (voiceOn && typeof AudioData === "undefined") {
-          setStatus("error");
-          setErr("This browser can't encode audio — export silently or try Chrome/Edge.");
-          return;
-        }
-        if (voiceOn) {
-          const audioProbe = await probeAudioConfig();
-          if (!audioProbe.supported) {
-            setStatus("error");
-            setErr(audioProbe.reason === "missing"
-              ? "This browser can't encode audio — export silently or try Chrome/Edge."
-              : "This browser refused the voice export config — export silently or update Chrome/Edge.");
-            return;
-          }
-        }
-      }
-      setStatus("working");
-      exportAbortRef.current = new AbortController();
-      setNativeOutput(null);
-      setExportUrl(null);
-      setErr("");
-      setExportMsg("Script ready.");
-      setExportProgress(10);
-      setVoiceWarn("");
-      try {
-        setExportMsg("Loading selected scene visuals…");
-        setExportProgress(25);
-        const exportChoices = [...sceneChoices];
-        const cueAssets = await Promise.all(resolveSceneChoices(exportChoices, aiSuggestions, STOCK_POOL).map(loadSceneAsset));
-        if (desktop && cueAssets.some(asset => !asset)) throw new Error("A selected scene's media could not be loaded. Reimport it before exporting.");
-        const approvedProofByCue = exportChoices.map((choice, index) => choice.kind === "upload" && choice.approvedProof === true && cueAssets[index]?.src === `upload:${choice.id}`);
-        setExportProgress(35);
-        let pcm: Float32Array | null = null;
-        // Real word timings when the timed model synthesized the voice; the
-        // sidecar/even-split memo stays the fallback — timed synthesis can
-        // only ever upgrade captions, never break the export.
-        let synthesizedCues: Array<TimedCueTiming | null> | null = null;
-        if (voiceOn) {
-          const cueTexts = script.cues.map((cue) => cue.text);
-          setExportMsg("Rendering voice…");
-          setExportProgress(50);
-          try {
-            let raw: Float32Array;
-            try {
-              const timed = await createKokoroTimedLoader()(cueTexts);
-              raw = timed.audio;
-              synthesizedCues = timed.cues;
-            } catch {
-              // Timestamped model unavailable or alignment failed → plain
-              // synthesis; captions keep the memoized (sidecar/even-split) timing.
-              raw = await createKokoroLoader()(cueTexts.join(". "));
-            }
-            const ceiling = Math.round(VIDEO_SECS * KOKORO_SAMPLE_RATE);
-            // Voice-fitted grid: when timed synthesis produced a span per
-            // cue, the audio defines the length (trimmed only past the 45s
-            // ceiling) instead of being padded to the fixed grid.
-            const target = synthesizedCues && voiceGridFromCues(synthesizedCues) ? Math.min(raw.length, ceiling) : Math.round((timing?.total ?? VIDEO_SECS) * KOKORO_SAMPLE_RATE);
-            if (raw.length > target) {
-              const secs = (raw.length / KOKORO_SAMPLE_RATE).toFixed(1);
-              setVoiceWarn(`Voice ran ${secs}s — trimmed to ${VIDEO_SECS}s video. Shorten the idea for a perfect fit.`);
-              pcm = raw.slice(0, target);
-            } else if (target === raw.length) {
-              pcm = raw;
-            } else {
-              const fitted = new Float32Array(target);
-              fitted.set(raw, 0);
-              pcm = fitted;
-            }
-            // Normalize: local TTS runs quiet-to-moderate (Kokoro peaks ~0.5)
-            // — peak to 0.89 so every export is loud and consistent.
-            if (pcm) {
-              let peak = 0;
-              for (let i = 0; i < pcm.length; i++) {
-                const a = Math.abs(pcm[i]);
-                if (a > peak) peak = a;
-              }
-              if (peak > 0.001) {
-                const gv = 0.89 / peak;
-                for (let i = 0; i < pcm.length; i++) pcm[i] = Math.max(-1, Math.min(1, pcm[i] * gv));
-              }
-            }
-          } catch (e) {
-            setStatus("error");
-            setErr(e instanceof Error ? e.message : String(e));
-            return;
-          } finally {
-            setExportProgress(65);
-          }
-        }
-        // Captions for THIS export: real synthesized word times when the
-        // timed model ran, otherwise the memoized plan (sidecar/even-split).
-        const exportWords = synthesizedCues ? planWordsTimed(script, synthesizedCues) : words;
-        // Visuals follow the same timeline: synthesized cue spans drive the
-        // render grid and caption phrase windows (clamped at the 45s ceiling
-        // when the voice was trimmed). The fixed grid / sidecar stays the
-        // fallback whenever timed synthesis didn't run or has a gap.
-        const voiceWindows = synthesizedCues && pcm ? voiceGridFromCues(synthesizedCues) : null;
-        const voiceTotal = voiceWindows && pcm ? Math.min(pcm.length / KOKORO_SAMPLE_RATE, VIDEO_SECS) : null;
-        const exportWindows = voiceTotal !== null
-          ? voiceWindows!.map((span) => ({ start: Math.min(span.start, voiceTotal), end: Math.min(span.end, voiceTotal) }))
-          : timing?.windows ?? null;
-        const baseDuration = voiceTotal ?? timing?.total ?? VIDEO_SECS;
-        const synthesized = synthesizedCues;
-        const exportCaptions = synthesized
-          ? makeCaptionPlan({
-              mode: captionMode,
-              voiceOn,
-              labels: captionLabels,
-              words: exportWords,
-              scenes: script.cues.map((cue, index) => ({
-                ...cue,
-                ...(synthesized[index]?.span
-                  ? { start: synthesized[index]!.span[0], end: synthesized[index]!.span[1] }
-                  : timing?.windows?.[index] ?? { start: cue.start, end: cue.end }),
-              })),
-            })
-          : captions;
-        if (desktop) {
-          exportAbortRef.current.signal.throwIfAborted();
-          // The Rust WAV sink is pinned to 16 kHz (src-tauri/src/render.rs);
-          // Kokoro speaks 24 kHz — downsample once here, FFmpeg muxes it.
-          if (pcm) pcm = resampleLinear(pcm, KOKORO_SAMPLE_RATE, 16000);
-          const totalDuration = baseDuration + (creditOn ? CREDIT_SECS : 0);
-          const baseFrames = planFrames(script, 30, exportWindows, approvedProofByCue, cueAssets);
-          const lastCue = script.cues[script.cues.length - 1]!;
-          const cardFrames: PlannedFrame[] = creditOn
-            ? Array.from({ length: Math.round(CREDIT_SECS * 30) }, (_, i) => ({ t: baseDuration + i / 30, cue: lastCue }))
-            : [];
-          const output = await renderDesktop({
-            frames: [...baseFrames, ...cardFrames], assets: cueAssets, theme,
-            extra: { captions: exportCaptions, words: exportWords, visualEffect, captionAnchor: preset.captionAnchor }, duration: totalDuration,
-            endCardAfter: creditOn ? baseDuration : undefined, pcm, signal: exportAbortRef.current.signal,
-            cueIndex: frame => cueIndexOf(script, frame.cue), seek: seekVideo,
-            progress: (percent,message) => { setExportProgress(percent); setExportMsg(message); },
-          });
-          if (output) { setNativeOutput(output); setStatus("exported"); setExportMsg(""); try { recordExport(storage, Date.now()); } catch { /* instrumentation never breaks export */ } }
-          else { setStatus("idle"); setExportMsg(""); }
-          return;
-        }
-        const buffer = await runBrowserExport({
-          script,
-          theme,
-          visualEffect,
-          captionAnchor: preset.captionAnchor,
-          captions: exportCaptions,
-          words: exportWords,
-          windows: exportWindows,
-          baseDuration,
-          creditOn,
-          voiceOn,
-          cueAssets,
-          approvedProofByCue,
-          pcm,
-          signal: exportAbortRef.current.signal,
-          onMessage: setExportMsg,
-          onPercent: setExportProgress,
-        });
-        const blob = new Blob([buffer], { type: "video/mp4" });
-        const url = URL.createObjectURL(blob);
-        setExportUrl(url);
-        try {
-          recordExport(storage, Date.now());
-        } catch {
-          // Activation stamp is instrumentation; the download already fired.
-        }
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = OUT_NAME;
-        a.click();
-        setStatus("exported");
-      } catch (e) {
-        setStatus("error");
-        setErr(e instanceof Error ? e.message : String(e));
-      } finally {
-        setExportProgress(0);
-      }
-    } finally {
-      busyRef.current = false;
-      exportAbortRef.current = null;
-    }
-  }
+  // Export inputs, resolved at click time so the controller never sees a
+  // stale closure over script/captions/choices.
+  const exportCtx: ExportContext = { script, theme, captionAnchor: preset.captionAnchor, visualEffect, captions, words, captionLabels, captionMode, voiceOn, creditOn, timing, sceneChoices, aiSuggestions, loadSceneAsset };
 
   const tiktok = script ? `${script.hook} ${pack.hashtags.join(" ")}` : "";
   const xpost = script ? `${script.hook} ${script.cta}`.slice(0, 280) : "";
@@ -829,8 +624,8 @@ export function App() {
         </div>
 
         {script && <ExportPanel script={script} tiktok={tiktok} xpost={xpost} voiceOn={voiceOn} onVoiceChange={setVoiceOn} onPreviewVoice={() => previewSpeak(script.hook)}
-          onExport={() => void onExport()} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} downloadUrl={exportUrl} captionMode={captionMode} onCaptionModeChange={setCaptionMode} visualEffect={visualEffect} onVisualEffectChange={setVisualEffect} platform={platform} onPlatformChange={setPlatform} creditOn={creditOn} onCreditChange={setCreditOn}
-          nativeOutput={nativeOutput} nativePreview={nativeOutput ? nativeMediaUrl(nativeOutput) : null} onReveal={() => nativeOutput && void showInFolder(nativeOutput).catch(error => setErr(String(error)))} onCancel={desktop ? () => exportAbortRef.current?.abort() : undefined} />}
+          onExport={() => void runExport(exportCtx)} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} downloadUrl={exportUrl} captionMode={captionMode} onCaptionModeChange={setCaptionMode} visualEffect={visualEffect} onVisualEffectChange={setVisualEffect} platform={platform} onPlatformChange={setPlatform} creditOn={creditOn} onCreditChange={setCreditOn}
+          nativeOutput={nativeOutput} nativePreview={nativeOutput ? nativeMediaUrl(nativeOutput) : null} onReveal={() => nativeOutput && void showInFolder(nativeOutput).catch(error => setErr(String(error)))} onCancel={desktop ? cancelExport : undefined} />}
 
         <footer className="cf-footer"><span>CLIPFLOW / BUILT TO KEEP IDEAS MOVING</span><a href="mailto:hello@mstudioweb.pt?subject=Clipflow%20Managed">NEED A MANAGED VIDEO PIPELINE? ↗</a></footer>
       </div>
