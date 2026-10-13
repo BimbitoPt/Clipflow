@@ -25,73 +25,20 @@ import { renderDesktop } from "./lib/desktop-render";
 import { deleteUpload, gcUploads, loadUploadBlob, saveUpload, touchUpload } from "./lib/upload-store";
 import { buildKeyframePrompt, generateKeyframe, hashSeed, keyframeId, keyframeSeedOf, keyframeUrl, loadPollinationsKey, sanitizePollinationsKey, savePollinationsKey, type KeyframeStatus } from "./lib/keyframes";
 import { markMilestone, recordExport, SAMPLE_IDEA } from "./lib/activation";
-import { MAX_QUEUE, AUDIO_CONFIG, probeAudioConfig, probeVideoConfig, RESUME_QUEUE, type FromWorker } from "./lib/export-worker-protocol";
+import { probeAudioConfig, probeVideoConfig } from "./lib/export-worker-protocol";
 import { isPlatformId, platformPreset, type PlatformId } from "../shared/platform-presets";
 import { nextQueueIndex, parseQueueIdeas, queuePosition, WEEK_KEY } from "./lib/week-queue";
 import type { VisualEffect } from "../shared/visual-effects";
 import type { PackId } from "./lib/packs";
 
-const OUT_W = 720, OUT_H = 1280, OUT_NAME = "clipflow-916.mp4";
+import { copyText, cueIndexOf, seekVideo } from "./lib/app-utils";
+import { OUT_NAME, runBrowserExport } from "./lib/browser-export";
 
 // Browser persistence is centralised in src/lib/session.ts (session snapshot +
 // word timing) and src/lib/storage.ts (the localStorage access point). The
 // editor reads/writes through that single injected store so a privacy setting
 // or storage failure degrades gracefully instead of crashing render.
 const storage = browserStore();
-
-async function copyText(s: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(s);
-    return;
-  } catch {
-    // fall through to legacy textarea path
-  }
-  const ta = document.createElement("textarea");
-  ta.value = s;
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand("copy");
-  ta.remove();
-}
-
-function cueIndexOf(script: { cues: Array<{ start: number; kind: string }> }, cue: { start: number; kind: string }): number {
-  const byRef = (script.cues as unknown[]).indexOf(cue as unknown);
-  if (byRef >= 0) return byRef;
-  const byStart = script.cues.findIndex((c) => c.start === cue.start && c.kind === cue.kind);
-  return byStart >= 0 ? byStart : 0;
-}
-
-async function seekVideo(el: HTMLVideoElement, t: number): Promise<void> {
-  try {
-    const dur = el.duration;
-    const target = Number.isFinite(dur) && dur > 0 ? t % dur : t;
-    if (Math.abs(el.currentTime - target) < 0.001) return;
-    await new Promise<void>((resolve) => {
-      let done = false;
-      const finish = () => {
-        if (!done) {
-          done = true;
-          resolve();
-        }
-      };
-      const timer = setTimeout(finish, 250);
-      const onSeeked = () => {
-        clearTimeout(timer);
-        el.removeEventListener("seeked", onSeeked);
-        finish();
-      };
-      el.addEventListener("seeked", onSeeked, { once: true });
-      try {
-        el.currentTime = target;
-      } catch {
-        clearTimeout(timer);
-        finish();
-      }
-    });
-  } catch {
-    // Seek is best-effort; gradient/video-current-frame fallback covers failure.
-  }
-}
 
 export function App() {
   const [projectPath, setProjectPath] = useState<string | null>(null);
@@ -714,179 +661,24 @@ export function App() {
           else { setStatus("idle"); setExportMsg(""); }
           return;
         }
-        setExportMsg("Muxing clipflow-916.mp4…");
-        // Encode off the main thread: this thread draws frames (video
-        // elements can't cross the boundary) and transfers each finished
-        // frame to the worker, which encodes + muxes. Backpressure via the
-        // worker queue keeps memory flat; periodic yields keep the UI alive.
-        const withAudio = Boolean(voiceOn && pcm);
-        const worker = new Worker(new URL("./lib/export-worker.ts", import.meta.url), { type: "module" });
-        let buffer: ArrayBuffer;
-        // Stall watchdog: a hung encoder used to look identical to a slow
-        // one. After 45s without a worker message, say so and name the way
-        // out instead of spinning forever.
-        let lastWorkerMsgAt = Date.now();
-        const watchdog = setInterval(() => {
-          const silentSec = Math.round((Date.now() - lastWorkerMsgAt) / 1000);
-          if (silentSec >= 45) {
-            setExportMsg(`Still encoding — no encoder response for ${silentSec}s. If this persists, restart Chrome or use the desktop app.`);
-          }
-        }, 5000);
-        try {
-          buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
-            let lastQueue = 0;
-            let gate: (() => void) | null = null;
-            let settled = false;
-            const release = () => {
-              const pending = gate;
-              gate = null;
-              if (pending) pending();
-            };
-            const fail = (error: unknown) => {
-              if (settled) return;
-              settled = true;
-              release();
-              reject(error instanceof Error ? error : new Error(String(error)));
-            };
-            worker.onmessage = (event: MessageEvent<FromWorker>) => {
-              const message = event.data;
-              lastWorkerMsgAt = Date.now();
-              if (message.type === "accepted") {
-                lastQueue = message.queue;
-                if (message.queue <= RESUME_QUEUE) release();
-              } else if (message.type === "stage") {
-                setExportMsg(
-                  message.stage === "flushing-video" ? "Flushing video encoder…"
-                  : message.stage === "flushing-audio" ? "Flushing voice encoder…"
-                  : "Finalizing MP4…",
-                );
-              } else if (message.type === "done") {
-                if (settled) return;
-                settled = true;
-                release();
-                resolve(message.buffer);
-              } else if (message.type === "error") {
-                fail(new Error(message.message));
-              }
-            };
-            worker.onerror = (event) => fail(event instanceof ErrorEvent ? event.message : "Export worker failed.");
-            exportAbortRef.current?.signal.addEventListener("abort", () => {
-              try {
-                worker.postMessage({ type: "abort" });
-              } catch {
-                // Terminate below still releases the worker.
-              }
-              fail(new DOMException("Export cancelled.", "AbortError"));
-            }, { once: true });
-            void (async () => {
-              try {
-                worker.postMessage({ type: "init", voice: withAudio });
-                const canvas = document.createElement("canvas");
-                canvas.width = OUT_W;
-                canvas.height = OUT_H;
-                const ctx = canvas.getContext("2d");
-                if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
-                const frames: PlannedFrame[] = planFrames(script, 30, exportWindows, approvedProofByCue, cueAssets);
-                const assetByCue = new Map<number, StockAsset | null>();
-                script.cues.forEach((_cue, i) => assetByCue.set(i, cueAssets[i] ?? null));
-                const totalDuration = baseDuration + (creditOn ? CREDIT_SECS : 0);
-                const totalFrames = frames.length + (creditOn ? Math.round(CREDIT_SECS * 30) : 0);
-                const postFrame = async (vf: VideoFrame, keyFrame: boolean) => {
-                  try {
-                    worker.postMessage({ type: "frame", frame: vf, keyFrame }, [vf]);
-                  } catch (postError) {
-                    try {
-                      vf.close();
-                    } catch {
-                      // Release is best-effort; the post error carries the failure.
-                    }
-                    throw postError;
-                  }
-                  n++;
-                  if (n % 90 === 0) {
-                    setExportProgress(65 + Math.round((30 * n) / totalFrames));
-                    setExportMsg(`Muxing ${n}/${totalFrames} frames…`);
-                  }
-                  if (lastQueue > MAX_QUEUE) await new Promise<void>((resume) => {
-                    gate = resume;
-                  });
-                  if (n % 30 === 0) await new Promise((paint) => setTimeout(paint, 0));
-                };
-                let n = 0;
-                for (const f of frames) {
-                  exportAbortRef.current?.signal.throwIfAborted();
-                  const idx = cueIndexOf(script, f.cue);
-                  const asset = assetByCue.get(idx) ?? null;
-                  if (asset?.kind === "video") {
-                    const video = asset.el as HTMLVideoElement;
-                    video.pause();
-                    // Keep local stock video moving continuously across scene cuts.
-                    // Resetting to scene-local time made every beat reuse the same opening angle.
-                    const seek = Number.isFinite(video.duration) && video.duration > 0
-                      ? f.t % video.duration : f.t;
-                    await seekVideo(video, seek);
-                  }
-                  const extra: RenderExtra = {};
-                  extra.visualEffect = visualEffect;
-                  extra.captions = exportCaptions;
-                  extra.captionAnchor = preset.captionAnchor;
-                  if (exportWords) extra.words = exportWords;
-                  if (asset) extra.asset = asset;
-                  drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, extra, totalDuration);
-                  const vf = new VideoFrame(canvas, { timestamp: Math.round(f.t * 1e6) });
-                  await postFrame(vf, f.t < 1);
-                }
-                if (creditOn) {
-                  const cardFrames = Math.round(CREDIT_SECS * 30);
-                  for (let i = 0; i < cardFrames; i++) {
-                    exportAbortRef.current?.signal.throwIfAborted();
-                    const t = baseDuration + i / 30;
-                    drawFrame(ctx as DrawCtx, { t, cue: script.cues[script.cues.length - 1]! }, theme, OUT_W, OUT_H, { endCard: true }, totalDuration);
-                    const vf = new VideoFrame(canvas, { timestamp: Math.round(t * 1e6) });
-                    await postFrame(vf, i === 0);
-                  }
-                }
-                if (withAudio && pcm) {
-                  // Chrome only encodes AAC at 44.1/48 kHz — Kokoro speaks
-                  // 24 kHz, so upsample here. The desktop FFmpeg path gets a
-                  // 16 kHz downsample instead (Rust sink is pinned).
-                  const voice = resampleLinear(pcm, KOKORO_SAMPLE_RATE, AUDIO_CONFIG.sampleRate);
-                  const CHUNK = 1_000_000;
-                  for (let off = 0; off < voice.length; off += CHUNK) {
-                    exportAbortRef.current?.signal.throwIfAborted();
-                    const slice = voice.slice(off, off + CHUNK);
-                    const ad = new AudioData({
-                      format: "f32",
-                      sampleRate: AUDIO_CONFIG.sampleRate,
-                      numberOfFrames: slice.length,
-                      numberOfChannels: 1,
-                      timestamp: Math.round((off * 1e6) / AUDIO_CONFIG.sampleRate),
-                      data: slice,
-                    });
-                    try {
-                      worker.postMessage({ type: "audio", data: ad }, [ad]);
-                    } catch (postError) {
-                      try {
-                        ad.close();
-                      } catch {
-                        // Release is best-effort.
-                      }
-                      throw postError;
-                    }
-                  }
-                }
-                worker.postMessage({ type: "finish" });
-              } catch (error) {
-                fail(error);
-              }
-            })();
-          });
-        } finally {
-          clearInterval(watchdog);
-          worker.terminate();
-        }
-        setExportProgress(100);
-        setExportMsg("");
+        const buffer = await runBrowserExport({
+          script,
+          theme,
+          visualEffect,
+          captionAnchor: preset.captionAnchor,
+          captions: exportCaptions,
+          words: exportWords,
+          windows: exportWindows,
+          baseDuration,
+          creditOn,
+          voiceOn,
+          cueAssets,
+          approvedProofByCue,
+          pcm,
+          signal: exportAbortRef.current.signal,
+          onMessage: setExportMsg,
+          onPercent: setExportProgress,
+        });
         const blob = new Blob([buffer], { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         setExportUrl(url);
