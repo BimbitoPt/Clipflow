@@ -27,17 +27,20 @@ pixels → MP4 + post copy. No stage talks to a server in the DIY path.
 
 ## 2. DIY pipeline (the engine)
 
-Implemented in `src/lib/`, orchestrated by `src/App.tsx`.
+Implemented in `src/lib/`, orchestrated by `src/App.tsx` (composition + the
+derived-plan memos) over three hooks: `src/hooks/useClipflowProject.ts`
+(document + project lifecycle), `src/hooks/useSceneAssets.ts` (media) and
+`src/hooks/useExportController.ts` (export lifecycle).
 
 ```
 idea + profile
   → buildScript (src/lib/script.ts:23) → VideoScript { hook, beats[3], cta, cues[5] }
-  → timing: localStorage word-times, exact idea+profile match only (App.tsx:70-131)
+  → timing: localStorage word-times, exact idea+profile match only (src/lib/session.ts:readWordTiming)
   → words: planWordsTimed | planWords (src/lib/planner.ts:111,161)
-  → captions: makeCaptionPlan (shared/caption-plan.ts, App.tsx:306)
+  → captions: makeCaptionPlan (shared/caption-plan.ts:36 — memoized in App.tsx, re-planned per export in useExportController)
   → frames: planFrames @30fps (src/lib/planner.ts:11)
   → pixels: drawFrame (src/lib/render.ts:352) + drawMotionGraphic (src/lib/motion-graphics.ts:144)
-  → export: browser mp4-muxer | desktop FFmpeg pipe
+  → export: browser mp4-muxer (src/lib/browser-export.ts) | desktop FFmpeg pipe
   → post copy: TikTok / X / LinkedIn strings + copy buttons
 ```
 
@@ -46,7 +49,7 @@ Stage contracts:
 1. **Script** — exactly 5 cues (`hook, beat×3, cta`), fixed spans
    `0–4 / 4–16 / 16–28 / 28–40 / 40–45` (`VIDEO_SECS = 45`). Overrides
    (`ScriptOverrides`, `src/lib/script-draft.ts`) invalidate measured
-   timing (`App.tsx:300`). Pack bans (`src/packs/*.json: banned`) apply.
+   timing (`App.tsx` timing memo — `hasScriptOverrides` invalidates it). Pack bans (`src/packs/*.json: banned`) apply.
 2. **Timing/words** — measured word-times win only on an exact cue/token
    match; otherwise even-split fallback. Every `WordCue` carries
    `cueIndex` so captions survive cue-boundary bleed.
@@ -87,25 +90,33 @@ B-roll (`src/lib/broll.ts`): local `STOCK_POOL` with keyword matching
 `ImageBitmap`/`HTMLVideoElement`. Uploads require explicit proof approval
 before export use (`approvedProofByCue`). Upload bytes persist in OPFS
 (`src/lib/upload-store.ts`, write-through on upload, rehydrated in
-`loadSceneAsset`, evicted with the choice or by 30-day GC); the browser
+`useSceneAssets.loadSceneAsset`, evicted with the choice or by 30-day GC); the browser
 also keeps a `clipflow.session` snapshot so reload restores editor state.
 Same-machine durability only — cross-machine upload portability (bytes in
 the project file) is explicitly out of scope; desktop native imports are
 path-based and already portable that way.
 
-## 3. State model (`src/App.tsx`)
+## 3. State model (`src/hooks/*` + `src/App.tsx`)
 
-All editor state lives in `App()` (`:165-199`): project fields
-(`projectPath/Error/Busy/savedSnapshot/projectBase/nativeOutput`),
-profile (`niche/audience/offer/tone/proof`, seeded from
-`loadProfile() ?? MSTUDIO_PROFILE`), `idea`, `scriptOverrides`,
-`sceneChoices[5]` (default `auto-ai`), `selectedScene`, `sceneAssets`,
-`voiceOn`, `captionMode`, `visualEffect`, `captionOverrides`,
-export status/progress/URL. Derived data (`profile`, `generatedScript`,
-`script`, `timing`, `words`, `captions`, `aiSuggestions`,
-`resolvedChoices`) is `useMemo`, never stored.
+State is split by responsibility; `App()` only composes:
 
-Invariants (enforced in `restoreProject`, `desktopAction`, `resolveSceneChoices`):
+| Module | Owns |
+|---|---|
+| `src/hooks/useClipflowProject.ts` | The document: `idea`, profile (`niche/audience/offer/tone/proof`, seeded from `loadInitialProfile`), `packId`, `scriptOverrides`, `sceneChoices[5]` (default `auto-ai`), `selectedScene`, `voiceOn`, `captionMode`, `captionOverrides`, `platform`, `creditOn`, `visualEffect`, `queueText`. Project lifecycle: `projectPath/Error/Busy/savedSnapshot/projectBase`, restore/save/open/new/import, browser session snapshot, native close guard, Ctrl+S/O/N. |
+| `src/hooks/useSceneAssets.ts` | `sceneAssets` + `assetLoading`, upload/generated OPFS caches and their disposal, scene thumbnails, upload GC, script-driven keyframe generation, Pollinations key. |
+| `src/hooks/useExportController.ts` | Export status/progress/message/download URL/voice warning/native output, cancellation (`busyRef` + `AbortController`), and the run itself: capability probes → TTS → per-export caption/window derivation → renderer dispatch. |
+| `src/components/PreviewRenderer.tsx` | The live frame: canvas, `planFrames`/`drawFrame` draw effect, first-preview milestone. |
+| `src/lib/session.ts` + `src/lib/storage.ts` | Browser persistence behind one injected store (`browserStorage`) — session snapshot and word-timing sidecar. |
+| `src/lib/browser-export.ts` | Worker orchestration for the browser MP4 path (backpressure, stall watchdog, credit card). |
+| `src/lib/desktop.ts` | DesktopProjectService: native open/save/initial/import/fingerprint + media helpers; native rendering is `src/lib/desktop-render.ts`. |
+
+Derived data (`profile`, `generatedScript`, `script`, `timing`, `words`,
+`captions`, `aiSuggestions`) stays in `App()` as `useMemo`, never stored.
+Hooks receive derived inputs at action time through explicit context objects
+(`getSaveContext()`, `ExportContext`) rebuilt on every render, so no action
+runs against a stale closure.
+
+Invariants (enforced in `useClipflowProject.restoreProject`/`desktopAction` and `resolveSceneChoices`):
 
 - Exactly 5 cues and 5 scene choices, or throw.
 - `timing.windows.length === cues.length`, else the fixed 45s grid.
@@ -164,7 +175,7 @@ behavior through `shared/`, never by editing both renderers in parallel.
 
 ## 7. Tests, build, packaging
 
-- Root: `vitest run` (18 files in `src/`, `include: src/**/*.test.ts`,
+- Root: `vitest run` (35 files in `src/`, `include: src/**/*.test.ts`,
   node env), `tsc --noEmit && vite build`, PWA via `vite-plugin-pwa`.
   Every pipeline stage has a guard (script, planner, words, render
   never-throw, captions, motion intent, broll pool counts, export

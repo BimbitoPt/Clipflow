@@ -24,3 +24,12 @@ export function loadProfile(storage: StorageLike): Profile | null {
 export function saveProfile(storage: StorageLike, profile: Profile): void {
   storage.setItem(KEY, JSON.stringify(profile));
 }
+
+/** Load the persisted profile, falling back to the default when absent or unreadable. */
+export function loadInitialProfile(storage: StorageLike): Profile {
+  try {
+    return loadProfile(storage) ?? MSTUDIO_PROFILE;
+  } catch {
+    return MSTUDIO_PROFILE;
+  }
+}
