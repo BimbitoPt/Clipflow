@@ -79,10 +79,10 @@ Stage contracts:
    `CREDIT_SECS` of `endCard` frames (browser) or `endCardAfter`-flagged
    frames (desktop) — the card replaces the whole frame, no captions.
    Desktop: `renderDesktop`
-   (`src/lib/desktop-render.ts`) streams PNG frames over Tauri `invoke`
-   to `src-tauri/src/render.rs` (`begin_render/render_frame/
+   (`src/lib/desktop-render.ts`) streams batched raw-RGBA frames over Tauri raw-binary `invoke`
+   to `src-tauri/src/render.rs` (`begin_render/render_frames/
    finish_render/cancel_render`), piped to bundled FFmpeg
-   (`libx264 fast, crf 19, yuv420p, faststart`). Single job at a time
+   (`-f rawvideo`, `libx264 fast, crf 19, yuv420p, faststart`). Single job at a time
    (`RenderState`), abortable via `AbortController`.
 
 B-roll (`src/lib/broll.ts`): local `STOCK_POOL` with keyword matching
@@ -148,7 +148,7 @@ tech debt; the next edit there should extract a shared helper.
 
 Tauri v2 app (`pt.mstudioweb.clipflow`): `main.rs` wires 10 commands —
 `projects::{save/open/initial/confirm_discard/import_media/
-show_in_folder}` and `render::{begin/render_frame/finish/cancel}`.
+show_in_folder}` and `render::{begin/render_frames/finish/cancel}`.
 Window `1440×960`, asset-protocol CSP, NSIS bundle with `ffmpeg.exe`
 and `.clipflow` file association (`tauri.conf.json`).
 
