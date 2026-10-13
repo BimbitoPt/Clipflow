@@ -1,196 +1,70 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { makeCaptionPlan, resolveCaptionMode, suggestSceneLabel, type CaptionMode } from "../shared/caption-plan";
+import { makeCaptionPlan, resolveCaptionMode, suggestSceneLabel } from "../shared/caption-plan";
 import { loadPack, PACK_IDS, packLabel, type Theme } from "./lib/packs";
-import { saveProfile, loadInitialProfile } from "./lib/profile";
 import { buildScript } from "./lib/script";
 import { planFrames, planWordsTimed, VIDEO_SECS } from "./lib/planner";
-import { browserStorage as storage, safeStorageGet } from "./lib/storage";
-import { readSession, readWordTiming, writeSession, writeWordTiming, WORDTIMES_KEY, type SessionSnapshot } from "./lib/session";
+import { browserStorage as storage } from "./lib/storage";
+import { readWordTiming } from "./lib/session";
 import { drawFrame, type DrawCtx, type RenderExtra } from "./lib/render";
 import { assignAiBackgrounds } from "./lib/ai-backgrounds";
-import type { SceneChoice } from "./lib/scene-assets";
-import { applyScriptOverrides, hasScriptOverrides, type ScriptOverrides } from "./lib/script-draft";
+import { applyScriptOverrides, hasScriptOverrides } from "./lib/script-draft";
 import { previewSpeak } from "./lib/tts";
+import { desktop, nativeMediaUrl, projectFingerprint, showInFolder } from "./lib/desktop";
 import ProfileSettings from "./components/ProfileSettings";
-import { useExportController, type ExportContext } from "./hooks/useExportController";
-import { useSceneAssets } from "./hooks/useSceneAssets";
 import ScriptBeats from "./components/ScriptBeats";
 import SceneTray from "./components/SceneTray";
 import ExportPanel from "./components/ExportPanel";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import DesktopToolbar from "./components/DesktopToolbar";
-import { desktop, importNativeMedia, openDesktopProject, initialDesktopProject, saveDesktopProject, nativeMediaUrl, showInFolder, confirmDiscard, projectFingerprint, type DesktopProjectV1 } from "./lib/desktop";
-import { gcUploads } from "./lib/upload-store";
 import { markMilestone, SAMPLE_IDEA } from "./lib/activation";
-import { isPlatformId, platformPreset, type PlatformId } from "../shared/platform-presets";
-import { nextQueueIndex, parseQueueIdeas, queuePosition, WEEK_KEY } from "./lib/week-queue";
-import type { VisualEffect } from "../shared/visual-effects";
+import { platformPreset } from "../shared/platform-presets";
+import { nextQueueIndex, parseQueueIdeas, queuePosition } from "./lib/week-queue";
 import type { PackId } from "./lib/packs";
 import { copyText, cueIndexOf } from "./lib/app-utils";
+import { useClipflowProject, type ProjectSaveContext } from "./hooks/useClipflowProject";
+import { useExportController, type ExportContext } from "./hooks/useExportController";
+import { useSceneAssets } from "./hooks/useSceneAssets";
 
-// Browser persistence is centralised in src/lib/session.ts (session snapshot +
-// word timing) and src/lib/storage.ts (the single injected localStorage access
-// point, shared with every hook). The editor reads/writes through that store so
-// a privacy setting or storage failure degrades gracefully instead of crashing
-// render.
-
+/**
+ * App composes the editor: document/project state from useClipflowProject,
+ * scene media from useSceneAssets, export lifecycle from useExportController,
+ * derived plan (script → timing → captions) as memos, and the page itself.
+ */
 export function App() {
-  const [projectPath, setProjectPath] = useState<string | null>(null);
-  const [projectError, setProjectError] = useState("");
-  const [projectBusy, setProjectBusy] = useState(false);
-  const [savedSnapshot, setSavedSnapshot] = useState("");
-  const [projectBase, setProjectBase] = useState<{idea: string; profile: string; script: ReturnType<typeof buildScript>} | null>(null);
-  // A single read feeds every profile-backed field: loadInitialProfile falls
-  // back to the default profile when the persisted one is absent or unreadable.
-  const initialProfile = useMemo(() => loadInitialProfile(storage), []);
-  const [niche, setNiche] = useState(initialProfile.niche);
-  const [audience, setAudience] = useState(initialProfile.audience);
-  const [packId, setPackId] = useState<PackId>("mstudio");
-  const [offer, setOffer] = useState(initialProfile.offer);
-  const [tone, setTone] = useState(initialProfile.tone);
-  const [proof, setProof] = useState(initialProfile.proof);
-  const [saved, setSaved] = useState("");
-  const [idea, setIdea] = useState("fixed-price websites that ship in two weeks");
   const [err, setErr] = useState("");
   // Export lifecycle: status, progress, messages, download/native output,
   // cancellation and the whole export run live behind the controller.
   const { status, exportMsg, exportProgress, exportUrl, voiceWarn, nativeOutput, busyRef, exportAbortRef, reset: resetExport, cancel: cancelExport, runExport } = useExportController(setErr);
-  const [scriptOverrides, setScriptOverrides] = useState<ScriptOverrides>({});
-  const [sceneChoices, setSceneChoices] = useState<SceneChoice[]>(() => Array.from({ length: 5 }, () => ({ kind: "auto-ai" })));
-  const [selectedScene, setSelectedScene] = useState(0);
-  const [voiceOn, setVoiceOn] = useState(true);
-  const [captionMode, setCaptionMode] = useState<CaptionMode>("auto");
-  const [platform, setPlatform] = useState<PlatformId>("tiktok");
-  const [creditOn, setCreditOn] = useState(false);
-  const [queueText, setQueueText] = useState(() => {
-    try {
-      return storage.getItem(WEEK_KEY) ?? "";
-    } catch {
-      return "";
-    }
+  const statusRef = useRef(status);
+  statusRef.current = status;
+  // Save-time inputs (script/captions/assets) are filled in below, after the
+  // derived memos; the project hook only reads them when the action runs.
+  const saveCtxRef = useRef<ProjectSaveContext>(null!);
+
+  const {
+    idea, setIdea, packId, setPackId, profile, saved, onSaveProfile,
+    scriptOverrides, setScriptOverrides, sceneChoices, setSceneChoices,
+    selectedScene, setSelectedScene, voiceOn, setVoiceOn, captionMode, setCaptionMode,
+    captionOverrides, setCaptionOverrides, platform, setPlatform, creditOn, setCreditOn,
+    visualEffect, setVisualEffect, queueText, setQueueText,
+    niche, setNiche, audience, setAudience, offer, setOffer, tone, setTone, proof, setProof,
+    projectBase, setProjectBase, projectPath, projectBusy, projectError, projectDirty, desktopAction,
+  } = useClipflowProject({
+    getSaveContext: () => saveCtxRef.current,
+    onRestored: resetExport,
+    setErr,
+    isExporting: () => statusRef.current === "working",
+    exportBusyRef: busyRef,
+    exportAbortRef,
   });
-  const [visualEffect, setVisualEffect] = useState<VisualEffect>("none");
-  const [captionOverrides, setCaptionOverrides] = useState<Record<number, string>>({});
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const profile = useMemo(() => ({ niche, audience, offer, tone, proof }), [niche, audience, offer, tone, proof]);
   const pack = useMemo(() => loadPack(packId), [packId]);
   const theme: Theme = pack.themes[1] ?? pack.themes[0]!;
   const preset = platformPreset(platform);
   const queueIdeas = useMemo(() => parseQueueIdeas(queueText), [queueText]);
   const queueNext = nextQueueIndex(queueIdeas, idea);
   const queuePos = queuePosition(queueIdeas, idea);
-  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: safeStorageGet(storage, WORDTIMES_KEY) };
-  const projectSnapshot = projectFingerprint(projectDraft);
-  const projectDirty = projectSnapshot !== savedSnapshot;
 
-  function restoreProject(project: DesktopProjectV1, path: string | null) {
-    if (project.version !== 1 || !Array.isArray(project.sceneChoices) || project.sceneChoices.length !== 5 || typeof project.idea !== "string" || !project.profile || !project.scriptOverrides || !project.captionOverrides) throw new Error("Invalid Clipflow project.");
-    setIdea(project.idea); setNiche(project.profile.niche); setAudience(project.profile.audience); setOffer(project.profile.offer); setTone(project.profile.tone); setProof(project.profile.proof);
-    if (project.baseScript && (!Array.isArray(project.baseScript.cues) || project.baseScript.cues.length !== 5)) throw new Error("The saved script has an invalid scene plan.");
-    setProjectBase(project.baseScript ? {idea: project.idea, profile: projectFingerprint(project.profile), script: project.baseScript} : null);
-    setScriptOverrides(project.scriptOverrides); setSceneChoices(project.sceneChoices); setCaptionMode(project.captionMode); setCaptionOverrides(project.captionOverrides); setVoiceOn(project.voiceOn); setVisualEffect(project.visualEffect ?? "none");
-    if (isPlatformId(project.platform)) setPlatform(project.platform);
-    setCreditOn(project.credit === true);
-    if (typeof project.pack === "string" && (PACK_IDS as readonly string[]).includes(project.pack)) {
-      setPackId(project.pack as PackId);
-      setProjectBase(null);
-    }
-    writeWordTiming(storage, project.timing ?? null);
-    const { savedAt: _savedAt, ...draft } = project;
-    setSavedSnapshot(projectFingerprint(draft)); setProjectPath(path); setSelectedScene(0); resetExport(); setErr("");
-  }
-
-  async function desktopAction(action: "open" | "save" | "import" | "new") {
-    if (projectBusy || status === "working") return;
-    if ((action === "open" || action === "new") && projectDirty && !await confirmDiscard("Discard unsaved project changes? Save your project first to keep them.")) return;
-    setProjectBusy(true); setProjectError("");
-    try {
-      if (action === "save") {
-        const savedFrames = script ? planFrames(script, 30, timing?.windows ?? null, sceneChoices.map((choice,index) => choice.kind === "upload" && choice.approvedProof === true && sceneAssets[index]?.src === `upload:${choice.id}`), sceneAssets) : [];
-        const renderPlan = script ? { renderer: "canvas-v1", fps: 30, duration: timing?.total ?? VIDEO_SECS, theme, captions,
-          timingSource: timing ? "measured" : "estimated", scenes: script.cues.map((cue,index) => {
-            const frame = savedFrames.find(frame => cueIndexOf(script, frame.cue) === index);
-            return { ...cue, ...timing?.windows?.[index], motionIntent: frame?.motionIntent, motionLabels: frame?.motionLabels };
-          }) } : null;
-        const result = await saveDesktopProject({ ...projectDraft, baseScript: generatedScript, renderPlan, savedAt: new Date().toISOString() });
-        if (result) { setSceneChoices(result.project.sceneChoices); setProjectPath(result.path); const { savedAt: _savedAt, ...draft } = result.project; setSavedSnapshot(projectFingerprint(draft)); }
-      } else if (action === "open") {
-        const result = await openDesktopProject(); if (result) restoreProject(result.project, result.path);
-      } else if (action === "new") {
-        restoreProject({ version: 1, idea: "", profile, scriptOverrides: {}, sceneChoices: Array.from({length: 5}, () => ({kind: "auto-ai"})), captionMode: "auto", captionOverrides: {}, voiceOn: false, visualEffect: "none", timing: null, savedAt: "" }, null);
-      } else {
-        const media = await importNativeMedia();
-        if (media) setSceneChoices(current => current.map((choice,index) => index === selectedScene ? media : choice));
-      }
-    } catch (error) { setProjectError(error instanceof Error ? error.message : String(error)); }
-    finally { setProjectBusy(false); }
-  }
-
-  useEffect(() => {
-    if (!desktop) return;
-    const nativeWindow = getCurrentWindow();
-    const listener = nativeWindow.onCloseRequested(async event => {
-      if (!projectDirty && !busyRef.current) return;
-      event.preventDefault();
-      const message = busyRef.current ? "Close Clipflow and cancel the current export? Unsaved changes will be lost." : "Close Clipflow without saving project changes?";
-      if (await confirmDiscard(message)) { exportAbortRef.current?.abort(); await nativeWindow.destroy(); }
-    });
-    return () => { void listener.then(unlisten => unlisten()); };
-  }, [projectDirty]);
-  useEffect(() => {
-    if (!desktop) return;
-    void initialDesktopProject().then(result => { if (result) restoreProject(result.project, result.path); }).catch(error => setProjectError(String(error)));
-  }, []);
-
-  // Browser-only: collect stale uploads, then restore the last session so a
-  // reload returns to the exact editor state (persisted uploads rehydrate
-  // through loadSceneAsset on the resolved-choices effect below).
-  useEffect(() => {
-    if (desktop) return;
-    void gcUploads().catch(() => {});
-    try {
-      markMilestone(storage, "firstVisit");
-    } catch {
-      // Instrumentation never breaks the editor.
-    }
-    const session = readSession(storage);
-    if (!session) return;
-    setIdea(session.idea);
-    setScriptOverrides(session.scriptOverrides);
-    setSceneChoices(session.sceneChoices);
-    setCaptionMode(session.captionMode);
-    setCaptionOverrides(session.captionOverrides);
-    setVoiceOn(session.voiceOn);
-    setVisualEffect(session.visualEffect);
-    setPlatform(session.platform);
-    setCreditOn(session.credit);
-    setPackId(session.pack);
-    setProjectBase(null);
-  }, []);
-
-  useEffect(() => {
-    if (desktop) return;
-    writeSession(storage, { idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId } satisfies SessionSnapshot);
-  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn, packId]);
-
-  useEffect(() => {
-    try {
-      storage.setItem(WEEK_KEY, queueText);
-    } catch {
-      // Queue persistence is convenience; the editor works without it.
-    }
-  }, [queueText]);
-
-  useEffect(() => {
-    if (!desktop) return;
-    const key = (event: KeyboardEvent) => {
-      if (!event.ctrlKey || event.altKey || event.shiftKey) return;
-      const action = ({s: "save", o: "open", n: "new"} as const)[event.key.toLowerCase() as "s" | "o" | "n"];
-      if (action) { event.preventDefault(); void desktopAction(action); }
-    };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  });
   const { generatedScript, err: generatedErr } = useMemo(() => {
     try {
       return { generatedScript: projectBase?.idea === idea && projectBase.profile === projectFingerprint(profile) ? projectBase.script : buildScript(idea, profile, pack), err: "" };
@@ -226,6 +100,9 @@ export function App() {
   // script-driven keyframe generation.
   const { sceneAssets, assetLoading, loadSceneAsset, onUpload, sceneThumb, keyframeStatus, generateKeyframeNow, pollinationsKey, onPollinationsKeyChange } =
     useSceneAssets({ sceneChoices, setSceneChoices, selectedScene, setErr, aiSuggestions, generatedScript, profile, idea });
+
+  // Live frame preview: same draw engine as the MP4, one middle frame of the
+  // selected scene.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -258,18 +135,11 @@ export function App() {
     }
   }, [script, words, captions, timing, selectedScene, sceneAssets, sceneChoices, visualEffect, preset]);
 
-  function onSave() {
-    try {
-      saveProfile(storage, { niche, audience, offer, tone, proof });
-      setSaved("Saved.");
-    } catch {
-      setSaved("Storage quota exceeded — profile not saved.");
-    }
-  }
-
   // Export inputs, resolved at click time so the controller never sees a
   // stale closure over script/captions/choices.
   const exportCtx: ExportContext = { script, theme, captionAnchor: preset.captionAnchor, visualEffect, captions, words, captionLabels, captionMode, voiceOn, creditOn, timing, sceneChoices, aiSuggestions, loadSceneAsset };
+  // Save inputs for the project hook (read only when save/new runs).
+  saveCtxRef.current = { script, generatedScript, theme, captions, timing, sceneAssets };
 
   const tiktok = script ? `${script.hook} ${pack.hashtags.join(" ")}` : "";
   const xpost = script ? `${script.hook} ${script.cta}`.slice(0, 280) : "";
@@ -339,7 +209,7 @@ export function App() {
                   </button>
                 </div>
               )}
-              <ProfileSettings profile={profile} disabled={isWorking} saved={saved} onSave={onSave} onChange={(field, value) => {
+              <ProfileSettings profile={profile} disabled={isWorking} saved={saved} onSave={onSaveProfile} onChange={(field, value) => {
                 ({ niche: setNiche, audience: setAudience, offer: setOffer, tone: setTone, proof: setProof })[field](value);
                 setScriptOverrides({});
               }} />
