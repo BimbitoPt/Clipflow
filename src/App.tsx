@@ -2,24 +2,24 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { makeCaptionPlan, resolveCaptionMode, suggestSceneLabel } from "../shared/caption-plan";
 import { loadPack, PACK_IDS, packLabel, type Theme } from "./lib/packs";
 import { buildScript } from "./lib/script";
-import { planFrames, planWordsTimed, VIDEO_SECS } from "./lib/planner";
+import { planWordsTimed } from "./lib/planner";
 import { browserStorage as storage } from "./lib/storage";
 import { readWordTiming } from "./lib/session";
-import { drawFrame, type DrawCtx, type RenderExtra } from "./lib/render";
 import { assignAiBackgrounds } from "./lib/ai-backgrounds";
 import { applyScriptOverrides, hasScriptOverrides } from "./lib/script-draft";
 import { previewSpeak } from "./lib/tts";
 import { desktop, nativeMediaUrl, projectFingerprint, showInFolder } from "./lib/desktop";
 import ProfileSettings from "./components/ProfileSettings";
+import PreviewRenderer from "./components/PreviewRenderer";
 import ScriptBeats from "./components/ScriptBeats";
 import SceneTray from "./components/SceneTray";
 import ExportPanel from "./components/ExportPanel";
 import DesktopToolbar from "./components/DesktopToolbar";
-import { markMilestone, SAMPLE_IDEA } from "./lib/activation";
+import { SAMPLE_IDEA } from "./lib/activation";
 import { platformPreset } from "../shared/platform-presets";
 import { nextQueueIndex, parseQueueIdeas, queuePosition } from "./lib/week-queue";
 import type { PackId } from "./lib/packs";
-import { copyText, cueIndexOf } from "./lib/app-utils";
+import { copyText } from "./lib/app-utils";
 import { useClipflowProject, type ProjectSaveContext } from "./hooks/useClipflowProject";
 import { useExportController, type ExportContext } from "./hooks/useExportController";
 import { useSceneAssets } from "./hooks/useSceneAssets";
@@ -57,7 +57,6 @@ export function App() {
     exportAbortRef,
   });
 
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pack = useMemo(() => loadPack(packId), [packId]);
   const theme: Theme = pack.themes[1] ?? pack.themes[0]!;
   const preset = platformPreset(platform);
@@ -100,40 +99,6 @@ export function App() {
   // script-driven keyframe generation.
   const { sceneAssets, assetLoading, loadSceneAsset, onUpload, sceneThumb, keyframeStatus, generateKeyframeNow, pollinationsKey, onPollinationsKeyChange } =
     useSceneAssets({ sceneChoices, setSceneChoices, selectedScene, setErr, aiSuggestions, generatedScript, profile, idea });
-
-  // Live frame preview: same draw engine as the MP4, one middle frame of the
-  // selected scene.
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    if (!script) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      return;
-    }
-    try {
-      const frames = planFrames(script, 30, timing?.windows ?? null, sceneChoices.map((choice, index) => choice.kind === "upload" && choice.approvedProof === true && sceneAssets[index]?.src === `upload:${choice.id}`), sceneAssets);
-      const cueFrames = frames.filter((frame) => cueIndexOf(script, frame.cue) === selectedScene);
-      const frame = cueFrames[Math.floor(cueFrames.length / 2)] ?? frames[0];
-      if (!frame) return;
-      const extra: RenderExtra = {};
-      extra.visualEffect = visualEffect;
-      extra.captions = captions;
-      extra.captionAnchor = preset.captionAnchor;
-      if (words) extra.words = words;
-      const asset = sceneAssets[selectedScene];
-      if (asset) extra.asset = asset;
-      drawFrame(ctx as DrawCtx, frame, theme, 360, 640, extra, timing?.total ?? VIDEO_SECS);
-      try {
-        markMilestone(storage, "firstPreview");
-      } catch {
-        // Instrumentation never breaks the editor.
-      }
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    }
-  }, [script, words, captions, timing, selectedScene, sceneAssets, sceneChoices, visualEffect, preset]);
 
   // Export inputs, resolved at click time so the controller never sees a
   // stale closure over script/captions/choices.
@@ -226,7 +191,7 @@ export function App() {
 
           <section className="cf-preview-panel" aria-label="Video frame preview">
             <div className="cf-preview-heading"><div><span className="cf-kicker">LIVE FRAME</span><h2>{sceneLabels[selectedScene]}</h2></div><span className="cf-preview-ratio">9:16 / 720P</span></div>
-            <div className="cf-canvas-wrap"><canvas ref={canvasRef} width={360} height={640} aria-label={`Scene ${selectedScene + 1} preview`} /></div>
+            <div className="cf-canvas-wrap"><PreviewRenderer script={script} words={words} captions={captions} timing={timing} selectedScene={selectedScene} sceneChoices={sceneChoices} sceneAssets={sceneAssets} visualEffect={visualEffect} theme={theme} captionAnchor={preset.captionAnchor} onError={setErr} /></div>
             <div className="cf-scene-strip" aria-label="Select a scene">
               {sceneLabels.map((label, index) => <button key={label} type="button" disabled={isWorking} title={`${label}: ${sceneThumb(index) ? "visual selected" : sceneChoices[index]?.kind ?? "AI visual"}`} className={selectedScene === index ? "active" : ""} aria-pressed={selectedScene === index} onClick={() => setSelectedScene(index)}><span className="cf-scene-thumb" style={sceneThumb(index) ? { backgroundImage: `url('${sceneThumb(index)}')` } : undefined}>{String(index + 1).padStart(2, "0")}</span><b>{label}</b></button>)}
             </div>
