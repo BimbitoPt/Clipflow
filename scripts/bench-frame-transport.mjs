@@ -257,6 +257,7 @@ async function main() {
       rawTotalMs: +(result.raw.totalMs + rawEncodeMs).toFixed(1),
     },
     parity: result.parity,
+    canvasParity: result.canvasParity,
     heapAvailable: result.heapAvailable,
   };
 
@@ -300,6 +301,10 @@ async function main() {
   lines.push(result.parity.mismatched
     ? `PARITY FAIL: PNG round trip differed from raw pixels at frame ${result.parity.firstMismatch}`
     : "Parity: PNG round trip is byte-identical to raw pixels on every sampled frame.");
+  const cp = result.canvasParity;
+  lines.push(cp.mismatched
+    ? `CANVAS PARITY FAIL: willReadFrequently canvas differed from a default canvas at frame ${cp.firstMismatch} (max channel delta ${cp.maxDelta})`
+    : `Canvas parity: willReadFrequently rasterization is byte-identical to a default canvas on all ${cp.checked} sampled frames (default-canvas getImageData ${cp.gpuGetImageDataMs} ms/frame vs ${result.raw.getImageDataMs} ms/frame).`);
   lines.push("");
   lines.push(`JSON written to ${path.relative(ROOT, path.join(OUT, "bench-frame-transport.json")).replace(/\\/g, "/")}`);
 

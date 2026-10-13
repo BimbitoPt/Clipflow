@@ -61,12 +61,14 @@ Remotion and SaaS are shown as adjacent surfaces, not as a claim that every runt
 
 | | PNG + base64 (before) | raw RGBA batched (after) |
 |---|---|---|
-| Renderer conversion | 44.62 ms/frame | 5.00 ms/frame (8.9x) |
-| IPC calls (90 frames) | 90 | 23 (3.9x fewer) |
+| Renderer conversion | 56.42 ms/frame | 6.93 ms/frame (**8.1x**) |
+| IPC calls | 90 | 23 (**3.9x fewer**) |
 | IPC payload | 42.7 MiB | 316.4 MiB (7.4x more bytes — uncompressed pixels; the honest trade) |
-| FFmpeg ingest | 100.36 ms/frame, RSS 126.1 MiB | 77.18 ms/frame (1.30x), RSS 122.3 MiB |
-| Projected export | 13.05 s | 7.40 s (1.76x) |
-| Pixel parity | PNG round trip byte-identical to raw pixels on all 12 sampled frames |
+| FFmpeg ingest | 127.31 ms/frame, RSS 119.9 MiB | 80.27 ms/frame (**1.59x**), RSS 122.4 MiB |
+| Projected export | 16.54 s | 7.85 s (**2.11x**) |
+| Pixel parity | PNG round trip byte-identical to raw pixels on all sampled frames |
+
+`willReadFrequently` on the export canvas is load-bearing for readback speed (6.06 vs 25.58 ms/frame `getImageData` on a default canvas) and provably pixel-identical to a default canvas on all sampled frames (see `canvasParity` in the benchmark JSON).
 
 Peak extra JS memory is bounded by the two batch slots (2 × 14.1 MiB) regardless of export length. Per-frame transient allocation is higher (3.7 MiB ImageData vs 0.5 MiB base64 string) but short-lived; steady-state pressure is lower with no PNG/base64 churn.
 

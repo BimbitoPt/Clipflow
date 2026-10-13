@@ -822,6 +822,18 @@ async function transport(n: number, opts?: InspectOpts) {
   // Frames handed to the Node side, which replays them through both FFmpeg
   // demuxers. Enough to get past encoder startup into steady state.
   const SAMPLE_FRAMES = 30;
+  // A default (GPU-backed) canvas, mirroring what the old production path drew
+  // on. Production now uses willReadFrequently (see desktop-render.ts); if the
+  // rasterizer differs between the two, exported pixels would change for
+  // reasons unrelated to the transport. This probe keeps that honest.
+  const gpuCanvas = document.createElement("canvas");
+  gpuCanvas.width = W;
+  gpuCanvas.height = H;
+  const gpu = gpuCanvas.getContext("2d")!;
+  const gpuReadMs: number[] = [];
+  let canvasMismatched = 0;
+  let canvasFirstMismatch = -1;
+  let canvasMaxDelta = 0;
   for (let i = 0; i < count; i++) {
     clearFrame(real);
     await drawOne(real, frameOf(i), c, false, true);
@@ -849,6 +861,8 @@ async function transport(n: number, opts?: InspectOpts) {
     peakBatchBytes = Math.max(peakBatchBytes, frameBytes * 4);
 
     // Parity: re-decode the PNG we just produced and compare to raw pixels.
+    // Plus: draw the same frame on a default-context canvas and compare, so a
+    // rasterizer difference from willReadFrequently cannot hide here.
     if (i < PARITY_FRAMES) {
       const blob = await (await fetch(dataUrl)).blob();
       const bmp = await createImageBitmap(blob);
@@ -860,6 +874,26 @@ async function transport(n: number, opts?: InspectOpts) {
         if (roundTrip[k] !== img.data[k]) {
           mismatched++;
           if (firstMismatch < 0) firstMismatch = i;
+          break;
+        }
+      }
+      gpu.save();
+      gpu.setTransform(1, 0, 0, 1, 0, 0);
+      gpu.filter = "none";
+      gpu.globalAlpha = 1;
+      gpu.fillStyle = "#000000";
+      gpu.fillRect(0, 0, W, H);
+      gpu.restore();
+      await drawOne(gpu as unknown as CanvasRenderingContext2D, frameOf(i), c, false, true);
+      const t3 = performance.now();
+      const gpuPx = gpu.getImageData(0, 0, W, H).data;
+      gpuReadMs.push(performance.now() - t3);
+      for (let k = 0; k < frameBytes; k++) {
+        const d = Math.abs(gpuPx[k]! - img.data[k]!);
+        if (d > canvasMaxDelta) canvasMaxDelta = d;
+        if (d !== 0) {
+          canvasMismatched++;
+          if (canvasFirstMismatch < 0) canvasFirstMismatch = i;
           break;
         }
       }
@@ -880,6 +914,13 @@ async function transport(n: number, opts?: InspectOpts) {
       bytes: rawBytes, ipcCalls: Math.ceil(count / 4), peakBatchBytes, peakHeapBytes: rawPeakHeap,
     },
     parity: { checked: Math.min(PARITY_FRAMES, count), mismatched, firstMismatch },
+    canvasParity: {
+      checked: Math.min(PARITY_FRAMES, count),
+      mismatched: canvasMismatched,
+      firstMismatch: canvasFirstMismatch,
+      maxDelta: canvasMaxDelta,
+      gpuGetImageDataMs: gpuReadMs.length > 0 ? +(sum(gpuReadMs) / gpuReadMs.length).toFixed(3) : 0,
+    },
     samplePng,
     heapAvailable: heap() > 0,
   };
