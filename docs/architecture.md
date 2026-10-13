@@ -79,8 +79,8 @@ Stage contracts:
    `CREDIT_SECS` of `endCard` frames (browser) or `endCardAfter`-flagged
    frames (desktop) — the card replaces the whole frame, no captions.
    Desktop: `renderDesktop`
-   (`src/lib/desktop-render.ts`) streams batched raw-RGBA frames over Tauri raw-binary `invoke`
-   to `src-tauri/src/render.rs` (`begin_render/render_frames/
+   (`src/lib/desktop-render.ts`) streams batched raw-RGB24 frames over Tauri raw-binary `invoke`
+   to `src-tauri/src/render.rs` (`begin_render/render_frames/prepare_audio
    finish_render/cancel_render`), piped to bundled FFmpeg
    (`-f rawvideo`, `libx264 fast, crf 19, yuv420p, faststart`). Single job at a time
    (`RenderState`), abortable via `AbortController`.

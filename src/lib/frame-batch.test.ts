@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FrameBatcher, HEADER_FRAME_COUNT, HEADER_RENDER_ID, rgbaFrameBytes } from "./frame-batch";
+import { FrameBatcher, HEADER_FRAME_COUNT, HEADER_RENDER_ID, packRgb24, rgbFrameBytes, rgbaFrameBytes } from "./frame-batch";
 
 const FRAME_BYTES = rgbaFrameBytes(720, 1280);
 
@@ -25,6 +25,49 @@ describe("rgbaFrameBytes", () => {
   it("counts four bytes per pixel", () => {
     expect(rgbaFrameBytes(720, 1280)).toBe(3_686_400);
     expect(rgbaFrameBytes(1, 1)).toBe(4);
+  });
+});
+
+describe("rgbFrameBytes", () => {
+  it("counts three bytes per pixel", () => {
+    expect(rgbFrameBytes(720, 1280)).toBe(2_764_800);
+    expect(rgbFrameBytes(1, 1)).toBe(3);
+  });
+});
+
+describe("packRgb24", () => {
+  it("drops alpha and preserves channel order", () => {
+    const src = new Uint8ClampedArray([10, 20, 30, 255, 40, 50, 60, 255]);
+    const dst = new Uint8Array(6);
+    packRgb24(src, dst, 0);
+    expect(Array.from(dst)).toEqual([10, 20, 30, 40, 50, 60]);
+  });
+
+  it("writes at the given offset without touching neighbors", () => {
+    const src = new Uint8ClampedArray([1, 2, 3, 255]);
+    const dst = new Uint8Array([9, 9, 9, 9, 9, 9]);
+    packRgb24(src, dst, 3);
+    expect(Array.from(dst)).toEqual([9, 9, 9, 1, 2, 3]);
+  });
+
+  it("keeps non-255 alpha pixels' color channels verbatim", () => {
+    // The gate guarantees alpha is 255, but the packer must not mangle colors
+    // even where it is not — it drops the channel, nothing else.
+    const src = new Uint8ClampedArray([7, 8, 9, 128]);
+    const dst = new Uint8Array(3);
+    packRgb24(src, dst, 0);
+    expect(Array.from(dst)).toEqual([7, 8, 9]);
+  });
+
+  it("rejects a source that is not whole pixels", () => {
+    expect(() => packRgb24(new Uint8ClampedArray(5), new Uint8Array(6), 0)).toThrow(/whole number/);
+  });
+
+  it("rejects a destination with no room", () => {
+    const src = new Uint8ClampedArray([1, 2, 3, 255, 4, 5, 6, 255]);
+    expect(() => packRgb24(src, new Uint8Array(5), 0)).toThrow(/need 6 bytes/);
+    expect(() => packRgb24(src, new Uint8Array(9), 4)).toThrow(/need 6 bytes/);
+    expect(() => packRgb24(src, new Uint8Array(6), -1)).toThrow(/need 6 bytes/);
   });
 });
 
@@ -142,10 +185,11 @@ describe("FrameBatcher", () => {
   it("reports the same byte count the Rust side validates", () => {
     // Desktop export uses these exact constants; a drift here would make
     // render_frames reject every batch as the wrong size.
-    const batcher = new FrameBatcher(FRAME_BYTES, 4);
+    const rgbBytes = rgbFrameBytes(720, 1280);
+    const batcher = new FrameBatcher(rgbBytes, 4);
     let batch: ReturnType<FrameBatcher["add"]> = null;
-    for (let i = 0; i < 4; i++) batch = batcher.add(new Uint8ClampedArray(FRAME_BYTES));
-    expect(batch?.bytes.length).toBe(FRAME_BYTES * 4);
+    for (let i = 0; i < 4; i++) batch = batcher.add(new Uint8ClampedArray(rgbBytes));
+    expect(batch?.bytes.length).toBe(rgbBytes * 4);
     expect(batch?.frames).toBe(4);
   });
 });

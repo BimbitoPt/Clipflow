@@ -1,10 +1,12 @@
 /**
  * Frame batching for the desktop render bridge.
  *
- * The native side consumes raw RGBA pixels through a Tauri *raw-binary* IPC body
+ * The native side consumes raw RGB24 pixels through a Tauri *raw-binary* IPC body
  * (`InvokeBody::Raw`, sent as `application/octet-stream`), so every byte here is
  * forwarded verbatim: no `canvas.toDataURL("image/png")`, no base64, no JSON
  * string escaping. See docs/codebase-review.md (P1, desktop frame transport).
+ * Alpha is dropped at pack time (`packRgb24`): every exported pixel is fully
+ * opaque, so the channel carries no information and RGB24 cuts wire bytes 25%.
  *
  * Batching exists to keep the IPC call count bounded. A 45 s / 30 fps export is
  * 1,350 frames; one invoke per frame dominated the export with serialization and
@@ -23,7 +25,7 @@ export const HEADER_FRAME_COUNT = "x-clipflow-frame-count";
 
 /** A packed run of whole frames, ready to be handed to `invoke`. */
 export interface FrameBatch {
-  /** Raw RGBA bytes, exactly `frames * frameBytes` long. */
+  /** Raw RGB24 bytes, exactly `frames * frameBytes` long. */
   readonly bytes: Uint8Array;
   /** How many frames `bytes` contains; always >= 1. */
   readonly frames: number;
@@ -89,4 +91,33 @@ export class FrameBatcher {
 /** Bytes per frame for an RGBA canvas of the given size. */
 export function rgbaFrameBytes(width: number, height: number): number {
   return width * height * 4;
+}
+
+/** Bytes per frame once the (always opaque — see benchmark RGB24 gate) alpha channel is dropped. */
+export function rgbFrameBytes(width: number, height: number): number {
+  return width * height * 3;
+}
+
+/**
+ * Pack one RGBA frame into RGB triplets, dropping alpha.
+ *
+ * The renderer draws every frame over a fully opaque background and the
+ * benchmark's RGB24 gate asserts alpha is 255 on sampled frames, so the
+ * dropped channel carries no information. `dst` must have room for
+ * `src.length / 4 * 3` bytes at `dstByteOffset`.
+ */
+export function packRgb24(src: ArrayLike<number>, dst: Uint8Array, dstByteOffset: number): void {
+  if (src.length % 4 !== 0) {
+    throw new Error(`packRgb24: expected a whole number of RGBA pixels, got ${src.length} bytes`);
+  }
+  const need = (src.length / 4) * 3;
+  if (dstByteOffset < 0 || dst.length - dstByteOffset < need) {
+    throw new Error(`packRgb24: need ${need} bytes at offset ${dstByteOffset}, dst has ${dst.length}`);
+  }
+  let j = dstByteOffset;
+  for (let i = 0; i < src.length; i += 4) {
+    dst[j++] = src[i]!;
+    dst[j++] = src[i + 1]!;
+    dst[j++] = src[i + 2]!;
+  }
 }

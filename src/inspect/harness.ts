@@ -834,6 +834,16 @@ async function transport(n: number, opts?: InspectOpts) {
   let canvasMismatched = 0;
   let canvasFirstMismatch = -1;
   let canvasMaxDelta = 0;
+  // RGB24 gate: count pixels whose alpha is not fully opaque. Dropping the
+  // alpha channel is only safe if every exported pixel has alpha 255.
+  let alphaNonOpaque = 0;
+  let alphaFirstNonOpaque = -1;
+  const stripMs: number[] = [];
+  const rgbScratch = new Uint8Array(frameBytes - W * H);
+  // Second slot pair sized for RGB24, mirroring the production batcher after
+  // the switch: strip + copy is the real per-frame packing cost.
+  const rgbSlots = [new Uint8Array((frameBytes - W * H) * 4), new Uint8Array((frameBytes - W * H) * 4)];
+  const copyRgbMs: number[] = [];
   for (let i = 0; i < count; i++) {
     clearFrame(real);
     await drawOne(real, frameOf(i), c, false, true);
@@ -863,6 +873,7 @@ async function transport(n: number, opts?: InspectOpts) {
     // Parity: re-decode the PNG we just produced and compare to raw pixels.
     // Plus: draw the same frame on a default-context canvas and compare, so a
     // rasterizer difference from willReadFrequently cannot hide here.
+    // Plus: scan alpha (RGB24 gate) and time the RGBA->RGB strip pass.
     if (i < PARITY_FRAMES) {
       const blob = await (await fetch(dataUrl)).blob();
       const bmp = await createImageBitmap(blob);
@@ -897,6 +908,27 @@ async function transport(n: number, opts?: InspectOpts) {
           break;
         }
       }
+      // Alpha scan + strip timing over the production-sized pixels.
+      let nonOpaque = 0;
+      for (let k = 3; k < frameBytes; k += 4) {
+        if (img.data[k] !== 255) {
+          nonOpaque++;
+          if (alphaFirstNonOpaque < 0) alphaFirstNonOpaque = i;
+        }
+      }
+      alphaNonOpaque += nonOpaque;
+      const t4 = performance.now();
+      const src = img.data;
+      let j = 0;
+      for (let k = 0; k < frameBytes; k += 4) {
+        rgbScratch[j++] = src[k]!;
+        rgbScratch[j++] = src[k + 1]!;
+        rgbScratch[j++] = src[k + 2]!;
+      }
+      stripMs.push(performance.now() - t4);
+      const t5 = performance.now();
+      rgbSlots[i % 2]!.set(rgbScratch, 0);
+      copyRgbMs.push(performance.now() - t5);
     }
   }
   const sum = (v: number[]) => v.reduce((a, b) => a + b, 0);
@@ -920,6 +952,13 @@ async function transport(n: number, opts?: InspectOpts) {
       firstMismatch: canvasFirstMismatch,
       maxDelta: canvasMaxDelta,
       gpuGetImageDataMs: gpuReadMs.length > 0 ? +(sum(gpuReadMs) / gpuReadMs.length).toFixed(3) : 0,
+    },
+    rgb24: {
+      checked: Math.min(PARITY_FRAMES, count),
+      alphaNonOpaque,
+      alphaFirstNonOpaque,
+      stripMs: stripMs.length > 0 ? +(sum(stripMs) / stripMs.length).toFixed(3) : 0,
+      copyMs: copyRgbMs.length > 0 ? +(sum(copyRgbMs) / copyRgbMs.length).toFixed(3) : 0,
     },
     samplePng,
     heapAvailable: heap() > 0,

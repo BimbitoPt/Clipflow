@@ -43,7 +43,7 @@ flowchart TD
 
 1. The editor holds the working idea, profile, script overrides, scene choices, caption settings and export state.
 2. Script/planner modules turn the idea into timed cues and frame plans. Shared drawing code renders preview and export frames.
-3. Browser export transfers frames/audio to a worker for encoding and muxing. Desktop export sends batched raw-RGBA frames (binary IPC, 4/batch) and PCM to Tauri commands that own the native render job.
+3. Browser export transfers frames/audio to a worker for encoding and muxing. Desktop export sends batched raw-RGB24 frames (binary IPC, 4/batch) and staged voice audio (binary upload claimed by token) to Tauri commands that own the native render job.
 4. Browser projects rely on browser persistence and OPFS uploads. Desktop projects are serialized as native .clipflow project files.
 5. Local TTS is lazy-loaded, but first synthesis may still need to download model assets.
 
@@ -55,32 +55,30 @@ Remotion and SaaS are shown as adjacent surfaces, not as a claim that every runt
 
 **Evidence:** src/lib/desktop-render.ts encoded every frame with canvas.toDataURL('image/png'), extracted base64, then invoked render_frame once per frame. A 45-second 30 fps render meant roughly 1,350 PNG encodes and IPC calls before native encoding.
 
-**Fix (shipped):** batched raw-RGBA binary transport — `ctx.getImageData` into a two-slot `FrameBatcher` (`src/lib/frame-batch.ts`, 4 frames/batch), one `invoke('render_frames', Uint8Array, { headers })` per batch (`InvokeBody::Raw` + `x-clipflow-render-id`/`x-clipflow-frame-count` headers), strict byte-length validation in `src-tauri/src/render.rs`, FFmpeg input switched to `-f rawvideo -pixel_format rgba`. At most one batch in flight (frame order guaranteed), drawing overlaps transfer, cancellation/progress/cleanup semantics unchanged. The old `render_frame` command and the `base64` dependency were removed.
+**Fix (shipped):** batched raw-RGB24 binary transport — `ctx.getImageData`, alpha stripped (`packRgb24`) into a two-slot `FrameBatcher` (`src/lib/frame-batch.ts`, 4 frames/batch), one `invoke('render_frames', Uint8Array, { headers })` per batch (`InvokeBody::Raw` + `x-clipflow-render-id`/`x-clipflow-frame-count` headers), strict byte-length validation in `src-tauri/src/render.rs`, FFmpeg input switched to `-f rawvideo -pixel_format rgb24`. Alpha is dropped only because every exported pixel is fully opaque (gated by the benchmark's alpha scan); RGB24 cuts wire bytes 25% versus RGBA with identical pixels. At most one batch in flight (frame order guaranteed), drawing overlaps transfer, cancellation/progress/cleanup semantics unchanged. The old `render_frame` command and the `base64` dependency were removed.
 
-**Benchmark** (`node scripts/bench-frame-transport.mjs --frames 90`, 90 real frames @ 720x1280 in Chromium + identical frames through both FFmpeg demuxers):
+**Benchmark** (`node scripts/bench-frame-transport.mjs --frames 90`, 90 real frames @ 720x1280 in Chromium + identical frames through every FFmpeg demuxer):
 
-| | PNG + base64 (before) | raw RGBA batched (after) |
+| | PNG + base64 (before) | raw RGB24 batched (after) |
 |---|---|---|
-| Renderer conversion | 56.42 ms/frame | 6.93 ms/frame (**8.1x**) |
+| Renderer conversion | 55.35 ms/frame | 16.72 ms/frame (**3.31x**; read 5.37 + strip 10.53 + copy 0.82) |
 | IPC calls | 90 | 23 (**3.9x fewer**) |
-| IPC payload | 42.7 MiB | 316.4 MiB (7.4x more bytes — uncompressed pixels; the honest trade) |
-| FFmpeg ingest | 127.31 ms/frame, RSS 119.9 MiB | 80.27 ms/frame (**1.59x**), RSS 122.4 MiB |
-| Projected export | 16.54 s | 7.85 s (**2.11x**) |
+| IPC payload | 42.7 MiB | 237.3 MiB (5.6x more bytes — uncompressed pixels; the honest trade) |
+| FFmpeg ingest | 126.33 ms/frame, RSS 113.8 MiB | 92.53 ms/frame (**1.37x**), RSS 121.1 MiB |
+| Projected export | 16.35 s | 9.83 s (**1.66x**) |
 | Pixel parity | PNG round trip byte-identical to raw pixels on all sampled frames |
 
-`willReadFrequently` on the export canvas is load-bearing for readback speed (6.06 vs 25.58 ms/frame `getImageData` on a default canvas) and provably pixel-identical to a default canvas on all sampled frames (see `canvasParity` in the benchmark JSON).
+`willReadFrequently` on the export canvas is load-bearing for readback speed (5.37 vs 24.8 ms/frame `getImageData` on a default canvas) and provably pixel-identical to a default canvas on all sampled frames (see `canvasParity` in the benchmark JSON).
 
-Peak extra JS memory is bounded by the two batch slots (2 × 14.1 MiB) regardless of export length. Per-frame transient allocation is higher (3.7 MiB ImageData vs 0.5 MiB base64 string) but short-lived; steady-state pressure is lower with no PNG/base64 churn.
+Peak extra JS memory is bounded by the two batch slots (2 × 10.5 MiB) regardless of export length. Per-frame transient allocation is higher (3.7 MiB ImageData vs 0.5 MiB base64 string) but short-lived; steady-state pressure is lower with no PNG/base64 churn.
 
-**Follow-up (not this fix):** PCM audio still travels as `Array.from` (separate P1 below); RGB24 (drop the always-255 alpha) would cut wire bytes ~25% at the cost of a conversion pass.
+### P1 — Desktop audio transport expands PCM into a normal JS array ✅ fixed
 
-### P1 — Desktop audio transport expands PCM into a normal JS array
+**Evidence:** renderDesktop sent Array.from(input.pcm) to begin_render.
 
-**Evidence:** renderDesktop sends Array.from(input.pcm) to begin_render.
+**Fix (shipped):** binary PCM upload — the renderer ships the `Float32Array` storage verbatim (`f32ToLeBytes`, `src/lib/pcm-bytes.ts`) as an `application/octet-stream` body to a new `prepare_audio` command, which validates (non-empty, whole f32s, ≤ 10 minutes at 16 kHz, all finite) and encodes the 16-bit WAV itself. It returns a one-shot token that `begin_render` claims; the WAV path flows into the existing FFmpeg audio input, so encoding bytes are unchanged. Staging happens before the save dialog (FFmpeg opens its audio input at spawn); a cancelled dialog deletes the staged file, unclaimed tokens are swept after an hour, and shutdown/Drop discard the rest. `begin_render` no longer takes PCM at all.
 
-**Why it hurts:** a Float32Array becomes a large array of boxed JS numbers before serialization. Long voice tracks can multiply transient memory and serialization work.
-
-**Fix:** measure typical and worst-case PCM sizes. Prefer a binary payload or temporary PCM/WAV file supported by the native side. If the native command requires a number array, document the limit and reject unreasonable sizes.
+**Benchmark** (same run as above, Node-side, 60 s @ 16 kHz = 0.96M samples): `Array.from` + `JSON.stringify` = 19.3 MB (5.0x the raw 3.7 MiB), 287 ms to serialize — at the 10-minute cap that scales to ~193 MB / ~3 s of pure serialization garbage. Raw f32 LE = 3.7 MB, zero-copy view.
 
 ### P1 — One React component owns too many responsibilities
 
