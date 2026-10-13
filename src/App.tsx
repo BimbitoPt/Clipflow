@@ -37,8 +37,11 @@ export function App() {
   const statusRef = useRef(status);
   statusRef.current = status;
   // Save-time inputs (script/captions/assets) are filled in below, after the
-  // derived memos; the project hook only reads them when the action runs.
-  const saveCtxRef = useRef<ProjectSaveContext>(null!);
+  // derived memos. The hook reads them only from a user action or a native
+  // effect — both of which run after this render completes — but the ref is
+  // still typed nullable and guarded so a future early caller gets a clear
+  // error instead of a TypeError on `null`.
+  const saveCtxRef = useRef<ProjectSaveContext | null>(null);
 
   const {
     idea, setIdea, packId, setPackId, profile, saved, onSaveProfile,
@@ -46,7 +49,7 @@ export function App() {
     selectedScene, setSelectedScene, voiceOn, setVoiceOn, captionMode, setCaptionMode,
     captionOverrides, setCaptionOverrides, platform, setPlatform, creditOn, setCreditOn,
     visualEffect, setVisualEffect, queueText, setQueueText,
-    niche, setNiche, audience, setAudience, offer, setOffer, tone, setTone, proof, setProof,
+    setNiche, setAudience, setOffer, setTone, setProof,
     projectBase, setProjectBase, projectPath, projectBusy, projectError, projectDirty, desktopAction,
   } = useClipflowProject({
     getSaveContext: () => saveCtxRef.current,

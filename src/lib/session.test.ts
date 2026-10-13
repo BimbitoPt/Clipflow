@@ -51,6 +51,11 @@ describe("validSceneChoice", () => {
   });
 
   it("rejects unknown kinds and non-objects", () => {
+    expect(validSceneChoice({ kind: "bogus" })).toBe(false);
+    expect(validSceneChoice(null)).toBe(false);
+    expect(validSceneChoice("auto-ai")).toBe(false);
+  });
+});
 
 describe("readSession", () => {
   it("returns null when nothing is stored", () => {
@@ -90,6 +95,13 @@ describe("readSession", () => {
   });
 
   it("defaults platform and pack when they are unknown", () => {
+    const store = memoryStore();
+    store.setItem(SESSION_KEY, JSON.stringify({ version: 1, ...snapshot(), platform: "myspace", pack: "nope" }));
+    const result = readSession(store)!;
+    expect(result.platform).toBe("tiktok");
+    expect(result.pack).toBe("mstudio");
+  });
+});
 
 describe("readWordTiming", () => {
   const cue = { span: [0, 2], words: null };
@@ -159,17 +171,5 @@ describe("writeWordTiming", () => {
     expect(store.getItem(WORDTIMES_KEY)).toBe("raw-sidecar");
     writeWordTiming(store, null);
     expect(store.getItem(WORDTIMES_KEY)).toBeNull();
-  });
-});
-    const store = memoryStore();
-    store.setItem(SESSION_KEY, JSON.stringify({ version: 1, ...snapshot(), platform: "myspace", pack: "nope" }));
-    const result = readSession(store)!;
-    expect(result.platform).toBe("tiktok");
-    expect(result.pack).toBe("mstudio");
-  });
-});
-    expect(validSceneChoice({ kind: "bogus" })).toBe(false);
-    expect(validSceneChoice(null)).toBe(false);
-    expect(validSceneChoice("auto-ai")).toBe(false);
   });
 });

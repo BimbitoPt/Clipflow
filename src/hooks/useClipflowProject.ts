@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type MutableRefObject } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { CaptionMode, CaptionPhrase } from "../../shared/caption-plan";
 import { isPlatformId, type PlatformId } from "../../shared/platform-presets";
@@ -8,7 +8,7 @@ import { markMilestone } from "../lib/activation";
 import { desktop, confirmDiscard, importNativeMedia, initialDesktopProject, openDesktopProject, projectFingerprint, saveDesktopProject, type DesktopProjectV1 } from "../lib/desktop";
 import { PACK_IDS, type PackId, type Theme } from "../lib/packs";
 import { planFrames, VIDEO_SECS } from "../lib/planner";
-import { loadInitialProfile, saveProfile, type Profile } from "../lib/profile";
+import { loadInitialProfile, saveProfile } from "../lib/profile";
 import type { SceneChoice } from "../lib/scene-assets";
 import type { ScriptOverrides } from "../lib/script-draft";
 import type { VideoScript } from "../lib/script";
@@ -30,7 +30,7 @@ export interface ProjectSaveContext {
 
 export interface ClipflowProjectOptions {
   /** Derived inputs for `save`, read at action time (never a stale closure). */
-  getSaveContext: () => ProjectSaveContext;
+  getSaveContext: () => ProjectSaveContext | null;
   /** Clears transient export state (status, download URL, native output). */
   onRestored: () => void;
   /** Shell error line: cleared on restore/load, written by other modules. */
@@ -121,7 +121,9 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
     setProjectBusy(true); setProjectError("");
     try {
       if (action === "save") {
-        const { script, generatedScript, theme, captions, timing, sceneAssets } = getSaveContext();
+        const ctx = getSaveContext();
+        if (!ctx) throw new Error("Editor not ready — wait for the first render, then save again.");
+        const { script, generatedScript, theme, captions, timing, sceneAssets } = ctx;
         const savedFrames = script ? planFrames(script, 30, timing?.windows ?? null, sceneChoices.map((choice, index) => choice.kind === "upload" && choice.approvedProof === true && sceneAssets[index]?.src === `upload:${choice.id}`), sceneAssets) : [];
         const renderPlan = script ? { renderer: "canvas-v1", fps: 30, duration: timing?.total ?? VIDEO_SECS, theme, captions,
           timingSource: timing ? "measured" : "estimated", scenes: script.cues.map((cue, index) => {

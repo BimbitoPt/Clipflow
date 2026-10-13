@@ -97,10 +97,13 @@ hook calls, derived-plan memos, and JSX. Typecheck, `vitest` (252) and
 
 **Fix:** centralize storage reads/writes behind a safe adapter. Treat timing as optional; storage failure must not crash preview or project dirty-state calculation.
 
-*(Resolved 2026-10-13 — every read/write goes through `src/lib/storage.ts`
-(`browserStorage`, `safeStorageGet`) and the try/catch adapters in
-`src/lib/session.ts`; App.tsx holds no direct `localStorage` access. Covered
-by `src/lib/storage.test.ts` + `src/lib/session.test.ts`.)*
+*(Resolved 2026-10-13 — `src/App.tsx` and every hook read/write go through
+the `src/lib/storage.ts` boundary (`browserStorage`, `safeStorageGet`) and the
+try/catch adapters in `src/lib/session.ts`; App.tsx holds no direct
+`localStorage` access. Covered by `src/lib/storage.test.ts` +
+`src/lib/session.test.ts`. Pre-existing exception, untouched by this change:
+`src/lib/upload-store.ts` still resolves `localStorage` behind its own
+`typeof` guard for upload metadata.)*
 
 ### P2 — Async upload can target a different scene than the one the user chose
 

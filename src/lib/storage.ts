@@ -1,9 +1,7 @@
-import type { StorageLike } from "./profile";
-
 /**
- * A get/set/remove key-value store. A superset of `StorageLike` (which only
- * needs get/set for profile persistence) so any `KeyValueStore` can be passed
- * where a `StorageLike` is expected.
+ * A get/set/remove key-value store. A superset of `profile.ts`'s `StorageLike`
+ * (which only needs get/set for profile persistence) so any `KeyValueStore`
+ * can be passed where a `StorageLike` is expected.
  */
 export interface KeyValueStore {
   getItem(key: string): string | null;

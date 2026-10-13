@@ -6,7 +6,7 @@ import type { Profile } from "../lib/profile";
 import type { VideoScript } from "../lib/script";
 import { resolveSceneChoices, type ResolvedSceneChoice, type SceneChoice } from "../lib/scene-assets";
 import { browserStorage as storage } from "../lib/storage";
-import { deleteUpload, gcUploads, loadUploadBlob, saveUpload, touchUpload } from "../lib/upload-store";
+import { deleteUpload, loadUploadBlob, saveUpload, touchUpload } from "../lib/upload-store";
 
 export interface SceneAssetsOptions {
   /** Current scene choices (the hook never mutates them except through the setter). */
@@ -297,7 +297,6 @@ export function useSceneAssets(options: SceneAssetsOptions) {
     sceneThumb,
     keyframeStatus,
     generateKeyframeNow,
-    keyframeBump,
     pollinationsKey,
     onPollinationsKeyChange,
   };
