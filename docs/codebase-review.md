@@ -80,6 +80,15 @@ Remotion and SaaS are shown as adjacent surfaces, not as a claim that every runt
 4. Extract preview drawing into a hook that accepts a render snapshot.
 5. Keep App.tsx as composition and event wiring. Avoid a full rewrite.
 
+*(Resolved 2026-10-13 — all five steps landed: `src/lib/session.ts` +
+`src/lib/storage.ts` (serialization + validation), `src/hooks/useExportController.ts`
++ `src/lib/browser-export.ts` (typed controller, worker orchestration),
+`src/hooks/useSceneAssets.ts` (media lifecycle + disposal),
+`src/components/PreviewRenderer.tsx`, and `src/hooks/useClipflowProject.ts`
+(document + project lifecycle). App.tsx is 217 lines of composition: three
+hook calls, derived-plan memos, and JSX. Typecheck, `vitest` (252) and
+`npm run build` green.)*
+
 ### P1 — Browser storage access is not consistently guarded
 
 **Evidence:** readSession and initialProfile catch storage errors, but projectDraft reads localStorage.getItem('clipflow.wordtimes') directly during render. readWordTiming also reads storage inside a try/catch, so the handling is inconsistent.
@@ -87,6 +96,11 @@ Remotion and SaaS are shown as adjacent surfaces, not as a claim that every runt
 **Why it hurts:** privacy settings, storage failures or test environments can throw during React render and break the editor even though persistence should be optional.
 
 **Fix:** centralize storage reads/writes behind a safe adapter. Treat timing as optional; storage failure must not crash preview or project dirty-state calculation.
+
+*(Resolved 2026-10-13 — every read/write goes through `src/lib/storage.ts`
+(`browserStorage`, `safeStorageGet`) and the try/catch adapters in
+`src/lib/session.ts`; App.tsx holds no direct `localStorage` access. Covered
+by `src/lib/storage.test.ts` + `src/lib/session.test.ts`.)*
 
 ### P2 — Async upload can target a different scene than the one the user chose
 

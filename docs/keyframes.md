@@ -87,6 +87,6 @@ evidence — real uploads only.
   helpers (`sanitize/load/savePollinationsKey`, `keyframeUrl(..., { key })`)
 - `src/lib/keyframes.test.ts` — determinism, id round-trip, pacing, retry
 - `src/lib/scene-assets.ts` — `SceneChoice { kind: "generated" }` resolution
-- `src/App.tsx` — queue orchestration (`ensureKeyframe`, `generateKeyframeNow`)
+- `src/hooks/useSceneAssets.ts` — queue orchestration (`ensureKeyframe`, `generateKeyframeNow`)
 - `src/components/SceneTray.tsx` — KEYFRAMES tab (status dots, generate /
   regenerate / retry, back-to-library)
