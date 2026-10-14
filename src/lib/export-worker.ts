@@ -1,6 +1,7 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import {
   AUDIO_CONFIG,
+  RESUME_QUEUE,
   VIDEO_CONFIG,
   type FromWorker,
   type ToWorker,
@@ -29,6 +30,8 @@ export interface MuxerLike {
 export interface EncoderLike<Config> {
   readonly encodeQueueSize: number;
   readonly state: CodecState;
+  /** Drain notifications (real VideoEncoder.ondequeue). Fakes may omit it. */
+  ondequeue?: unknown;
   configure(config: Config): void;
   encode(frame: VideoFrame | AudioData, options?: { keyFrame?: boolean }): void;
   flush(): Promise<void>;
@@ -127,6 +130,27 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
           },
         );
         next.video.configure({ ...VIDEO_CONFIG });
+        // Backpressure drain: the main thread parks once its last-seen queue
+        // passes MAX_QUEUE and only resumes on a future `accepted <=
+        // RESUME_QUEUE`. Without a drain signal that future message only
+        // arrives after the next `frame` — which a parked main thread never
+        // sends. Forward the encoder's dequeue event so the gate releases as
+        // the hardware encoder drains; otherwise any slow encoder (Edge on
+        // integrated GPUs) stalls forever once the queue fills. Throttled to
+        // the resume threshold so a fast encoder doesn't spam drain hints.
+        try {
+          (next.video as unknown as { ondequeue?: (() => void) | null }).ondequeue = () => {
+            try {
+              if (session === next && !next.finished && next.video.state !== "closed" && next.video.encodeQueueSize <= RESUME_QUEUE) {
+                scope!.postMessage({ type: "accepted", queue: next.video.encodeQueueSize });
+              }
+            } catch {
+              // Drain hints are best-effort; the stall watchdog owns failure.
+            }
+          };
+        } catch {
+          // Encoders without dequeue support keep the old behavior.
+        }
         if (message.voice) {
           next.audio = deps.createAudioEncoder(
             (chunk, metadata) => muxer.addAudioChunk(chunk, metadata),

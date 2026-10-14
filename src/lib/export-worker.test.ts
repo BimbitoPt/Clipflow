@@ -148,6 +148,29 @@ describe("export-worker", () => {
     expect(h.chunks).toEqual([{ kind: "video" }, { kind: "audio" }]);
   });
 
+  it("forwards encoder dequeue events so a parked main thread can resume", async () => {
+    const h = harness();
+    h.send({ type: "init", voice: false });
+    const ondequeue = (h.video as unknown as { ondequeue?: unknown }).ondequeue;
+    expect(typeof ondequeue).toBe("function");
+    // Drained queue (1 <= resume threshold): the drain hint fires.
+    const frame = fakeFrame();
+    h.send({ type: "frame", frame: frame as unknown as VideoFrame, keyFrame: true });
+    const before = h.posted.length;
+    (ondequeue as () => void)();
+    expect(h.posted.length).toBe(before + 1);
+    expect(h.posted.at(-1)).toEqual({ type: "accepted", queue: h.video.encodeQueueSize });
+    // Backed-up queue: no spam while the encoder is still full; the hint
+    // fires again once it drains to the resume threshold.
+    for (let i = 0; i < 30; i++) h.send({ type: "frame", frame: fakeFrame() as unknown as VideoFrame, keyFrame: false });
+    const parked = h.posted.length;
+    (ondequeue as () => void)();
+    expect(h.posted.length).toBe(parked);
+    await h.video.flush();
+    (ondequeue as () => void)();
+    expect(h.posted.at(-1)).toEqual({ type: "accepted", queue: 0 });
+  });
+
   it("rejects frames before init instead of throwing", () => {
     const h = harness();
     h.send({ type: "frame", frame: { closed: false } as unknown as VideoFrame, keyFrame: false });
