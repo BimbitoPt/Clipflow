@@ -4,7 +4,7 @@ import { drawFrame, type DrawCtx, type RenderExtra } from './render';
 import type { Theme } from './packs';
 import type { StockAsset } from './broll';
 import { FrameBatcher, HEADER_FRAME_COUNT, HEADER_RENDER_ID, packRgb24, rgbFrameBytes, rgbaFrameBytes } from './frame-batch';
-import { f32ToLeBytes } from './pcm-bytes';
+import { f32ToLeBytes, desktopAudioHeaders, maxDesktopPcmSamples } from './pcm-bytes';
 
 const FRAME_W = 720;
 const FRAME_H = 1280;
@@ -38,6 +38,10 @@ export interface DesktopRenderInput {
  *
  * Voice audio goes up first as raw f32 bytes (`prepare_audio`), which stages
  * a WAV file the job claims by token — no `Array.from`, no per-sample JSON.
+ * The audio contract (16 kHz mono f32le) travels as explicit IPC headers
+ * (`desktopAudioHeaders`) and is validated natively; a single binary body is
+ * used instead of chunks because the 10-minute cap bounds it to ~38 MB and
+ * the native side stages it straight to a temp WAV the job claims by token.
  *
  * Batches are dispatched strictly in order — at most one is in flight — because
  * FFmpeg reads a single stdin and the Rust side has no ordering guarantee across
@@ -50,7 +54,14 @@ export async function renderDesktop(input: DesktopRenderInput): Promise<string |
   // immediately and FFmpeg opens its audio input at startup, so the WAV must
   // already exist. If the user then cancels the dialog, the native side
   // deletes the staged file.
-  const audioToken = input.pcm ? await invoke<string>('prepare_audio', f32ToLeBytes(input.pcm)) : null;
+  if (input.pcm && input.pcm.length > maxDesktopPcmSamples()) {
+    throw new Error(`Voice audio is too long: ${input.pcm.length} samples exceeds the ${maxDesktopPcmSamples()}-sample (10-minute) cap.`);
+  }
+  const audioToken = input.pcm
+    ? await invoke<string>('prepare_audio', f32ToLeBytes(input.pcm), {
+      headers: desktopAudioHeaders(),
+    })
+    : null;
   const job = await invoke<{id: string; output: string} | null>('begin_render', {
     frames: input.frames.length, width: FRAME_W, height: FRAME_H, audioToken,
   });

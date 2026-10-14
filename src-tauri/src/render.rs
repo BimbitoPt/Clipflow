@@ -17,10 +17,56 @@ const HDR_FRAME_COUNT: &str = "x-clipflow-frame-count";
 const fn frame_bytes(width: u32, height: u32) -> usize { width as usize * height as usize * 3 }
 
 /// Hard cap on staged voice audio: 16 kHz mono, ten minutes. Mirrors the limit
-/// the old `Array.from` path enforced after JSON decoding.
-const MAX_PCM_SAMPLES: usize = 16000 * 600;
+/// the old `Array.from` path enforced after JSON decoding. The rate/channels
+/// below must match `DESKTOP_AUDIO_CONFIG` (src/lib/pcm-bytes.ts), which the
+/// renderer sends as explicit IPC headers validated in `prepare_audio` — a
+/// mismatch is rejected rather than silently re-interpreted.
+const AUDIO_SAMPLE_RATE: u32 = 16000;
+const AUDIO_CHANNELS: u16 = 1;
+const AUDIO_FORMAT: &str = "f32le";
+const AUDIO_MAX_SECONDS: usize = 600;
 /// A staged WAV nobody claimed is deleted on the next prepare after this long.
 const PENDING_AUDIO_TTL: Duration = Duration::from_secs(3600);
+
+const HDR_AUDIO_RATE: &str = "x-clipflow-audio-rate";
+const HDR_AUDIO_CHANNELS: &str = "x-clipflow-audio-channels";
+const HDR_AUDIO_FORMAT: &str = "x-clipflow-audio-format";
+
+/// Max staged samples, derived from the explicit contract (rate × cap).
+const fn max_pcm_samples() -> usize { AUDIO_SAMPLE_RATE as usize * AUDIO_MAX_SECONDS }
+
+/// Validate the explicit audio contract headers against the pinned native
+/// sink. Missing headers fall back to the pinned defaults (frontend and
+/// backend ship together); present-but-wrong values are rejected so a future
+/// resample change can never silently play 24 kHz audio at 16 kHz speed.
+fn check_audio_headers(request: &tauri::ipc::Request<'_>) -> Result<(), String> {
+    let rate = header_opt(request, HDR_AUDIO_RATE);
+    let channels = header_opt(request, HDR_AUDIO_CHANNELS);
+    let format = header_opt(request, HDR_AUDIO_FORMAT);
+    if let Some(v) = rate {
+        let parsed: u32 = v.parse().map_err(|_| "Invalid voice audio rate".to_string())?;
+        if parsed != AUDIO_SAMPLE_RATE {
+            return Err(format!("Unsupported voice audio rate {parsed}: expected {AUDIO_SAMPLE_RATE}"));
+        }
+    }
+    if let Some(v) = channels {
+        let parsed: u16 = v.parse().map_err(|_| "Invalid voice audio channels".to_string())?;
+        if parsed != AUDIO_CHANNELS {
+            return Err(format!("Unsupported voice audio channels {parsed}: expected {AUDIO_CHANNELS}"));
+        }
+    }
+    if let Some(v) = format {
+        if v != AUDIO_FORMAT {
+            return Err(format!("Unsupported voice audio format {v}: expected {AUDIO_FORMAT}"));
+        }
+    }
+    Ok(())
+}
+
+/// Read an optional ASCII header from the raw IPC request.
+fn header_opt<'r>(request: &'r tauri::ipc::Request<'_>, name: &str) -> Option<&'r str> {
+    request.headers().get(name).and_then(|v| v.to_str().ok())
+}
 
 struct Job { id: String, child: Child, temp: PathBuf, output: PathBuf, wav: PathBuf, log: PathBuf, frames: u32, expected: u32, width: u32, height: u32 }
 /// Audio staged by `prepare_audio`, waiting for `begin_render` to claim it by token.
@@ -39,7 +85,12 @@ fn discard_pending(pending: &mut HashMap<String, PendingAudio>) {
 /// claimed by `begin_render` seconds after staging; anything older is a render
 /// that never started (dialog cancelled after prepare, page closed mid-flow).
 fn sweep_pending(pending: &mut HashMap<String, PendingAudio>) {
-    let now = Instant::now();
+    sweep_pending_at(pending, Instant::now());
+}
+/// Time-parameterized sweep so tests never time-travel backwards (subtracting
+/// `PENDING_AUDIO_TTL` from `Instant::now()` overflows when machine uptime is
+/// under an hour). Tests travel forwards instead, which cannot underflow.
+fn sweep_pending_at(pending: &mut HashMap<String, PendingAudio>, now: Instant) {
     pending.retain(|_, staged| {
         if now.duration_since(staged.staged_at) > PENDING_AUDIO_TTL { let _ = fs::remove_file(&staged.path); false }
         else { true }
@@ -63,7 +114,7 @@ impl Drop for RenderState {
 fn decode_pcm(bytes: &[u8]) -> Result<Vec<f32>, String> {
     if bytes.is_empty() || bytes.len() % 4 != 0 { return Err("Invalid voice audio".into()); }
     let count = bytes.len() / 4;
-    if count > MAX_PCM_SAMPLES { return Err("Invalid voice audio".into()); }
+    if count > max_pcm_samples() { return Err("Invalid voice audio".into()); }
     let mut samples = Vec::with_capacity(count);
     for chunk in bytes.chunks_exact(4) {
         let sample = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
@@ -76,7 +127,7 @@ fn decode_pcm(bytes: &[u8]) -> Result<Vec<f32>, String> {
 /// Encode samples as 16 kHz mono 16-bit WAV. Identical output to what the old
 /// `Array.from` path produced — only the transport changed, not the bytes.
 fn write_wav_file(path: &Path, samples: &[f32]) -> Result<(), String> {
-    let spec = hound::WavSpec { channels: 1, sample_rate: 16000, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
+    let spec = hound::WavSpec { channels: AUDIO_CHANNELS, sample_rate: AUDIO_SAMPLE_RATE, bits_per_sample: 16, sample_format: hound::SampleFormat::Int };
     let mut writer = hound::WavWriter::create(path, spec).map_err(|e| e.to_string())?;
     for sample in samples { writer.write_sample((sample.clamp(-1.0, 1.0) * 32767.0) as i16).map_err(|e| e.to_string())?; }
     writer.finalize().map_err(|e| e.to_string())
@@ -91,6 +142,10 @@ fn write_wav_file(path: &Path, samples: &[f32]) -> Result<(), String> {
 /// passes to `begin_render`; unclaimed tokens are swept after an hour.
 #[tauri::command]
 pub async fn prepare_audio(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<String, String> {
+    // Reject a contract mismatch before decoding: the JS side declares the
+    // rate/channels/format explicitly so a resample bug can never silently
+    // reinterpret samples at the wrong speed.
+    check_audio_headers(&request)?;
     // The request body only borrows the invoke payload, so decode (validating)
     // before entering the blocking pool; the owned Vec then moves in.
     let bytes = match request.body() {
@@ -350,9 +405,9 @@ mod tests {
     #[test]
     fn decode_pcm_rejects_more_than_ten_minutes() {
         // 4 bytes over the cap, all zeros (no 38 MB allocation in the test).
-        let over = (MAX_PCM_SAMPLES + 1) * 4;
+        let over = (max_pcm_samples() + 1) * 4;
         assert!(decode_pcm(&vec![0u8; over]).is_err());
-        assert!(decode_pcm(&vec![0u8; MAX_PCM_SAMPLES * 4]).unwrap().len() == MAX_PCM_SAMPLES);
+        assert!(decode_pcm(&vec![0u8; max_pcm_samples() * 4]).unwrap().len() == max_pcm_samples());
     }
 
     #[test]
@@ -387,10 +442,16 @@ mod tests {
         let stale_path = std::env::temp_dir().join(format!(".clipflow-test-{}.wav", uuid::Uuid::new_v4()));
         fs::write(&fresh_path, b"fresh").unwrap();
         fs::write(&stale_path, b"stale").unwrap();
+        let base = Instant::now();
         let mut map = HashMap::new();
-        map.insert("fresh".to_string(), PendingAudio { path: fresh_path.clone(), staged_at: Instant::now() });
-        map.insert("stale".to_string(), PendingAudio { path: stale_path.clone(), staged_at: Instant::now() - PENDING_AUDIO_TTL - Duration::from_secs(1) });
-        sweep_pending(&mut map);
+        map.insert("fresh".to_string(), PendingAudio { path: fresh_path.clone(), staged_at: base });
+        map.insert("stale".to_string(), PendingAudio { path: stale_path.clone(), staged_at: base });
+        // Travel forwards instead of subtracting the TTL (which overflows when
+        // machine uptime is under an hour): only the stale entry is old there.
+        let now = base.checked_add(PENDING_AUDIO_TTL + Duration::from_secs(1)).expect("Instant + 1h fits");
+        // Refresh the fresh entry at `now` so only the stale one expires.
+        map.insert("fresh".to_string(), PendingAudio { path: fresh_path.clone(), staged_at: now });
+        sweep_pending_at(&mut map, now);
         assert!(map.contains_key("fresh") && !map.contains_key("stale"));
         assert!(fresh_path.exists() && !stale_path.exists());
         let _ = fs::remove_file(&fresh_path);

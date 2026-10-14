@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { f32ToLeBytes } from "./pcm-bytes";
+import {
+  AUDIO_HEADER_CHANNELS,
+  AUDIO_HEADER_FORMAT,
+  AUDIO_HEADER_RATE,
+  DESKTOP_AUDIO_CONFIG,
+  desktopAudioHeaders,
+  f32ToLeBytes,
+  maxDesktopPcmSamples,
+} from "./pcm-bytes";
 
 function readLeF32(bytes: Uint8Array, index: number): number {
   return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getFloat32(index * 4, true);
@@ -45,5 +53,27 @@ describe("f32ToLeBytes", () => {
 
   it("handles an empty track", () => {
     expect(f32ToLeBytes(new Float32Array(0)).length).toBe(0);
+  });
+});
+
+describe("desktop audio contract", () => {
+  it("pins the native sink to 16 kHz mono f32le with a 10-minute cap", () => {
+    expect(DESKTOP_AUDIO_CONFIG.sampleRate).toBe(16000);
+    expect(DESKTOP_AUDIO_CONFIG.channels).toBe(1);
+    expect(DESKTOP_AUDIO_CONFIG.format).toBe("f32le");
+    expect(maxDesktopPcmSamples()).toBe(16000 * 600);
+  });
+
+  it("emits explicit rate/channel/format headers for prepare_audio", () => {
+    expect(desktopAudioHeaders()).toEqual({
+      [AUDIO_HEADER_RATE]: "16000",
+      [AUDIO_HEADER_CHANNELS]: "1",
+      [AUDIO_HEADER_FORMAT]: "f32le",
+    });
+  });
+
+  it("bounds the worst-case IPC body to ~38 MB (no Array.from blowup)", () => {
+    // 9.6M samples × 4 bytes; the old JSON path carried ~5x this.
+    expect(maxDesktopPcmSamples() * 4).toBe(38_400_000);
   });
 });
