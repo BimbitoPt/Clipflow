@@ -58,7 +58,7 @@ describe("voice asset readiness", () => {
   });
 
   it("checks every required local runtime asset without downloading model weights", async () => {
-    const fetchMock = vi.fn(async () => ok());
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ok());
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(checkVoiceAssets()).resolves.toEqual({ ready: true, missing: [] });
