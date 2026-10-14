@@ -73,7 +73,7 @@ Remotion and Managed/SaaS are separate surfaces. Shared modules do not prove eve
 
 **Fix:** preflight every required standard-model asset. Use HEAD for large weights so the check does not download ~92 MB just to confirm existence; GET the voice file when its bytes need to warm the voice cache. Add tests for each missing dependency. Keep timestamped-model absence as a soft fallback.
 
-**Status:** a targeted fix and tests are prepared in the companion PR; this describes master before that fix is merged.
+**Status in this PR:** checkVoiceAssets now HEAD-checks every required standard-model/runtime file without downloading the large ONNX weights, GETs the voice bin to warm the cache, and has tests for missing weights, offline failures and request methods. Timestamped-model files remain optional.
 
 ### P1 — Local-first does not guarantee durable offline voice assets in the PWA
 
