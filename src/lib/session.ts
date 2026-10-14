@@ -204,3 +204,32 @@ export function writeWordTiming(store: KeyValueStore, raw: string | null): void 
     // Timing is optional; a storage failure must not break project restore.
   }
 }
+
+/**
+ * Total read of the timing sidecar for project state: never throws,
+ * returns the raw blob only when it parses as a JSON object. Deep validation
+ * (idea+profile match, cue shapes) stays in `readWordTiming` at use time;
+ * this gate only keeps corrupt blobs out of dirty-state and persistence so a
+ * storage failure — or a corrupt sidecar — degrades to `null` timing instead
+ * of crashing the editor or flapping the dirty flag.
+ */
+export function validTimingSidecar(raw: unknown): raw is string {
+  if (typeof raw !== "string" || raw === "") return false;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The one read the project draft performs: safe access plus the validity
+ * gate. The hook calls this once for initial state and on project restore —
+ * never during render — so React rendering is fully decoupled from
+ * persistence.
+ */
+export function readTimingSidecar(store: KeyValueStore): string | null {
+  const raw = safeStorageGet(store, WORDTIMES_KEY);
+  return validTimingSidecar(raw) ? raw : null;
+}

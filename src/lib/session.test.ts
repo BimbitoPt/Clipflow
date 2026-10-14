@@ -3,8 +3,10 @@ import type { KeyValueStore } from "./storage";
 import type { Profile } from "./profile";
 import {
   readSession,
+  readTimingSidecar,
   readWordTiming,
   validSceneChoice,
+  validTimingSidecar,
   writeSession,
   writeWordTiming,
   SESSION_KEY,
@@ -171,5 +173,57 @@ describe("writeWordTiming", () => {
     expect(store.getItem(WORDTIMES_KEY)).toBe("raw-sidecar");
     writeWordTiming(store, null);
     expect(store.getItem(WORDTIMES_KEY)).toBeNull();
+  });
+
+  it("swallows a storage failure instead of breaking project restore", () => {
+    const throwing: KeyValueStore = {
+      getItem: () => null,
+      setItem() {
+        throw new Error("quota exceeded");
+      },
+      removeItem() {},
+    };
+    expect(() => writeWordTiming(throwing, "raw-sidecar")).not.toThrow();
+  });
+});
+
+describe("timing sidecar string", () => {
+  const throwing: KeyValueStore = {
+    getItem() {
+      throw new Error("storage disabled");
+    },
+    setItem() {},
+    removeItem() {},
+  };
+
+  it("returns the raw blob when it parses as a JSON object", () => {
+    const store = memoryStore();
+    const raw = JSON.stringify({ idea: "x", cues: [] });
+    store.setItem(WORDTIMES_KEY, raw);
+    expect(readTimingSidecar(store)).toBe(raw);
+  });
+
+  it("returns null — without throwing — when storage access throws", () => {
+    // The project draft reads this once into state; a restricted browser
+    // context must degrade to null timing, never crash the editor.
+    expect(readTimingSidecar(throwing)).toBeNull();
+  });
+
+  it.each(["{not json", "", "42", '"str"', "[1,2]", "null"])("rejects %s", (raw) => {
+    const store = memoryStore();
+    store.setItem(WORDTIMES_KEY, raw);
+    expect(readTimingSidecar(store)).toBeNull();
+    expect(validTimingSidecar(raw)).toBe(false);
+  });
+
+  it("accepts any JSON object shape — deep validation stays in readWordTiming", () => {
+    expect(validTimingSidecar(JSON.stringify({ unexpected: "shape" }))).toBe(true);
+  });
+
+  it("rejects non-string inputs", () => {
+    expect(validTimingSidecar(null)).toBe(false);
+    expect(validTimingSidecar(undefined)).toBe(false);
+    expect(validTimingSidecar(42)).toBe(false);
+    expect(validTimingSidecar({ already: "parsed" })).toBe(false);
   });
 });
