@@ -7,12 +7,15 @@ import { browserStorage as storage } from "./lib/storage";
 import { readWordTiming } from "./lib/session";
 import { assignAiBackgrounds } from "./lib/ai-backgrounds";
 import { applyScriptOverrides, hasScriptOverrides } from "./lib/script-draft";
+import { buildProductionPlan, estimatePlanCost } from "./lib/production-plan";
+import { DEFAULT_VOICE } from "./lib/tts-local";
 import { previewSpeak } from "./lib/tts";
 import { desktop, nativeMediaUrl, projectFingerprint, showInFolder } from "./lib/desktop";
 import ProfileSettings from "./components/ProfileSettings";
 import PreviewRenderer from "./components/PreviewRenderer";
 import ScriptBeats from "./components/ScriptBeats";
 import SceneTray from "./components/SceneTray";
+import { ProductionPlanView } from "./components/ProductionPlan";
 import ExportPanel from "./components/ExportPanel";
 import DesktopToolbar from "./components/DesktopToolbar";
 import { SAMPLE_IDEA } from "./lib/activation";
@@ -80,6 +83,14 @@ export function App() {
     try { return { script: applyScriptOverrides(generatedScript, scriptOverrides), err: "" }; }
     catch (e) { return { script: null, err: e instanceof Error ? e.message : String(e) }; }
   }, [generatedScript, scriptOverrides]);
+  const plan = useMemo(
+    () => (script && pack ? buildProductionPlan(script, pack, DEFAULT_VOICE) : null),
+    [script, pack],
+  );
+  const cost = useMemo(
+    () => (plan ? estimatePlanCost(plan, { voiceOn, width: 720, height: 1280, fps: 30 }) : null),
+    [plan, voiceOn],
+  );
   const scriptErr = generatedErr || editErr;
 
   useEffect(() => {
@@ -208,6 +219,8 @@ export function App() {
               onUpload={(file) => void onUpload(file)} />
           </div>}
         </div>
+
+        {plan && cost && <ProductionPlanView plan={plan} cost={cost} />}
 
         {script && <ExportPanel script={script} tiktok={tiktok} xpost={xpost} voiceOn={voiceOn} onVoiceChange={setVoiceOn} onPreviewVoice={() => previewSpeak(script.hook)}
           onExport={() => void runExport(exportCtx)} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} downloadUrl={exportUrl} captionMode={captionMode} onCaptionModeChange={setCaptionMode} visualEffect={visualEffect} onVisualEffectChange={setVisualEffect} platform={platform} onPlatformChange={setPlatform} creditOn={creditOn} onCreditChange={setCreditOn}
