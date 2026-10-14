@@ -21,8 +21,18 @@ export function loadProfile(storage: StorageLike): Profile | null {
     return isProfile(parsed) ? parsed : null;
   } catch { return null; }
 }
-export function saveProfile(storage: StorageLike, profile: Profile): void {
-  storage.setItem(KEY, JSON.stringify(profile));
+/**
+ * Persist the profile. Returns `false` instead of throwing when storage is
+ * unavailable (quota, privacy mode) so callers report the outcome without
+ * using exceptions for control flow.
+ */
+export function saveProfile(storage: StorageLike, profile: Profile): boolean {
+  try {
+    storage.setItem(KEY, JSON.stringify(profile));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Load the persisted profile, falling back to the default when absent or unreadable. */

@@ -13,7 +13,7 @@ describe("profile", () => {
   it("round-trips through storage", () => {
     const s = memStorage();
     expect(loadProfile(s)).toBeNull();
-    saveProfile(s, MSTUDIO_PROFILE);
+    expect(saveProfile(s, MSTUDIO_PROFILE)).toBe(true);
     expect(loadProfile(s)).toEqual(MSTUDIO_PROFILE);
   });
 
@@ -44,6 +44,16 @@ describe("profile", () => {
       setItem: (): void => {},
     };
     expect(loadProfile(throwing)).toBeNull();
+  });
+
+  it("saveProfile returns false — without throwing — when storage rejects the write", () => {
+    const throwing: StorageLike = {
+      getItem: (): string | null => null,
+      setItem: (): void => {
+        throw new Error("quota exceeded");
+      },
+    };
+    expect(saveProfile(throwing, MSTUDIO_PROFILE)).toBe(false);
   });
 
   it("mstudio default names the studio offer", () => {
