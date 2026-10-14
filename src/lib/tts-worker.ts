@@ -75,7 +75,7 @@ async function loadRealEngine(opts: { voice: string; desktop: boolean }): Promis
   env.localModelPath = "/models/";
   // wasm config is always initialized by transformers at module load.
   const wasm = env.backends.onnx.wasm!;
-  if (opts.desktop) wasm.numThreads = 1;
+  if (opts.desktop || typeof document === "undefined") wasm.numThreads = 1;
   await seedVoiceCache(opts.voice);
   const synth = await KokoroTTS.from_pretrained(KOKORO_MODEL_ID, { dtype: "q8" });
   return {
