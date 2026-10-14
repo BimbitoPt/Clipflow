@@ -57,14 +57,52 @@ describe("voice asset readiness", () => {
     await expect(checkVoiceAssets()).resolves.toEqual({ ready: false, missing: ["voice"] });
   });
 
-  it("treats an offline first run (fetch rejects) as fully missing", async () => {
+  it("checks every required local runtime asset without downloading model weights", async () => {
+    const fetchMock = vi.fn(async () => ok());
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(checkVoiceAssets()).resolves.toEqual({ ready: true, missing: [] });
+
+    const requests = fetchMock.mock.calls.map(([url, init]) => ({
+      url: String(url),
+      method: init?.method ?? "GET",
+    }));
+    expect(requests.some((request) => request.url.endsWith("/onnx/model_quantized.onnx") && request.method === "HEAD")).toBe(true);
+    expect(requests.some((request) => request.url.endsWith("/tokenizer.json") && request.method === "HEAD")).toBe(true);
+    expect(requests.some((request) => request.url.endsWith(".wasm") && request.method === "HEAD")).toBe(true);
+    expect(requests.some((request) => request.url.endsWith("/voices/af_heart.bin") && request.method === "GET")).toBe(true);
+    expect(requests.some((request) => request.url.endsWith("/onnx/model_quantized.onnx") && request.method === "GET")).toBe(false);
+  });
+
+  it("reports a missing ONNX weights file even when small model assets exist", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => url.endsWith("/onnx/model_quantized.onnx")
+        ? ({ ok: false }) as Response
+        : ok()),
+    );
+    await expect(checkVoiceAssets()).resolves.toEqual({ ready: false, missing: ["model weights"] });
+  });
+
+  it("treats an offline first run as missing every required asset", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
         throw new TypeError("fetch failed");
       }),
     );
-    await expect(checkVoiceAssets()).resolves.toEqual({ ready: false, missing: ["model", "voice"] });
+    await expect(checkVoiceAssets()).resolves.toEqual({
+      ready: false,
+      missing: [
+        "model config",
+        "model tokenizer",
+        "model tokenizer config",
+        "model weights",
+        "ONNX runtime WASM",
+        "ONNX runtime module",
+        "voice",
+      ],
+    });
   });
 });
 
