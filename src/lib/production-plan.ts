@@ -63,3 +63,22 @@ export function buildProductionPlan(script: VideoScript, pack: NichePack, voice:
     totalSecs: Math.round((script.cues[script.cues.length - 1]!.end - script.cues[0]!.start) * 10) / 10,
   };
 }
+
+export interface PlanCost {
+  units: number;
+  renderSecs: number;
+  breakdown: { shots: number; voiceSecs: number; pixels: number };
+}
+
+export function estimatePlanCost(
+  plan: ProductionPlan,
+  opts: { voiceOn: boolean; width: number; height: number; fps: number },
+): PlanCost {
+  const pixels = opts.width * opts.height * opts.fps * plan.totalSecs;
+  const units = plan.shots.length * 10 + (opts.voiceOn ? plan.totalSecs : 0) + Math.round(pixels / 1_000_000_000);
+  return {
+    units,
+    renderSecs: plan.totalSecs,
+    breakdown: { shots: plan.shots.length, voiceSecs: opts.voiceOn ? plan.totalSecs : 0, pixels },
+  };
+}
