@@ -57,37 +57,51 @@ let pending: Promise<KokoroInstance> | null = null;
 /** Local-readiness probe for the voice stack. Never throws. */
 export interface VoiceAssetStatus {
   ready: boolean;
-  /** Subset of "model" (weights dir) and "voice" (voice bin). */
+  /** Required local files that are missing or unreachable. */
   missing: string[];
 }
 
+interface RequiredVoiceAsset {
+  label: string;
+  url: string;
+  /** The voice GET also warms the HTTP cache used by seedVoiceCache. */
+  warm?: boolean;
+}
+
+const REQUIRED_VOICE_ASSETS: RequiredVoiceAsset[] = [
+  { label: "model config", url: `/models/${MODEL_ID}/config.json` },
+  { label: "model tokenizer", url: `/models/${MODEL_ID}/tokenizer.json` },
+  { label: "model tokenizer config", url: `/models/${MODEL_ID}/tokenizer_config.json` },
+  { label: "model weights", url: `/models/${MODEL_ID}/onnx/model_quantized.onnx` },
+  { label: "ONNX runtime WASM", url: "/ort/ort-wasm-simd-threaded.jsep.wasm" },
+  { label: "ONNX runtime module", url: "/ort/ort-wasm-simd-threaded.jsep.mjs" },
+  { label: "voice", url: `/models/voices/${DEFAULT_VOICE}.bin`, warm: true },
+];
+
 /**
- * Verify every asset synthesis needs is staged locally, before the
- * heavyweight kokoro/transformers imports and before claiming offline
- * readiness. Two tiny GETs (44-byte config + 522 KB voice bin — the bin
- * fetch warms the HTTP cache `seedVoiceCache` reads right after):
- * a missing/stale install and a fully-offline first run both surface here
- * as `missing` instead of a late, cryptic init failure.
+ * Check the actual standard synthesis dependencies before importing the
+ * heavyweight model. HEAD checks existence without downloading the ~92 MB
+ * ONNX weights; the voice uses GET so its bytes warm the HTTP cache consumed
+ * by seedVoiceCache. The timestamped model is deliberately optional because
+ * export can fall back to the standard Kokoro checkpoint.
  */
 export async function checkVoiceAssets(): Promise<VoiceAssetStatus> {
-  const missing: string[] = [];
-  const probe = async (label: string, url: string): Promise<void> => {
+  const results = await Promise.all(REQUIRED_VOICE_ASSETS.map(async (asset) => {
     try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        missing.push(label);
-        return;
+      const response = await fetch(asset.url, { method: asset.warm ? "GET" : "HEAD" });
+      if (!response.ok) return asset.label;
+      if (asset.warm) {
+        // Consume the voice body so the request completes before cache seeding.
+        // Best-effort: a body-read failure must not fail preflight when the
+        // asset itself exists (seedVoiceCache refetches anyway).
+        await response.arrayBuffer().catch(() => {});
       }
-      // Consume the body so a ranged/partial response never lingers; the
-      // voice bin lands in the HTTP cache for the seed fetch that follows.
-      await response.arrayBuffer().catch(() => {});
+      return null;
     } catch {
-      missing.push(label);
+      return asset.label;
     }
-  };
-  await probe("model", `/models/${MODEL_ID}/config.json`);
-  await probe("voice", `/models/voices/${DEFAULT_VOICE}.bin`);
-  return { ready: missing.length === 0, missing };
+  }));
+  return { ready: results.every((result) => result === null), missing: results.filter((result): result is string => result !== null) };
 }
 
 export function resampleLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
