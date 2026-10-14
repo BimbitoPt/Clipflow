@@ -160,13 +160,16 @@ export function useExportController(setErr: (message: string) => void) {
             }
             let raw: Float32Array;
             try {
-              const timed = await createKokoroTimedLoader()(cueTexts);
+              const timed = await createKokoroTimedLoader()(cueTexts, exportAbortRef.current.signal);
               raw = timed.audio;
               synthesizedCues = timed.cues;
-            } catch {
-              // Timestamped model unavailable or alignment failed → plain
-              // synthesis; captions keep the memoized (sidecar/even-split) timing.
-              raw = await createKokoroLoader()(cueTexts.join(". "));
+            } catch (error) {
+              // Cancellation is not a timing failure: never start fallback
+              // synthesis after the user has cancelled the export.
+              if (exportAbortRef.current?.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+              // Timestamped model unavailable or alignment failed → standard
+              // worker synthesis; captions keep sidecar/even-split timing.
+              raw = await createKokoroLoader()(cueTexts.join(". "), exportAbortRef.current.signal);
             }
             const ceiling = Math.round(VIDEO_SECS * KOKORO_SAMPLE_RATE);
             // Voice-fitted grid: when timed synthesis produced a span per
