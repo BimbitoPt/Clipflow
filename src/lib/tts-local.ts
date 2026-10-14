@@ -12,6 +12,14 @@ import { desktop } from "./desktop";
  * (pinned revision); synthesis runs fully offline from /models.
  */
 const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
+/**
+ * Pinned weights revision — must match REVISION in
+ * scripts/install-kokoro-model.mjs (enforced by tts-local.test.ts). The
+ * loader resolves weights from the staged /models copy only
+ * (`allowRemoteModels = false`), so this is the manifest the local files
+ * were downloaded from; it also pins any future remote resolution.
+ */
+export const MODEL_REVISION = "1939ad2a8e416c0acfeecc08a694d14ef25f2231";
 /** Kokoro's native output rate. Both export paths resample from here. */
 export const KOKORO_SAMPLE_RATE = 24000;
 /** Clipflow brand voice — matches remotion-studio's Clipflow default. */
@@ -45,6 +53,42 @@ let cached: KokoroInstance | null = null;
 // Promise memoization: concurrent loader() calls share one init. Reset to
 // null on failure so a later call retries instead of sticking to rejection.
 let pending: Promise<KokoroInstance> | null = null;
+
+/** Local-readiness probe for the voice stack. Never throws. */
+export interface VoiceAssetStatus {
+  ready: boolean;
+  /** Subset of "model" (weights dir) and "voice" (voice bin). */
+  missing: string[];
+}
+
+/**
+ * Verify every asset synthesis needs is staged locally, before the
+ * heavyweight kokoro/transformers imports and before claiming offline
+ * readiness. Two tiny GETs (44-byte config + 522 KB voice bin — the bin
+ * fetch warms the HTTP cache `seedVoiceCache` reads right after):
+ * a missing/stale install and a fully-offline first run both surface here
+ * as `missing` instead of a late, cryptic init failure.
+ */
+export async function checkVoiceAssets(): Promise<VoiceAssetStatus> {
+  const missing: string[] = [];
+  const probe = async (label: string, url: string): Promise<void> => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        missing.push(label);
+        return;
+      }
+      // Consume the body so a ranged/partial response never lingers; the
+      // voice bin lands in the HTTP cache for the seed fetch that follows.
+      await response.arrayBuffer().catch(() => {});
+    } catch {
+      missing.push(label);
+    }
+  };
+  await probe("model", `/models/${MODEL_ID}/config.json`);
+  await probe("voice", `/models/voices/${DEFAULT_VOICE}.bin`);
+  return { ready: missing.length === 0, missing };
+}
 
 export function resampleLinear(input: Float32Array, fromRate: number, toRate: number): Float32Array {
   if (input.length === 0 || fromRate === toRate) return input;
