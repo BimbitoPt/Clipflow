@@ -5,7 +5,7 @@ import { PACK_IDS, type PackId } from "./packs";
 import type { Profile } from "./profile";
 import type { ScriptOverrides } from "./script-draft";
 import type { SceneChoice } from "./scene-assets";
-import { isTimedCueTimingArray } from "./word-timing-validation";
+import { isTimedCueTimingArray, isTimingWindow } from "./word-timing-validation";
 import type { TimedCueTiming } from "./planner";
 import { safeStorageGet, type KeyValueStore } from "./storage";
 
@@ -139,9 +139,11 @@ export interface WordTiming {
 
 /**
  * Read and validate the word-timing sidecar for an exact idea+profile match.
- * Every field is validated independently; a malformed field degrades to `null`
- * rather than rejecting the whole sidecar, except the cues themselves which
- * gate the entire result.
+ * Cues, windows and assets are validated as a whole: any malformed field
+ * rejects the entire sidecar (falling back to the deterministic even-split
+ * grid) instead of letting NaN/inverted/out-of-range times reach frame
+ * planning. Only `total` degrades per-field — it is duration metadata, and
+ * a missing total still leaves usable caption timings.
  */
 export function readWordTiming(store: KeyValueStore, idea: string, profile: Profile): WordTiming | null {
   try {
@@ -168,26 +170,37 @@ export function readWordTiming(store: KeyValueStore, idea: string, profile: Prof
       return null;
     }
     if (!isTimedCueTimingArray(parsed.cues)) return null;
+    // Windows drive caption windows and frame planning directly: same
+    // length as cues and every bound finite, non-negative, non-inverted —
+    // otherwise the whole sidecar is corrupt.
     let windows: Array<{ start: number; end: number }> | null = null;
-    if (
-      Array.isArray(parsed.windows) &&
-      parsed.windows.length === parsed.cues.length &&
-      parsed.windows.every(
-        (w) =>
-          w &&
-          typeof (w as { start: unknown }).start === "number" &&
-          typeof (w as { end: unknown }).end === "number",
-      )
-    ) {
-      windows = parsed.windows as Array<{ start: number; end: number }>;
+    // Explicit null degrades like an absent field; only a present-but-
+    // malformed value rejects the sidecar.
+    if (parsed.windows !== undefined && parsed.windows !== null) {
+      if (
+        !Array.isArray(parsed.windows) ||
+        parsed.windows.length !== parsed.cues.length ||
+        !parsed.windows.every(isTimingWindow)
+      ) {
+        return null;
+      }
+      windows = parsed.windows;
     }
     const total =
       typeof parsed.total === "number" && Number.isFinite(parsed.total) && parsed.total > 0
         ? parsed.total
         : null;
     let assets: Array<string | null> | null = null;
-    if (Array.isArray(parsed.assets) && parsed.assets.every((a) => a === null || typeof a === "string")) {
-      assets = parsed.assets as Array<string | null>;
+    if (parsed.assets !== undefined && parsed.assets !== null) {
+      // Assets parallel the cues; a length mismatch would misattribute them.
+      if (
+        !Array.isArray(parsed.assets) ||
+        parsed.assets.length !== parsed.cues.length ||
+        !parsed.assets.every((a) => a === null || typeof a === "string")
+      ) {
+        return null;
+      }
+      assets = parsed.assets;
     }
     return { cues: parsed.cues, windows, total, assets };
   } catch {
