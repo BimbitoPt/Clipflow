@@ -12,9 +12,9 @@ import { loadInitialProfile, saveProfile } from "../lib/profile";
 import type { SceneChoice } from "../lib/scene-assets";
 import type { ScriptOverrides } from "../lib/script-draft";
 import type { VideoScript } from "../lib/script";
-import { readSession, writeSession, writeWordTiming, WORDTIMES_KEY, type SessionSnapshot, type WordTiming } from "../lib/session";
+import { readSession, writeSession, writeWordTiming, readTimingSidecar, validTimingSidecar, type SessionSnapshot, type WordTiming } from "../lib/session";
 import type { StockAsset } from "../lib/broll";
-import { browserStorage as storage, safeStorageGet } from "../lib/storage";
+import { browserStorage as storage } from "../lib/storage";
 import { gcUploads } from "../lib/upload-store";
 import { WEEK_KEY } from "../lib/week-queue";
 
@@ -91,8 +91,14 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
     }
   });
 
+  // Timing sidecar as state, not a render-time storage read: the store is
+  // touched once here (lazily) and on project restore below — never during
+  // render — so a storage failure degrades to null timing instead of
+  // coupling React rendering to persistence.
+  const [sidecarTiming, setSidecarTiming] = useState<string | null>(() => readTimingSidecar(storage));
+
   const profile = useMemo(() => ({ niche, audience, offer, tone, proof }), [niche, audience, offer, tone, proof]);
-  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: safeStorageGet(storage, WORDTIMES_KEY) };
+  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: sidecarTiming };
   const projectSnapshot = projectFingerprint(projectDraft);
   const projectDirty = projectSnapshot !== savedSnapshot;
 
@@ -109,9 +115,14 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
       setPackId(project.pack as PackId);
       setProjectBase(null);
     }
-    writeWordTiming(storage, project.timing ?? null);
+    // Incoming timing is validated before it touches state, storage or the
+    // saved snapshot: a corrupt blob from a project file degrades to null
+    // everywhere at once instead of persisting and flapping the dirty flag.
+    const incomingTiming = validTimingSidecar(project.timing) ? project.timing : null;
+    writeWordTiming(storage, incomingTiming);
+    setSidecarTiming(incomingTiming);
     const { savedAt: _savedAt, ...draft } = project;
-    setSavedSnapshot(projectFingerprint(draft)); setProjectPath(path); setSelectedScene(0); onRestored(); setErr("");
+    setSavedSnapshot(projectFingerprint({ ...draft, timing: incomingTiming })); setProjectPath(path); setSelectedScene(0); onRestored(); setErr("");
   }
 
   // --- Desktop actions ------------------------------------------------------
