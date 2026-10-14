@@ -139,13 +139,63 @@ describe("readWordTiming", () => {
     expect(readWordTiming(store, "ship a site in two weeks", PROFILE)).toBeNull();
   });
 
-  it("drops a windows array whose length disagrees with the cues", () => {
+  it("rejects the whole sidecar when a windows array disagrees with the cues", () => {
     const store = memoryStore();
     store.setItem(
       WORDTIMES_KEY,
       JSON.stringify({ idea: "ship a site in two weeks", profile: PROFILE, cues: [cue], windows: [{ start: 0, end: 1 }, { start: 1, end: 2 }] }),
     );
-    expect(readWordTiming(store, "ship a site in two weeks", PROFILE)!.windows).toBeNull();
+    expect(readWordTiming(store, "ship a site in two weeks", PROFILE)).toBeNull();
+  });
+
+  it("rejects the whole sidecar on NaN, inverted, or negative windows", () => {
+    // Note: JSON.stringify turns NaN into null, so the first case exercises
+    // the null-start path through storage; true NaN is covered directly in
+    // isTimingWindow tests above.
+    for (const windows of [
+      [{ start: Number.NaN, end: 1 }],
+      [{ start: 2, end: 1 }],
+      [{ start: -1, end: 1 }],
+    ]) {
+      const store = memoryStore();
+      store.setItem(
+        WORDTIMES_KEY,
+        JSON.stringify({ idea: "ship a site in two weeks", profile: PROFILE, cues: [cue], windows }),
+      );
+      expect(readWordTiming(store, "ship a site in two weeks", PROFILE), JSON.stringify(windows)).toBeNull();
+    }
+  });
+
+  it("rejects the whole sidecar when assets misalign with the cues", () => {
+    const store = memoryStore();
+    store.setItem(
+      WORDTIMES_KEY,
+      JSON.stringify({ idea: "ship a site in two weeks", profile: PROFILE, cues: [cue], assets: [null, null] }),
+    );
+    expect(readWordTiming(store, "ship a site in two weeks", PROFILE)).toBeNull();
+  });
+
+  it("rejects the whole sidecar on negative cue times", () => {
+    const store = memoryStore();
+    store.setItem(
+      WORDTIMES_KEY,
+      JSON.stringify({ idea: "ship a site in two weeks", profile: PROFILE, cues: [{ span: [-2, 0], words: null }] }),
+    );
+    expect(readWordTiming(store, "ship a site in two weeks", PROFILE)).toBeNull();
+  });
+
+  it("accepts a cues-only sidecar: absent or null windows/assets degrade to null", () => {
+    for (const extra of [{}, { windows: null, assets: null }]) {
+      const store = memoryStore();
+      store.setItem(
+        WORDTIMES_KEY,
+        JSON.stringify({ idea: "ship a site in two weeks", profile: PROFILE, cues: [cue], ...extra }),
+      );
+      const result = readWordTiming(store, "ship a site in two weeks", PROFILE)!;
+      expect(result.cues).toEqual([cue]);
+      expect(result.windows).toBeNull();
+      expect(result.assets).toBeNull();
+    }
   });
 
   it("drops a non-positive total", () => {
