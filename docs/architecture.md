@@ -124,7 +124,7 @@ Invariants (enforced in `useClipflowProject.restoreProject`/`desktopAction` and 
 
 - Exactly 5 cues and 5 scene choices, or throw.
 - `timing.windows.length === cues.length`, else the fixed 45s grid.
-- `DesktopProjectV1` (`src/lib/desktop.ts:13-19`): `{ version: 1, idea,
+- `DesktopProjectV1` (`src/lib/desktop.ts:15-29`): `{ version: 1, idea,
   profile, scriptOverrides, sceneChoices, captionMode, captionOverrides,
   voiceOn, visualEffect, timing, savedAt, baseScript?, renderPlan?,
   planSeeds?, approvedShots? }` — plan fields are optional (pre-plan
