@@ -175,13 +175,66 @@ async function runFfmpeg(args, stdinChunks) {
   return { ms, peakRss };
 }
 
+// --------------------------------------------------------------- PCM sweep
+// Standalone voiceover sweep (no Chromium/FFmpeg): progressively longer
+// voiceovers @ 16 kHz mono, recording JS heap on both sides of the IPC
+// boundary plus estimated native-stage bytes. Shared by `--pcm-only` and
+// the full frame-transport run.
+function pcmHeap() { return process.memoryUsage().heapUsed; }
+function pcmMaybeGc() { try { if (global.gc) global.gc(); } catch { /* no --expose-gc */ } }
+function benchPcmDuration(seconds) {
+  const samples = 16_000 * seconds;
+  const pcm = new Float32Array(samples);
+  for (let i = 0; i < samples; i++) pcm[i] = Math.sin(i * 0.061) * 0.5;
+  const rawBytes = pcm.byteLength;
+  pcmMaybeGc();
+  const heapBeforeJson = pcmHeap();
+  const tJson0 = performance.now();
+  const jsonStr = JSON.stringify(Array.from(pcm));
+  const jsonMs = performance.now() - tJson0;
+  const heapAfterJson = pcmHeap();
+  const jsonBytes = jsonStr.length;
+  const jsonHeapDelta = Math.max(0, heapAfterJson - heapBeforeJson);
+  pcmMaybeGc();
+  const heapBeforeRaw = pcmHeap();
+  const tRaw0 = performance.now();
+  const view = new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  const rawMs = performance.now() - tRaw0;
+  const heapAfterRaw = pcmHeap();
+  const rawHeapDelta = Math.max(0, heapAfterRaw - heapBeforeRaw);
+  void view.length;
+  pcmMaybeGc();
+  return {
+    seconds, samples, rawBytes, rawMs: +rawMs.toFixed(1), rawHeapDelta,
+    jsonBytes, jsonMs: +jsonMs.toFixed(1), jsonHeapDelta,
+    wireRatio: +(jsonBytes / Math.max(1, rawBytes)).toFixed(2),
+    nativeDecodeTransient: samples * 4, nativeWavBytes: samples * 2 + 44,
+  };
+}
+
+async function runPcmOnly(wantJson) {
+  const rows = [15, 60, 300, 600].map(benchPcmDuration);
+  if (wantJson) {
+    process.stdout.write(JSON.stringify({ pcmProgressive: rows }, null, 2) + "\n");
+    return 0;
+  }
+  const lines = [];
+  lines.push(`PCM upload (progressive voiceovers @ 16 kHz mono f32le):`);
+  for (const r of rows) {
+    lines.push(`  ${String(r.seconds).padStart(3)}s ${(r.samples / 1e6).toFixed(2)}M samples: JSON ${mib(r.jsonBytes)} (${r.wireRatio}x raw) in ${r.jsonMs.toFixed(0)} ms, heap +${mib(r.jsonHeapDelta)} | raw ${(r.rawBytes / 1024 / 1024).toFixed(1)} MiB in ${r.rawMs.toFixed(1)} ms, heap +${mib(r.rawHeapDelta)} | native transient ${mib(r.nativeDecodeTransient)} + WAV ${mib(r.nativeWavBytes)}`);
+  }
+  process.stdout.write(lines.join("\n") + "\n");
+  return 0;
+}
+
 // --------------------------------------------------------------- main
 
 async function main() {
   const flags = parseArgs(process.argv.slice(2));
+  const wantJson = flags.json === true || flags.json === "true";
+  if (flags["pcm-only"] === true || flags["pcm-only"] === "true") return runPcmOnly(wantJson);
   const frames = Number(flags.frames) > 0 ? Number(flags.frames) : 90;
   const port = Number(flags.port) > 0 ? Number(flags.port) : 8099;
-  const wantJson = flags.json === true || flags.json === "true";
   if (!existsSync(FFMPEG)) die(`E_NO_FFMPEG: ${FFMPEG} missing — run npm install`);
   mkdirSync(OUT, { recursive: true });
 
@@ -281,15 +334,13 @@ async function main() {
     heapAvailable: result.heapAvailable,
   };
 
-  // ---- PCM half: the old path boxes every sample (Array.from + JSON), the
-  // ---- new path ships the Float32Array bytes verbatim. Measurable in Node.
-  const pcmSamples = 16_000 * 60; // one minute of 16 kHz voice
-  const pcm = new Float32Array(pcmSamples);
-  for (let i = 0; i < pcmSamples; i++) pcm[i] = Math.sin(i * 0.061) * 0.5;
-  const tJson0 = performance.now();
-  const json = JSON.stringify(Array.from(pcm));
-  const jsonMs = performance.now() - tJson0;
-  const rawPcmBytes = pcm.byteLength;
+  // ---- PCM half: reuse the standalone progressive sweep (15/60/300/600s).
+  const pcmProgressive = [15, 60, 300, 600].map(benchPcmDuration);
+  const pcm60 = pcmProgressive.find((r) => r.seconds === 60);
+  const json = { length: pcm60.jsonBytes };
+  const jsonMs = pcm60.jsonMs;
+  const rawPcmBytes = pcm60.rawBytes;
+  report.pcmProgressive = pcmProgressive;
 
   writeFileSync(path.join(OUT, "bench-frame-transport.json"), JSON.stringify(report, null, 2) + "\n");
 
@@ -341,8 +392,13 @@ async function main() {
     ? `RGB24 GATE FAIL: ${r24.alphaNonOpaque} non-opaque pixels, first at frame ${r24.alphaFirstNonOpaque} — alpha must not be dropped`
     : `RGB24 gate: all alpha = 255 on ${r24.checked} sampled frames — dropping alpha is pixel-safe (strip pass ${r24.stripMs} ms/frame, wire bytes x0.75).`);
   lines.push("");
-  lines.push(`PCM upload (${(pcmSamples / 16000).toFixed(0)}s @ 16 kHz, ${(pcmSamples / 1e6).toFixed(2)}M samples):`);
-  lines.push(`  Array.from + JSON  ${json.length.toFixed(0)} bytes (${(json.length / rawPcmBytes).toFixed(1)}x the raw ${(rawPcmBytes / 1024 / 1024).toFixed(1)} MiB), ${jsonMs.toFixed(0)} ms to serialize`);
+  lines.push(`PCM upload (progressive voiceovers @ 16 kHz mono f32le):`);
+  lines.push(`  Array.from + JSON vs raw bytes; JS heap delta measured via process.memoryUsage().heapUsed.`);
+  lines.push(`  Native stage per duration: decode transient (samples x 4B f32) + staged WAV (samples x 2B i16 + 44B header).`);
+  for (const r of pcmProgressive) {
+    lines.push(`  ${String(r.seconds).padStart(3)}s ${(r.samples / 1e6).toFixed(2)}M samples: JSON ${mib(r.jsonBytes)} (${r.wireRatio}x raw) in ${r.jsonMs.toFixed(0)} ms, heap +${mib(r.jsonHeapDelta)} | raw ${(r.rawBytes / 1024 / 1024).toFixed(1)} MiB in ${r.rawMs.toFixed(1)} ms, heap +${mib(r.rawHeapDelta)} | native transient ${mib(r.nativeDecodeTransient)} + WAV ${mib(r.nativeWavBytes)}`);
+  }
+  lines.push(`  60s detail: Array.from + JSON  ${json.length.toFixed(0)} bytes (${(json.length / rawPcmBytes).toFixed(1)}x the raw ${(rawPcmBytes / 1024 / 1024).toFixed(1)} MiB), ${jsonMs.toFixed(0)} ms to serialize`);
   lines.push(`  raw f32 LE         ${rawPcmBytes} bytes, zero-copy view`);
   lines.push("");
   lines.push(`JSON written to ${path.relative(ROOT, path.join(OUT, "bench-frame-transport.json")).replace(/\\/g, "/")}`);
