@@ -79,21 +79,6 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
         readyRelease();
         reject(error instanceof Error ? error : new Error(String(error)));
       };
-      const readyTimeout = setTimeout(() => {
-        fail(new Error("E_ENCODER_INIT: the export worker never responded — reload the tab and retry in Edge/Chrome, or use the desktop app."));
-      }, 15000);
-      void ready.then(() => clearTimeout(readyTimeout));
-      // Stall watchdog: a hung encoder used to look identical to a slow one.
-      // Warn at 45s with live counts; fail at 120s instead of spinning forever.
-      const watchdog = setInterval(() => {
-        if (settled) return;
-        const silentSec = Math.round((Date.now() - lastWorkerMsgAt) / 1000);
-        if (silentSec >= 120) {
-          fail(new Error(`E_ENCODER_STALL: no encoder response for ${silentSec}s (sent ${framesSent} frames, ${framesAccepted} accepted, queue ${lastQueue}). Reload Edge/Chrome and retry, or use the desktop app.`));
-        } else if (silentSec >= 45) {
-          req.onMessage(`Still encoding — no encoder response for ${silentSec}s (sent ${framesSent}/${framesAccepted} frames, queue ${lastQueue}). If this persists, restart Edge/Chrome or use the desktop app.`);
-        }
-      }, 5000);
       const settleDone = (value: ArrayBuffer) => {
         if (settled) return;
         settled = true;
@@ -108,6 +93,21 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
         clearTimeout(readyTimeout);
         fail(error);
       };
+      const readyTimeout = setTimeout(() => {
+        settleFail(new Error("E_ENCODER_INIT: the export worker never responded — reload the tab and retry in Edge/Chrome, or use the desktop app."));
+      }, 15000);
+      void ready.then(() => clearTimeout(readyTimeout));
+      // Stall watchdog: a hung encoder used to look identical to a slow one.
+      // Warn at 45s with live counts; fail at 120s instead of spinning forever.
+      const watchdog = setInterval(() => {
+        if (settled) return;
+        const silentSec = Math.round((Date.now() - lastWorkerMsgAt) / 1000);
+        if (silentSec >= 120) {
+          settleFail(new Error(`E_ENCODER_STALL: no encoder response for ${silentSec}s (sent ${framesSent} frames, ${framesAccepted} accepted, queue ${lastQueue}). Reload Edge/Chrome and retry, or use the desktop app.`));
+        } else if (silentSec >= 45) {
+          req.onMessage(`Still encoding — no encoder response for ${silentSec}s (sent ${framesSent}/${framesAccepted} frames, queue ${lastQueue}). If this persists, restart Edge/Chrome or use the desktop app.`);
+        }
+      }, 5000);
       worker.onmessage = (event: MessageEvent<FromWorker>) => {
         const message = event.data;
         lastWorkerMsgAt = Date.now();

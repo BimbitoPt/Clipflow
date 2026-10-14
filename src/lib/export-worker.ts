@@ -1,6 +1,7 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import {
   AUDIO_CONFIG,
+  RESUME_QUEUE,
   VIDEO_CONFIG,
   type FromWorker,
   type ToWorker,
@@ -135,12 +136,13 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
         // arrives after the next `frame` — which a parked main thread never
         // sends. Forward the encoder's dequeue event so the gate releases as
         // the hardware encoder drains; otherwise any slow encoder (Edge on
-        // integrated GPUs) stalls forever once the queue fills.
+        // integrated GPUs) stalls forever once the queue fills. Throttled to
+        // the resume threshold so a fast encoder doesn't spam drain hints.
         try {
           (next.video as unknown as { ondequeue?: (() => void) | null }).ondequeue = () => {
             try {
-              if (session && !session.finished && session.video.state !== "closed") {
-                scope!.postMessage({ type: "accepted", queue: session.video.encodeQueueSize });
+              if (session === next && !next.finished && next.video.state !== "closed" && next.video.encodeQueueSize <= RESUME_QUEUE) {
+                scope!.postMessage({ type: "accepted", queue: next.video.encodeQueueSize });
               }
             } catch {
               // Drain hints are best-effort; the stall watchdog owns failure.
