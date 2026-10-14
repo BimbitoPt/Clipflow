@@ -4,7 +4,7 @@ import { preloadAsset, STOCK_POOL, type StockAsset } from "../lib/broll";
 import { buildKeyframePrompt, generateKeyframe, hashSeed, keyframeId, keyframeSeedOf, keyframeUrl, loadPollinationsKey, sanitizePollinationsKey, savePollinationsKey, type KeyframeStatus } from "../lib/keyframes";
 import type { Profile } from "../lib/profile";
 import type { VideoScript } from "../lib/script";
-import { resolveSceneChoices, type ResolvedSceneChoice, type SceneChoice } from "../lib/scene-assets";
+import { resolveSceneChoices, applyUploadToScene, type ResolvedSceneChoice, type SceneChoice } from "../lib/scene-assets";
 import { browserStorage as storage } from "../lib/storage";
 import { deleteUpload, loadUploadBlob, saveUpload, touchUpload } from "../lib/upload-store";
 
@@ -257,7 +257,22 @@ export function useSceneAssets(options: SceneAssetsOptions) {
       } catch {
         console.warn("Clipflow: upload runs session-only, persist failed.");
       }
-      setSceneChoices((choices) => choices.map((choice, index) => index === targetScene ? { kind: "upload", id, approvedProof: false } : choice));
+      let failure: string | null = null;
+      setSceneChoices((choices) => {
+        const result = applyUploadToScene(choices, targetScene, id);
+        // The updater must stay pure (StrictMode may re-invoke it), so the
+        // outcome is reported after, in the async continuation below.
+        // Re-invocation is idempotent: same input, same flag value.
+        if ("error" in result) {
+          failure = result.error;
+          return choices;
+        }
+        return result.choices;
+      });
+      if (failure) {
+        setErr(failure);
+        return;
+      }
       setErr("");
     } catch {
       setErr("Could not load that image — try another file.");

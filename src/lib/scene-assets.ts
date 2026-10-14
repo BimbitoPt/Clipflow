@@ -31,3 +31,27 @@ export function resolveSceneChoices(choices: SceneChoice[], ai: AiBackground[], 
     return image ? { kind: "static", entry: { kind: "image", src: image.src, keywords: image.keywords } } : { kind: "fallback" };
   });
 }
+
+/**
+ * Attach a finished upload to its captured target scene.
+ *
+ * Pure so the scene-switch race is unit-testable: the hook captures
+ * `targetScene` before the first await and applies it against the choices
+ * as they stand at completion time. A target outside the current choices
+ * (scene removed mid-upload) is an explicit error, never a silent no-op —
+ * the caller reports it instead of clearing the error line.
+ */
+export function applyUploadToScene(
+  choices: SceneChoice[],
+  targetScene: number,
+  uploadId: string,
+): { choices: SceneChoice[] } | { error: string } {
+  if (!Number.isInteger(targetScene) || targetScene < 0 || targetScene >= choices.length) {
+    return { error: `Scene ${targetScene + 1} is no longer available, so the upload was not attached to a scene.` };
+  }
+  return {
+    choices: choices.map((choice, index) =>
+      index === targetScene ? { kind: "upload", id: uploadId, approvedProof: false } : choice,
+    ),
+  };
+}
