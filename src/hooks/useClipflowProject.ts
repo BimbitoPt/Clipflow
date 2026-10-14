@@ -156,12 +156,7 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
   }
 
   function onSaveProfile() {
-    try {
-      saveProfile(storage, profile);
-      setSaved("Saved.");
-    } catch {
-      setSaved("Storage quota exceeded — profile not saved.");
-    }
+    setSaved(saveProfile(storage, profile) ? "Saved." : "Storage quota exceeded — profile not saved.");
   }
 
   // --- Lifecycle effects ----------------------------------------------------
