@@ -23,10 +23,3 @@ Work as an orchestrated agent team with parallelism:
 - Branch per fix (`fix/...`, `perf/...`, `chore/...`), commit, push,
   open a PR with `gh`, get parallel review agents, then merge to master.
 - Keep diffs tight; put design rationale in code comments, not chat.
-
-## Standing teams
-
-Full journey playbooks live in `docs/agent-teams.md`: APP DEV, GAME DEV,
-BLUE TEAM, RED TEAM, WEB DEV. Invoke with: "Run the <TEAM> team on
-<GOAL>: orchestrator plans, 2–4 parallel subagents explore/build/review,
-gates green, PR, merge."
