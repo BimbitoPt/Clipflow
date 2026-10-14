@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { makeCaptionPlan, type CaptionMode, type CaptionPhrase } from "../../shared/caption-plan";
 import type { VisualEffect } from "../../shared/visual-effects";
-import { cueIndexOf, seekVideo } from "../lib/app-utils";
+import { cueIndexOf } from "../lib/app-utils";
 import { recordExport } from "../lib/activation";
 import { OUT_NAME, runBrowserExport } from "../lib/browser-export";
 import { STOCK_POOL, type StockAsset } from "../lib/broll";
@@ -228,7 +228,7 @@ export function useExportController(setErr: (message: string) => void) {
             frames: [...baseFrames, ...cardFrames], assets: cueAssets, theme,
             extra: { captions: exportCaptions, words: exportWords, visualEffect, captionAnchor }, duration: totalDuration,
             endCardAfter: creditOn ? baseDuration : undefined, pcm, signal: exportAbortRef.current.signal,
-            cueIndex: frame => cueIndexOf(script, frame.cue), seek: seekVideo,
+            cueIndex: frame => cueIndexOf(script, frame.cue),
             progress: (percent,message) => { setExportProgress(percent); setExportMsg(message); },
           });
           if (output) { setNativeOutput(output); setStatus("exported"); setExportMsg(""); try { recordExport(browserStorage, Date.now()); } catch { /* instrumentation never breaks export */ } }

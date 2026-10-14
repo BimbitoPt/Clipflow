@@ -22,7 +22,6 @@ export interface DesktopRenderInput {
   /** Frames at or past this timestamp render the opt-in credit card. */
   endCardAfter?: number;
   cueIndex: (frame: PlannedFrame) => number;
-  seek: (video: HTMLVideoElement, t: number) => Promise<void>;
   progress: (percent: number, message: string) => void;
 }
 
@@ -115,6 +114,14 @@ export async function renderDesktop(input: DesktopRenderInput): Promise<string |
   } finally { input.signal.removeEventListener('abort', cancel); }
 }
 
+/**
+ * Strict frame-accurate seek for the native encode path. Deliberately private
+ * and stricter than the browser export's best-effort `seekVideo`
+ * (lib/app-utils.ts): a stale frame baked into the FFmpeg stdin is
+ * unrecoverable, so unknown durations reject and the 5s timeout fails instead
+ * of resolving. There is intentionally no injectable seek callback — one
+ * implementation owns this responsibility.
+ */
 async function seekNativeVideo(video: HTMLVideoElement, time: number): Promise<void> {
   if (!Number.isFinite(video.duration) || video.duration <= 0) throw new Error('The selected video has no playable duration. Convert it to MP4 and reimport it.');
   const target = time % video.duration;
