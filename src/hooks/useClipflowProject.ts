@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { CaptionMode, CaptionPhrase } from "../../shared/caption-plan";
 import { isPlatformId, type PlatformId } from "../../shared/platform-presets";
@@ -12,7 +12,7 @@ import { loadInitialProfile, saveProfile } from "../lib/profile";
 import type { SceneChoice } from "../lib/scene-assets";
 import type { ScriptOverrides } from "../lib/script-draft";
 import type { VideoScript } from "../lib/script";
-import { readSession, writeSession, writeWordTiming, readTimingSidecar, validTimingSidecar, type SessionSnapshot, type WordTiming } from "../lib/session";
+import { defaultApprovedShots, planInputsSig, readSession, validApprovedShots, validPlanSeeds, writeSession, writeWordTiming, readTimingSidecar, validTimingSidecar, type SessionSnapshot, type WordTiming } from "../lib/session";
 import type { StockAsset } from "../lib/broll";
 import { browserStorage as storage } from "../lib/storage";
 import { gcUploads } from "../lib/upload-store";
@@ -80,7 +80,12 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
   // Both reset whenever the script inputs change (effect below) — a stale
   // approval must never survive a new script.
   const [planSeeds, setPlanSeeds] = useState<Record<number, number>>({});
-  const [approvedShots, setApprovedShots] = useState<boolean[]>([false, false, false, false, false]);
+  const [approvedShots, setApprovedShots] = useState<boolean[]>(() => defaultApprovedShots());
+  // Signature of the script inputs at the last restore (browser session or
+  // native project). The reset effect skips while the live inputs still
+  // match it, so restored takes survive the post-restore refire — see the
+  // reset effect below.
+  const restoredPlanSigRef = useRef<string | null>(null);
   const [selectedScene, setSelectedScene] = useState(0);
   const [voiceOn, setVoiceOn] = useState(true);
   const [captionMode, setCaptionMode] = useState<CaptionMode>("auto");
@@ -103,7 +108,7 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
   const [sidecarTiming, setSidecarTiming] = useState<string | null>(() => readTimingSidecar(storage));
 
   const profile = useMemo(() => ({ niche, audience, offer, tone, proof }), [niche, audience, offer, tone, proof]);
-  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: sidecarTiming };
+  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: sidecarTiming, planSeeds, approvedShots };
   const projectSnapshot = projectFingerprint(projectDraft);
   const projectDirty = projectSnapshot !== savedSnapshot;
 
@@ -120,6 +125,27 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
       setPackId(project.pack as PackId);
       setProjectBase(null);
     }
+    // AI Director plan takes travel with the project (optional: pre-plan
+    // files still open). Same guards as the browser session — bad keys or
+    // a bad array degrade to defaults while a malformed core above still
+    // throws as before.
+    const incomingPlanSeeds = validPlanSeeds(project.planSeeds);
+    const incomingApprovals = validApprovedShots(project.approvedShots);
+    setPlanSeeds(incomingPlanSeeds);
+    setApprovedShots(incomingApprovals);
+    // The native restore lands input state the reset effect watches: record
+    // its signature (effective pack — an unknown pack keeps the live one)
+    // so the post-restore refire settles instead of wiping restored takes.
+    const effectivePack =
+      typeof project.pack === "string" && (PACK_IDS as readonly string[]).includes(project.pack)
+        ? project.pack
+        : packId;
+    restoredPlanSigRef.current = planInputsSig({
+      idea: project.idea,
+      profile: project.profile,
+      scriptOverrides: project.scriptOverrides,
+      pack: effectivePack,
+    });
     // Incoming timing is validated before it touches state, storage or the
     // saved snapshot: a corrupt blob from a project file degrades to null
     // everywhere at once instead of persisting and flapping the dirty flag.
@@ -127,7 +153,9 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
     writeWordTiming(storage, incomingTiming);
     setSidecarTiming(incomingTiming);
     const { savedAt: _savedAt, ...draft } = project;
-    setSavedSnapshot(projectFingerprint({ ...draft, timing: incomingTiming })); setProjectPath(path); setSelectedScene(0); onRestored(); setErr("");
+    // Normalized with the plan defaults above: opening a pre-plan file must
+    // settle clean, not flag dirty against the live draft's plan fields.
+    setSavedSnapshot(projectFingerprint({ ...draft, planSeeds: incomingPlanSeeds, approvedShots: incomingApprovals, timing: incomingTiming })); setProjectPath(path); setSelectedScene(0); onRestored(); setErr("");
   }
 
   // --- Desktop actions ------------------------------------------------------
@@ -165,6 +193,30 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
   }
 
   // --- Lifecycle effects ----------------------------------------------------
+  // Plan takes follow the script: any script-input change invalidates
+  // regenerated takes and their approvals. An effect (not render-time
+  // resets) because invalidation lives in App's handlers, not this hook.
+  // Profile is included: buildScript derives the script from it too.
+  //
+  // Declared FIRST on purpose (approach (a): restore-after-reset). On mount
+  // this runs before the restores below — a no-op over defaults — and the
+  // restore wins the batch. Restores record their input signature in
+  // `restoredPlanSigRef`; the post-restore refire (restored idea/pack
+  // landing) sees the live inputs still match and skips, so restored
+  // approvals survive. Any later genuine input change mismatches the
+  // recorded signature, clears it, and resets as before. Effect-ordering
+  // proof: `src/lib/session.test.ts` replays this exact timeline against
+  // `planInputsSig` (mount → restore → refire-skip → edit-resets).
+  useEffect(() => {
+    const sig = planInputsSig({ idea, profile, scriptOverrides, pack: packId });
+    if (restoredPlanSigRef.current !== null) {
+      if (restoredPlanSigRef.current === sig) return;
+      restoredPlanSigRef.current = null;
+    }
+    setPlanSeeds({});
+    setApprovedShots(defaultApprovedShots());
+  }, [idea, profile, scriptOverrides, packId]);
+
   // Native close: ask before dropping unsaved changes or an in-flight export.
   useEffect(() => {
     if (!desktop) return;
@@ -205,22 +257,25 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
     setPlatform(session.platform);
     setCreditOn(session.credit);
     setPackId(session.pack);
+    setPlanSeeds(session.planSeeds ?? {});
+    setApprovedShots(session.approvedShots ?? defaultApprovedShots());
+    // The session lands input state the reset effect (above) watches:
+    // record its signature so the post-restore refire settles instead of
+    // wiping the restored takes. Session carries no profile — the live
+    // (initial) profile is the effective one.
+    restoredPlanSigRef.current = planInputsSig({
+      idea: session.idea,
+      profile,
+      scriptOverrides: session.scriptOverrides,
+      pack: session.pack,
+    });
     setProjectBase(null);
   }, []);
 
   useEffect(() => {
     if (desktop) return;
-    writeSession(storage, { idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId } satisfies SessionSnapshot);
-  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn, packId]);
-
-  // Plan takes follow the script: any script-input change invalidates
-  // regenerated takes and their approvals. An effect (not render-time
-  // resets) because invalidation lives in App's handlers, not this hook.
-  // Profile is included: buildScript derives the script from it too.
-  useEffect(() => {
-    setPlanSeeds({});
-    setApprovedShots([false, false, false, false, false]);
-  }, [idea, profile, scriptOverrides, packId]);
+    writeSession(storage, { idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, planSeeds, approvedShots } satisfies SessionSnapshot);
+  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn, packId, planSeeds, approvedShots]);
 
   useEffect(() => {
     try {

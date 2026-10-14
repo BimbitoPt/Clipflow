@@ -19,6 +19,11 @@ export interface DesktopProjectV1 {
   platform?: PlatformId;
   credit?: boolean;
   pack?: PackId;
+  // AI Director plan takes (optional: pre-plan project files still open).
+  // Re-derived via buildProductionPlan on load; validated with the same
+  // guards as the browser session (bad keys/array → defaults).
+  planSeeds?: Record<number, number>;
+  approvedShots?: boolean[];
   baseScript?: VideoScript | null;
   renderPlan?: Record<string, unknown> | null;
 }

@@ -59,7 +59,14 @@ User promises (DIY):
    preview in the phone frame, mid-cue frame on selection.
 5. **Voice & look** — voice on/off + preview, caption mode
    (`auto|scene|speech|off`), visual effect grade.
-6. **Export** — one button: browser MP4 download or desktop native
+6. **Production plan (AI Director)** — deterministic shot cards (one per
+   beat: image prompt, camera direction, motion variant) + cost estimate,
+   derived from the script and pack. Per-shot regenerate creates a new
+   take (unapproved by definition); export requires all 5 shots
+   approved (`E_PLAN_APPROVAL`). Takes and approvals reset whenever the
+   script inputs change, and persist across reloads and `.clipflow`
+   projects.
+7. **Export** — one button: browser MP4 download or desktop native
    file. Target-platform select tunes caption placement and shows that
    app's spec guidance. Opt-in Clipflow credit appends a 2s end card.
    Progress with honest status messages; cancellation on desktop. Post copy
@@ -80,6 +87,7 @@ first. Never reorder the loop without updating this file.
 | Script panel | Story structure | 5 beats, selected state, per-beat caption label when in scene-caption mode. |
 | Preview panel | Truth | Phone frame canvas, scene strip (HOOK/BEAT×3/CTA), ratio note. Sticky on desktop. |
 | Scene tray | Visual assignment | Current-look card, library tabs, upload dropzone, proof-approval checkbox. |
+| Production plan | Shot review | 5 shot cards with cost estimate; per-shot regenerate + approve toggles; export gated on all 5 approvals. |
 | Export panel | Output | Voice toggle, caption/effect controls, export CTA, progress, post-copy details. |
 | Desktop toolbar | Native projects | New/Open/Save/Import, path + dirty dot, busy states, Ctrl+S/O/N shortcuts, close-guard on unsaved work. |
 | Footer | Exit | Wordmark + managed upsell link. One link, quiet. |
@@ -158,6 +166,10 @@ hostage mechanics:
 Shipped from the 2026 audit: safe-zone captions, active-word emphasis,
 hook card, platform presets, upload durability, activation metric +
 warm start, off-thread export, DIY week queue, opt-in end card.
+Shipped from AI Director Phase 1: deterministic production plan
+(shot cards + cost estimate), per-shot regenerate takes, per-shot
+approvals persisted across reloads and `.clipflow` projects,
+approval-gated export.
 Remaining vectors: preview fidelity (export = preview pixels), caption
 style presets (≥3, per teardown), DIY→batch-studio handoff,
 1080p export upgrade path, cloud voices as a paid convenience. Managed
