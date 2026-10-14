@@ -16,7 +16,7 @@ import type { WordTiming } from "../lib/session";
 import { browserStorage } from "../lib/storage";
 import type { VideoScript } from "../lib/script";
 import type { Theme } from "../lib/packs";
-import { createKokoroLoader, KOKORO_SAMPLE_RATE, resampleLinear } from "../lib/tts-local";
+import { checkVoiceAssets, createKokoroLoader, KOKORO_SAMPLE_RATE, resampleLinear } from "../lib/tts-local";
 import { createKokoroTimedLoader } from "../lib/tts-timed";
 
 export type ExportStatus = "idle" | "working" | "exported" | "error";
@@ -138,6 +138,16 @@ export function useExportController(setErr: (message: string) => void) {
           setExportMsg("Rendering voice…");
           setExportProgress(50);
           try {
+            // Fail fast before the heavyweight model imports: a missing
+            // install or an offline first run surfaces here with an
+            // actionable message instead of a late init failure. The
+            // timestamped model stays a soft fallback below.
+            const voiceAssets = await checkVoiceAssets();
+            if (!voiceAssets.ready) {
+              throw new Error(
+                `E_TTS_MODEL: voice ${voiceAssets.missing.join(" + ")} missing — run \`npm run model:install\`, then export again.`,
+              );
+            }
             let raw: Float32Array;
             try {
               const timed = await createKokoroTimedLoader()(cueTexts);

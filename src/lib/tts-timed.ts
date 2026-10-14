@@ -19,6 +19,13 @@ import { DEFAULT_VOICE, KOKORO_SAMPLE_RATE } from "./tts-local";
  * gets worse than before — this module only ever upgrades captions.
  */
 const TIMESTAMPED_MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX-timestamped";
+/**
+ * Pinned timestamped-weights revision — must match TS_REVISION in
+ * scripts/install-kokoro-model.mjs (enforced by tts-local.test.ts). The
+ * timed path is a soft upgrade over the standard model (export falls back
+ * when it is unavailable), so this only pins the manifest, not availability.
+ */
+export const TIMESTAMPED_MODEL_REVISION = "dd4401a9add81ac692d20e240d22ec9dda82cc29";
 
 export interface TimedSynthesis {
   audio: Float32Array;
