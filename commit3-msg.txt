@@ -1,7 +1,0 @@
-Drop public /ort/ wasmPaths override: ORT imports the public file as a
-JS module, tripping Vite dev guard (Failed to load url
-/ort/ort-wasm-simd-threaded.jsep.mjs). Restore transformers' relative
-chunk resolution for the ORT wasm (already hashed into
-dist/assets); keep numThreads=1 for the desktop.
-
-136/136 tests, tsc clean.
