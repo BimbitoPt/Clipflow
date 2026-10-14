@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildScript } from "./script";
 import { loadPack } from "./packs";
 import { MSTUDIO_PROFILE } from "./profile";
-import { buildProductionPlan, estimatePlanCost } from "./production-plan";
+import { buildProductionPlan, estimatePlanCost, regenerateShot } from "./production-plan";
 
 describe("production-plan", () => {
   it("derives 5 shot cards with durations matching the cue grid", () => {
@@ -36,5 +36,18 @@ describe("plan cost", () => {
     expect(cost.units).toBeGreaterThan(0);
     const silent = estimatePlanCost(plan, { voiceOn: false, width: 720, height: 1280, fps: 30 });
     expect(silent.units).toBeLessThan(cost.units);
+  });
+});
+
+describe("shot regeneration", () => {
+  it("changes the card deterministically per seed without touching durations", () => {
+    const pack = loadPack("clipflow");
+    const script = buildScript("car detailing", MSTUDIO_PROFILE, pack);
+    const plan = buildProductionPlan(script, pack, "af_heart");
+    const regen = regenerateShot(plan, 0, 1);
+    expect(regen.shots[0]).not.toEqual(plan.shots[0]);
+    expect(regen.shots[0]!.durationSecs).toBe(plan.shots[0]!.durationSecs);
+    expect(regenerateShot(plan, 0, 1)).toEqual(regen);
+    expect(regen.shots.slice(1)).toEqual(plan.shots.slice(1));
   });
 });

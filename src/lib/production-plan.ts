@@ -82,3 +82,20 @@ export function estimatePlanCost(
     breakdown: { shots: plan.shots.length, voiceSecs: opts.voiceOn ? plan.totalSecs : 0, pixels },
   };
 }
+
+const MOTION_POOL = ["rays", "blobs", "grid", "waves", "pulse"];
+
+export function regenerateShot(plan: ProductionPlan, cueIndex: number, seed: number): ProductionPlan {
+  const shots = plan.shots.map((shot, i) => {
+    if (i !== cueIndex) return shot;
+    const base = MOTION_POOL.indexOf(shot.motionVariant);
+    const safe = base < 0 ? 0 : base;
+    const next = MOTION_POOL[(((safe + seed) % MOTION_POOL.length) + MOTION_POOL.length) % MOTION_POOL.length]!;
+    return {
+      ...shot,
+      motionVariant: next,
+      imagePrompt: `${shot.imagePrompt} (take ${seed}, ${next} motion)`,
+    };
+  });
+  return { ...plan, shots };
+}

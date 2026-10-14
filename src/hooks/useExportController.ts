@@ -43,6 +43,8 @@ export interface ExportContext {
   sceneChoices: SceneChoice[];
   aiSuggestions: ReturnType<typeof assignAiBackgrounds>;
   loadSceneAsset: (choice: ResolvedSceneChoice) => Promise<StockAsset | null>;
+  /** Per-shot director approvals; export requires all 5 true. */
+  approvedShots: boolean[];
 }
 
 /**
@@ -80,7 +82,7 @@ export function useExportController(setErr: (message: string) => void) {
   }, []);
 
   const runExport = useCallback(async (ctx: ExportContext): Promise<void> => {
-    const { script, theme, captionAnchor, visualEffect, captions, words, captionLabels, captionMode, voiceOn, creditOn, timing, sceneChoices, aiSuggestions, loadSceneAsset } = ctx;
+    const { script, theme, captionAnchor, visualEffect, captions, words, captionLabels, captionMode, voiceOn, creditOn, timing, sceneChoices, aiSuggestions, loadSceneAsset, approvedShots } = ctx;
     if (!script) return;
     if (busyRef.current) return;
     busyRef.current = true;
@@ -194,6 +196,14 @@ export function useExportController(setErr: (message: string) => void) {
           } finally {
             setExportProgress(65);
           }
+        }
+        // Director gate: every shot card must be approved before rendering.
+        // Placed after the voice block (not inside it) so silent exports are
+        // gated too; the outer catch surfaces it as an export error, same as
+        // the E_TTS_MODEL failure above.
+        const unapproved = approvedShots.findIndex((a) => !a);
+        if (unapproved !== -1) {
+          throw new Error(`E_PLAN_APPROVAL: shot ${unapproved + 1} not approved — approve all 5 shots before exporting.`);
         }
         // Captions for THIS export: real synthesized word times when the
         // timed model ran, otherwise the memoized plan (sidecar/even-split).

@@ -76,6 +76,11 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
   const [idea, setIdea] = useState("fixed-price websites that ship in two weeks");
   const [scriptOverrides, setScriptOverrides] = useState<ScriptOverrides>({});
   const [sceneChoices, setSceneChoices] = useState<SceneChoice[]>(() => Array.from({ length: 5 }, () => ({ kind: "auto-ai" })));
+  // AI Director plan takes: per-shot regenerate seeds + per-shot approvals.
+  // Both reset whenever the script inputs change (effect below) — a stale
+  // approval must never survive a new script.
+  const [planSeeds, setPlanSeeds] = useState<Record<number, number>>({});
+  const [approvedShots, setApprovedShots] = useState<boolean[]>([false, false, false, false, false]);
   const [selectedScene, setSelectedScene] = useState(0);
   const [voiceOn, setVoiceOn] = useState(true);
   const [captionMode, setCaptionMode] = useState<CaptionMode>("auto");
@@ -208,6 +213,15 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
     writeSession(storage, { idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId } satisfies SessionSnapshot);
   }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn, packId]);
 
+  // Plan takes follow the script: any script-input change invalidates
+  // regenerated takes and their approvals. An effect (not render-time
+  // resets) because invalidation lives in App's handlers, not this hook.
+  // Profile is included: buildScript derives the script from it too.
+  useEffect(() => {
+    setPlanSeeds({});
+    setApprovedShots([false, false, false, false, false]);
+  }, [idea, profile, scriptOverrides, packId]);
+
   useEffect(() => {
     try {
       storage.setItem(WEEK_KEY, queueText);
@@ -236,6 +250,8 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
     saved, onSaveProfile,
     scriptOverrides, setScriptOverrides,
     sceneChoices, setSceneChoices,
+    planSeeds, setPlanSeeds,
+    approvedShots, setApprovedShots,
     selectedScene, setSelectedScene,
     voiceOn, setVoiceOn,
     captionMode, setCaptionMode,
