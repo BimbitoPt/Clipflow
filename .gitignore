@@ -41,6 +41,8 @@ public/.broll-usage.json
 
 # Generated render/compute artifacts (local, never committed)
 /outputs/
+results.tsv
+run.log
 .fx-tmp/
 /test-results/
 diag-shot.png
