@@ -84,6 +84,17 @@ describe("voice asset readiness", () => {
     await expect(checkVoiceAssets()).resolves.toEqual({ ready: false, missing: ["model weights"] });
   });
 
+  it("treats a voice body-read failure as ready when the asset exists", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("/voices/")
+          ? ({ ok: true, arrayBuffer: async () => { throw new Error("body locked"); } }) as unknown as Response
+          : ok()),
+    );
+    await expect(checkVoiceAssets()).resolves.toEqual({ ready: true, missing: [] });
+  });
+
   it("treats an offline first run as missing every required asset", async () => {
     vi.stubGlobal(
       "fetch",

@@ -92,7 +92,9 @@ export async function checkVoiceAssets(): Promise<VoiceAssetStatus> {
       if (!response.ok) return asset.label;
       if (asset.warm) {
         // Consume the voice body so the request completes before cache seeding.
-        await response.arrayBuffer();
+        // Best-effort: a body-read failure must not fail preflight when the
+        // asset itself exists (seedVoiceCache refetches anyway).
+        await response.arrayBuffer().catch(() => {});
       }
       return null;
     } catch {
