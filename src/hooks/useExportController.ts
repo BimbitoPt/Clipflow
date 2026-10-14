@@ -130,6 +130,14 @@ export function useExportController(setErr: (message: string) => void) {
         if (desktop && cueAssets.some(asset => !asset)) throw new Error("A selected scene's media could not be loaded. Reimport it before exporting.");
         const approvedProofByCue = exportChoices.map((choice, index) => choice.kind === "upload" && choice.approvedProof === true && cueAssets[index]?.src === `upload:${choice.id}`);
         setExportProgress(35);
+        // Director gate FIRST: every shot card must be approved before any
+        // heavyweight work. Checked before voice synthesis so an unapproved
+        // plan fails fast instead of after minutes of TTS (or never, if
+        // voice fails first and returns early from its own catch below).
+        const unapproved = approvedShots.findIndex((a) => !a);
+        if (unapproved !== -1) {
+          throw new Error(`E_PLAN_APPROVAL: shot ${unapproved + 1} not approved — approve all 5 shots before exporting.`);
+        }
         let pcm: Float32Array | null = null;
         // Real word timings when the timed model synthesized the voice; the
         // sidecar/even-split memo stays the fallback — timed synthesis can
@@ -196,14 +204,6 @@ export function useExportController(setErr: (message: string) => void) {
           } finally {
             setExportProgress(65);
           }
-        }
-        // Director gate: every shot card must be approved before rendering.
-        // Placed after the voice block (not inside it) so silent exports are
-        // gated too; the outer catch surfaces it as an export error, same as
-        // the E_TTS_MODEL failure above.
-        const unapproved = approvedShots.findIndex((a) => !a);
-        if (unapproved !== -1) {
-          throw new Error(`E_PLAN_APPROVAL: shot ${unapproved + 1} not approved — approve all 5 shots before exporting.`);
         }
         // Captions for THIS export: real synthesized word times when the
         // timed model ran, otherwise the memoized plan (sidecar/even-split).
