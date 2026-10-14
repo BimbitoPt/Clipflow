@@ -51,21 +51,22 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
   const withAudio = Boolean(voiceOn && pcm);
   const worker = new Worker(new URL("./export-worker.ts", import.meta.url), { type: "module" });
   let buffer: ArrayBuffer;
-  // Stall watchdog: a hung encoder used to look identical to a slow one.
-  // After 45s without a worker message, say so and name the way out instead
-  // of spinning forever.
-  let lastWorkerMsgAt = Date.now();
-  const watchdog = setInterval(() => {
-    const silentSec = Math.round((Date.now() - lastWorkerMsgAt) / 1000);
-    if (silentSec >= 45) {
-      req.onMessage(`Still encoding — no encoder response for ${silentSec}s. If this persists, restart Chrome or use the desktop app.`);
-    }
-  }, 5000);
   try {
     buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
       let lastQueue = 0;
+      let framesAccepted = 0;
+      let framesSent = 0;
       let gate: (() => void) | null = null;
       let settled = false;
+      let lastWorkerMsgAt = Date.now();
+      // Init handshake: the worker must answer `ready` once its encoders are
+      // configured. A worker that never answers (blocked module load, missing
+      // WebCodecs) previously looked like a slow encode until the 45s
+      // watchdog; now it fails fast with a named cause.
+      let readyRelease: () => void = () => {};
+      const ready = new Promise<void>((resolveReady) => {
+        readyRelease = resolveReady;
+      });
       const release = () => {
         const pending = gate;
         gate = null;
@@ -75,13 +76,48 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
         if (settled) return;
         settled = true;
         release();
+        readyRelease();
         reject(error instanceof Error ? error : new Error(String(error)));
+      };
+      const readyTimeout = setTimeout(() => {
+        fail(new Error("E_ENCODER_INIT: the export worker never responded — reload the tab and retry in Edge/Chrome, or use the desktop app."));
+      }, 15000);
+      void ready.then(() => clearTimeout(readyTimeout));
+      // Stall watchdog: a hung encoder used to look identical to a slow one.
+      // Warn at 45s with live counts; fail at 120s instead of spinning forever.
+      const watchdog = setInterval(() => {
+        if (settled) return;
+        const silentSec = Math.round((Date.now() - lastWorkerMsgAt) / 1000);
+        if (silentSec >= 120) {
+          fail(new Error(`E_ENCODER_STALL: no encoder response for ${silentSec}s (sent ${framesSent} frames, ${framesAccepted} accepted, queue ${lastQueue}). Reload Edge/Chrome and retry, or use the desktop app.`));
+        } else if (silentSec >= 45) {
+          req.onMessage(`Still encoding — no encoder response for ${silentSec}s (sent ${framesSent}/${framesAccepted} frames, queue ${lastQueue}). If this persists, restart Edge/Chrome or use the desktop app.`);
+        }
+      }, 5000);
+      const settleDone = (value: ArrayBuffer) => {
+        if (settled) return;
+        settled = true;
+        clearInterval(watchdog);
+        clearTimeout(readyTimeout);
+        release();
+        readyRelease();
+        resolve(value);
+      };
+      const settleFail = (error: unknown) => {
+        clearInterval(watchdog);
+        clearTimeout(readyTimeout);
+        fail(error);
       };
       worker.onmessage = (event: MessageEvent<FromWorker>) => {
         const message = event.data;
         lastWorkerMsgAt = Date.now();
+        if (message.type === "ready") {
+          readyRelease();
+          return;
+        }
         if (message.type === "accepted") {
           lastQueue = message.queue;
+          framesAccepted += 1;
           if (message.queue <= RESUME_QUEUE) release();
         } else if (message.type === "stage") {
           req.onMessage(
@@ -90,26 +126,30 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
             : "Finalizing MP4…",
           );
         } else if (message.type === "done") {
-          if (settled) return;
-          settled = true;
-          release();
-          resolve(message.buffer);
+          settleDone(message.buffer);
         } else if (message.type === "error") {
-          fail(new Error(message.message));
+          settleFail(new Error(message.message));
+        } else if (message.type === "aborted") {
+          settleFail(new DOMException("Export cancelled.", "AbortError"));
         }
       };
-      worker.onerror = (event) => fail(event instanceof ErrorEvent ? event.message : "Export worker failed.");
+      worker.onerror = (event) => settleFail(event instanceof ErrorEvent ? event.message : "Export worker failed.");
+      worker.onmessageerror = () => settleFail(new Error("Export worker message failed."));
       signal.addEventListener("abort", () => {
         try {
           worker.postMessage({ type: "abort" });
         } catch {
           // Terminate below still releases the worker.
         }
-        fail(new DOMException("Export cancelled.", "AbortError"));
+        settleFail(new DOMException("Export cancelled.", "AbortError"));
       }, { once: true });
       void (async () => {
         try {
           worker.postMessage({ type: "init", voice: withAudio });
+          // Wait for the worker's encoders to configure before feeding
+          // frames; without this a slow module load silently eats frames.
+          await ready;
+          signal.throwIfAborted();
           const canvas = document.createElement("canvas");
           canvas.width = OUT_W;
           canvas.height = OUT_H;
@@ -132,12 +172,27 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
               throw postError;
             }
             n++;
+            framesSent += 1;
             if (n % 90 === 0) {
               req.onPercent(65 + Math.round((30 * n) / totalFrames));
               req.onMessage(`Muxing ${n}/${totalFrames} frames…`);
             }
-            if (lastQueue > MAX_QUEUE) await new Promise<void>((resume) => {
-              gate = resume;
+            // Drain gate: pause feeding while the encoder is backed up. The
+            // worker's dequeue forwarding resumes this once the hardware
+            // encoder drains; the timeout turns a stuck encoder into a named
+            // error instead of a silent hang.
+            if (lastQueue > MAX_QUEUE) await new Promise<void>((resume, rejectGate) => {
+              const timer = setTimeout(() => {
+                if (gate === wrapped) {
+                  gate = null;
+                  rejectGate(new Error(`E_ENCODER_STALL: encoder queue stuck at ${lastQueue} with no drain — reload Edge/Chrome and retry, or use the desktop app.`));
+                }
+              }, 30000);
+              const wrapped = () => {
+                clearTimeout(timer);
+                resume();
+              };
+              gate = wrapped;
             });
             if (n % 30 === 0) await new Promise((paint) => setTimeout(paint, 0));
           };
@@ -206,12 +261,11 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
           }
           worker.postMessage({ type: "finish" });
         } catch (error) {
-          fail(error);
+          settleFail(error);
         }
       })();
     });
   } finally {
-    clearInterval(watchdog);
     worker.terminate();
   }
   req.onPercent(100);

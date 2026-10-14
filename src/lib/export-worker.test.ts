@@ -148,6 +148,17 @@ describe("export-worker", () => {
     expect(h.chunks).toEqual([{ kind: "video" }, { kind: "audio" }]);
   });
 
+  it("forwards encoder dequeue events so a parked main thread can resume", () => {
+    const h = harness();
+    h.send({ type: "init", voice: false });
+    const ondequeue = (h.video as unknown as { ondequeue?: unknown }).ondequeue;
+    expect(typeof ondequeue).toBe("function");
+    const before = h.posted.length;
+    (ondequeue as () => void)();
+    expect(h.posted.length).toBe(before + 1);
+    expect(h.posted.at(-1)).toEqual({ type: "accepted", queue: h.video.encodeQueueSize });
+  });
+
   it("rejects frames before init instead of throwing", () => {
     const h = harness();
     h.send({ type: "frame", frame: { closed: false } as unknown as VideoFrame, keyFrame: false });
