@@ -1,9 +1,12 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import {
+  AAC_FRAME_DURATION_US,
   AUDIO_CONFIG,
   OPUS_AUDIO_CONFIG,
+  OPUS_FRAME_DURATION_US,
   RESUME_QUEUE,
   VIDEO_CONFIG,
+  VIDEO_FRAME_DURATION_US,
   type AudioCodec,
   type FromWorker,
   type ToWorker,
@@ -26,6 +29,9 @@ import {
 export interface MuxerLike {
   addVideoChunk(chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata): void;
   addAudioChunk(chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata): void;
+  /** Raw paths for chunks whose duration the encoder omitted (null). Optional so test fakes stay minimal. */
+  addVideoChunkRaw?(data: Uint8Array, type: "key" | "delta", timestamp: number, duration: number, meta?: EncodedVideoChunkMetadata): void;
+  addAudioChunkRaw?(data: Uint8Array, type: "key" | "delta", timestamp: number, duration: number, meta?: EncodedAudioChunkMetadata): void;
   finalize(): void;
   target: { buffer: ArrayBuffer };
 }
@@ -143,8 +149,29 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
           audioErr: null,
           finished: false,
         };
+        // Last output timestamps, for deriving durations the encoder omitted.
+        let lastVideoTimestamp: number | null = null;
+        let lastAudioTimestamp: number | null = null;
         next.video = deps.createVideoEncoder(
-          (chunk, metadata) => muxer.addVideoChunk(chunk, metadata),
+          (chunk, metadata) => {
+            // Hardware encoders may emit chunks with duration null, which
+            // mp4-muxer rejects (addVideoChunkRaw TypeError). Fall back to
+            // the timestamp delta (nominal frame interval for the first
+            // chunk) via the raw path instead of failing the whole export.
+            if (chunk.duration == null && typeof chunk.copyTo === "function" && muxer.addVideoChunkRaw) {
+              const data = new Uint8Array(chunk.byteLength);
+              chunk.copyTo(data);
+              let duration = VIDEO_FRAME_DURATION_US;
+              if (lastVideoTimestamp != null) {
+                const delta = chunk.timestamp - lastVideoTimestamp;
+                if (Number.isFinite(delta) && delta > 0) duration = delta;
+              }
+              muxer.addVideoChunkRaw(data, chunk.type, chunk.timestamp, duration, metadata);
+            } else {
+              muxer.addVideoChunk(chunk, metadata);
+            }
+            lastVideoTimestamp = chunk.timestamp;
+          },
           (e) => {
             next.videoErr = e;
           },
@@ -172,8 +199,26 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
           // Encoders without dequeue support keep the old behavior.
         }
         if (message.voice) {
+          const nominalAudioDuration = audioCodec === "opus" ? OPUS_FRAME_DURATION_US : AAC_FRAME_DURATION_US;
           next.audio = deps.createAudioEncoder(
-            (chunk, metadata) => muxer.addAudioChunk(chunk, metadata),
+            (chunk, metadata) => {
+              // Same null-duration hazard as video (AAC encoders can omit it
+              // on some platforms). Derive from timestamp deltas, nominal
+              // codec frame duration for the first chunk.
+              if (chunk.duration == null && typeof chunk.copyTo === "function" && muxer.addAudioChunkRaw) {
+                const data = new Uint8Array(chunk.byteLength);
+                chunk.copyTo(data);
+                let duration = nominalAudioDuration;
+                if (lastAudioTimestamp != null) {
+                  const delta = chunk.timestamp - lastAudioTimestamp;
+                  if (Number.isFinite(delta) && delta > 0) duration = delta;
+                }
+                muxer.addAudioChunkRaw(data, chunk.type, chunk.timestamp, duration, metadata);
+              } else {
+                muxer.addAudioChunk(chunk, metadata);
+              }
+              lastAudioTimestamp = chunk.timestamp;
+            },
             (e) => {
               next.audioErr = e;
             },

@@ -12,6 +12,11 @@ export const OPUS_AUDIO_CONFIG = { codec: "opus", sampleRate: 48000, numberOfCha
 export const MEDIA_RECORDER_MIMES = ["video/mp4", "video/webm;codecs=vp8,opus", "video/webm"] as const;
 
 export type AudioCodec = "aac" | "opus";
+/** Nominal video frame duration in µs — fallback when the encoder omits chunk durations (mp4-muxer rejects null). */
+export const VIDEO_FRAME_DURATION_US = Math.round(1_000_000 / VIDEO_CONFIG.framerate);
+/** Nominal audio frame durations in µs by codec (AAC 1024 frames, Opus 960). */
+export const AAC_FRAME_DURATION_US = Math.round((1024 * 1_000_000) / AUDIO_CONFIG.sampleRate);
+export const OPUS_FRAME_DURATION_US = Math.round((960 * 1_000_000) / OPUS_AUDIO_CONFIG.sampleRate);
 /** Main thread pauses sending when the worker queue passes this depth. */
 export const MAX_QUEUE = 24;
 /** …and resumes once it drains to this depth. */

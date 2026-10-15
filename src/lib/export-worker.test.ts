@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  AAC_FRAME_DURATION_US,
   AUDIO_CONFIG,
   OPUS_AUDIO_CONFIG,
   probeAudioConfig,
@@ -7,6 +8,7 @@ import {
   probeVideoConfig,
   probeVoiceEncoder,
   VIDEO_CONFIG,
+  VIDEO_FRAME_DURATION_US,
   type AudioCodec,
   type FromWorker,
   type ToWorker,
@@ -335,5 +337,140 @@ describe("export-worker", () => {
       if (prev === undefined) delete globals.self;
       else globals.self = prev;
     }
+  });
+
+  it("muxes null-duration video chunks via the raw path with derived durations", () => {
+    const rawCalls: Array<{ timestamp: number; duration: number }> = [];
+    let videoOutput: ((chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata) => void) | null = null;
+    const muxer: MuxerLike = {
+      addVideoChunk: () => {
+        throw new Error("must not take the throwing path");
+      },
+      addAudioChunk: () => undefined,
+      addVideoChunkRaw: (_data, _type, timestamp, duration) => void rawCalls.push({ timestamp, duration }),
+      addAudioChunkRaw: () => undefined,
+      finalize: () => undefined,
+      target: { buffer: new ArrayBuffer(8) },
+    };
+    const video = fakeEncoder("video");
+    const deps: WorkerDeps = {
+      createMuxer: () => muxer,
+      createVideoEncoder: (output) => {
+        videoOutput = output;
+        return video as unknown as EncoderLike<VideoEncoderConfig>;
+      },
+      createAudioEncoder: (output) => {
+        void output;
+        return fakeEncoder("audio") as unknown as EncoderLike<AudioEncoderConfig>;
+      },
+    };
+    let handler: ((message: ToWorker) => void) | null = null;
+    const scope: WorkerScope = {
+      postMessage: () => undefined,
+      setOnMessage: (next) => {
+        handler = next;
+      },
+    };
+    startWorker(deps, scope);
+    handler!({ type: "init", voice: false });
+    const nullChunk = (timestamp: number) => ({
+      byteLength: 4,
+      type: "delta",
+      timestamp,
+      duration: null,
+      copyTo: (dest: Uint8Array) => dest.fill(1),
+    });
+    videoOutput!(nullChunk(0) as unknown as EncodedVideoChunk, undefined);
+    videoOutput!(nullChunk(VIDEO_FRAME_DURATION_US) as unknown as EncodedVideoChunk, undefined);
+    expect(rawCalls).toEqual([
+      { timestamp: 0, duration: VIDEO_FRAME_DURATION_US },
+      { timestamp: VIDEO_FRAME_DURATION_US, duration: VIDEO_FRAME_DURATION_US },
+    ]);
+  });
+
+  it("muxes null-duration audio chunks with the nominal codec frame duration", () => {
+    const rawCalls: Array<{ timestamp: number; duration: number }> = [];
+    let audioOutput: ((chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata) => void) | null = null;
+    const muxer: MuxerLike = {
+      addVideoChunk: () => undefined,
+      addAudioChunk: () => {
+        throw new Error("must not take the throwing path");
+      },
+      addVideoChunkRaw: () => undefined,
+      addAudioChunkRaw: (_data, _type, timestamp, duration) => void rawCalls.push({ timestamp, duration }),
+      finalize: () => undefined,
+      target: { buffer: new ArrayBuffer(8) },
+    };
+    const audio = fakeEncoder("audio");
+    const deps: WorkerDeps = {
+      createMuxer: () => muxer,
+      createVideoEncoder: (output) => {
+        void output;
+        return fakeEncoder("video") as unknown as EncoderLike<VideoEncoderConfig>;
+      },
+      createAudioEncoder: (output) => {
+        audioOutput = output;
+        return audio as unknown as EncoderLike<AudioEncoderConfig>;
+      },
+    };
+    let handler: ((message: ToWorker) => void) | null = null;
+    const scope: WorkerScope = {
+      postMessage: () => undefined,
+      setOnMessage: (next) => {
+        handler = next;
+      },
+    };
+    startWorker(deps, scope);
+    handler!({ type: "init", voice: true });
+    const nullChunk = (timestamp: number) => ({
+      byteLength: 8,
+      type: "key",
+      timestamp,
+      duration: null,
+      copyTo: (dest: Uint8Array) => dest.fill(2),
+    });
+    audioOutput!(nullChunk(0) as unknown as EncodedAudioChunk, undefined);
+    audioOutput!(nullChunk(AAC_FRAME_DURATION_US) as unknown as EncodedAudioChunk, undefined);
+    expect(rawCalls).toEqual([
+      { timestamp: 0, duration: AAC_FRAME_DURATION_US },
+      { timestamp: AAC_FRAME_DURATION_US, duration: AAC_FRAME_DURATION_US },
+    ]);
+  });
+
+  it("keeps the normal mux path when chunk durations are present", () => {
+    const normalCalls: unknown[] = [];
+    const rawCalls: unknown[] = [];
+    let videoOutput: ((chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata) => void) | null = null;
+    const muxer: MuxerLike = {
+      addVideoChunk: (chunk) => void normalCalls.push(chunk),
+      addAudioChunk: () => undefined,
+      addVideoChunkRaw: (...args: unknown[]) => void rawCalls.push(args),
+      finalize: () => undefined,
+      target: { buffer: new ArrayBuffer(8) },
+    };
+    const video = fakeEncoder("video");
+    const deps: WorkerDeps = {
+      createMuxer: () => muxer,
+      createVideoEncoder: (output) => {
+        videoOutput = output;
+        return video as unknown as EncoderLike<VideoEncoderConfig>;
+      },
+      createAudioEncoder: (output) => {
+        void output;
+        return fakeEncoder("audio") as unknown as EncoderLike<AudioEncoderConfig>;
+      },
+    };
+    let handler: ((message: ToWorker) => void) | null = null;
+    const scope: WorkerScope = {
+      postMessage: () => undefined,
+      setOnMessage: (next) => {
+        handler = next;
+      },
+    };
+    startWorker(deps, scope);
+    handler!({ type: "init", voice: false });
+    videoOutput!({ duration: 33333 } as EncodedVideoChunk, undefined);
+    expect(normalCalls.length).toBe(1);
+    expect(rawCalls.length).toBe(0);
   });
 });

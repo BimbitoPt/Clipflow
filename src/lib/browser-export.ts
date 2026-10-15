@@ -2,7 +2,7 @@ import type { CaptionPhrase } from "../../shared/caption-plan";
 import type { VisualEffect } from "../../shared/visual-effects";
 import { cueIndexOf, seekVideo } from "./app-utils";
 import type { StockAsset } from "./broll";
-import { AUDIO_CONFIG, MAX_QUEUE, OPUS_AUDIO_CONFIG, RESUME_QUEUE, type AudioCodec, type FromWorker } from "./export-worker-protocol";
+import { AUDIO_CONFIG, MAX_QUEUE, OPUS_AUDIO_CONFIG, RESUME_QUEUE, VIDEO_FRAME_DURATION_US, type AudioCodec, type FromWorker } from "./export-worker-protocol";
 import type { PlannedFrame, WordCue } from "./planner";
 import { planFrames } from "./planner";
 import { CREDIT_SECS, drawFrame, type DrawCtx, type RenderExtra } from "./render";
@@ -230,7 +230,7 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
             if (words) extra.words = words;
             if (asset) extra.asset = asset;
             drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, extra, totalDuration);
-            const vf = new VideoFrame(canvas, { timestamp: Math.round(f.t * 1e6) });
+            const vf = new VideoFrame(canvas, { timestamp: Math.round(f.t * 1e6), duration: VIDEO_FRAME_DURATION_US });
             await postFrame(vf, f.t < 1);
           }
           if (creditOn) {
@@ -239,7 +239,7 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
               signal.throwIfAborted();
               const t = baseDuration + i / FPS;
               drawFrame(ctx as DrawCtx, { t, cue: script.cues[script.cues.length - 1]! }, theme, OUT_W, OUT_H, { endCard: true }, totalDuration);
-              const vf = new VideoFrame(canvas, { timestamp: Math.round(t * 1e6) });
+              const vf = new VideoFrame(canvas, { timestamp: Math.round(t * 1e6), duration: VIDEO_FRAME_DURATION_US });
               await postFrame(vf, i === 0);
             }
           }
