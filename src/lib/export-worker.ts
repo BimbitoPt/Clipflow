@@ -95,6 +95,11 @@ function fail(scope: WorkerScope, message: string): void {
   }
 }
 
+/** mp4-muxer rejects null/NaN/negative chunk durations — route those to the raw path with a derived duration. */
+function needsDurationFallback(duration: number | null | undefined): boolean {
+  return duration == null || !Number.isFinite(duration) || duration < 0;
+}
+
 export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): void {
   let session: Session | null = null;
 
@@ -158,7 +163,7 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
             // mp4-muxer rejects (addVideoChunkRaw TypeError). Fall back to
             // the timestamp delta (nominal frame interval for the first
             // chunk) via the raw path instead of failing the whole export.
-            if (chunk.duration == null && typeof chunk.copyTo === "function" && muxer.addVideoChunkRaw) {
+            if (needsDurationFallback(chunk.duration) && typeof chunk.copyTo === "function" && muxer.addVideoChunkRaw) {
               const data = new Uint8Array(chunk.byteLength);
               chunk.copyTo(data);
               let duration = VIDEO_FRAME_DURATION_US;
@@ -205,7 +210,7 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
               // Same null-duration hazard as video (AAC encoders can omit it
               // on some platforms). Derive from timestamp deltas, nominal
               // codec frame duration for the first chunk.
-              if (chunk.duration == null && typeof chunk.copyTo === "function" && muxer.addAudioChunkRaw) {
+              if (needsDurationFallback(chunk.duration) && typeof chunk.copyTo === "function" && muxer.addAudioChunkRaw) {
                 const data = new Uint8Array(chunk.byteLength);
                 chunk.copyTo(data);
                 let duration = nominalAudioDuration;

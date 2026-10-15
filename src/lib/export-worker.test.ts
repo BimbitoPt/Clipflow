@@ -473,4 +473,49 @@ describe("export-worker", () => {
     expect(normalCalls.length).toBe(1);
     expect(rawCalls.length).toBe(0);
   });
+
+  it("routes NaN/negative durations to the raw path too", () => {
+    const rawCalls: Array<{ duration: number }> = [];
+    let videoOutput: ((chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata) => void) | null = null;
+    const muxer: MuxerLike = {
+      addVideoChunk: () => {
+        throw new Error("must not take the throwing path");
+      },
+      addAudioChunk: () => undefined,
+      addVideoChunkRaw: (_data, _type, _timestamp, duration) => void rawCalls.push({ duration }),
+      finalize: () => undefined,
+      target: { buffer: new ArrayBuffer(8) },
+    };
+    const video = fakeEncoder("video");
+    const deps: WorkerDeps = {
+      createMuxer: () => muxer,
+      createVideoEncoder: (output) => {
+        videoOutput = output;
+        return video as unknown as EncoderLike<VideoEncoderConfig>;
+      },
+      createAudioEncoder: (output) => {
+        void output;
+        return fakeEncoder("audio") as unknown as EncoderLike<AudioEncoderConfig>;
+      },
+    };
+    let handler: ((message: ToWorker) => void) | null = null;
+    const scope: WorkerScope = {
+      postMessage: () => undefined,
+      setOnMessage: (next) => {
+        handler = next;
+      },
+    };
+    startWorker(deps, scope);
+    handler!({ type: "init", voice: false });
+    const badChunk = (duration: number) => ({
+      byteLength: 4,
+      type: "delta",
+      timestamp: 0,
+      duration,
+      copyTo: (dest: Uint8Array) => dest.fill(1),
+    });
+    videoOutput!(badChunk(Number.NaN) as unknown as EncodedVideoChunk, undefined);
+    videoOutput!(badChunk(-5) as unknown as EncodedVideoChunk, undefined);
+    expect(rawCalls).toEqual([{ duration: VIDEO_FRAME_DURATION_US }, { duration: VIDEO_FRAME_DURATION_US }]);
+  });
 });
