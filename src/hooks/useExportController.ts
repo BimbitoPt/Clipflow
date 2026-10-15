@@ -90,6 +90,10 @@ export function useExportController(setErr: (message: string) => void) {
     try {
       // Capability probe first: fail fast with a named cause instead of
       // dying mid-export. The desktop app (FFmpeg) is the universal fallback.
+      // Audio is soft-failed: Firefox has no AAC encoder, so a refused voice
+      // config exports silently (with a warning) instead of erroring out.
+      let voiceEffective = voiceOn;
+      let audioFallbackWarn = "";
       if (!desktop) {
         const videoProbe = await probeVideoConfig();
         if (!videoProbe.supported) {
@@ -99,19 +103,16 @@ export function useExportController(setErr: (message: string) => void) {
             : "This browser refused the 720x1280 H.264 export config — update Chrome/Edge, or use the desktop app.");
           return;
         }
-        if (voiceOn && typeof AudioData === "undefined") {
-          setStatus("error");
-          setErr("This browser can't encode audio — export silently or try Chrome/Edge.");
-          return;
-        }
-        if (voiceOn) {
+        if (voiceEffective && typeof AudioData === "undefined") {
+          voiceEffective = false;
+          audioFallbackWarn = "This browser can't encode voice audio — exported silently. For voice, use Chrome/Edge or the desktop app.";
+        } else if (voiceEffective) {
           const audioProbe = await probeAudioConfig();
           if (!audioProbe.supported) {
-            setStatus("error");
-            setErr(audioProbe.reason === "missing"
-              ? "This browser can't encode audio — export silently or try Chrome/Edge."
-              : "This browser refused the voice export config — export silently or update Chrome/Edge.");
-            return;
+            voiceEffective = false;
+            audioFallbackWarn = audioProbe.reason === "missing"
+              ? "This browser can't encode voice audio — exported silently. For voice, use Chrome/Edge or the desktop app."
+              : "This browser refused the voice export config (Firefox has no AAC encoder) — exported silently. For voice, use Chrome/Edge or the desktop app.";
           }
         }
       }
@@ -122,7 +123,7 @@ export function useExportController(setErr: (message: string) => void) {
       setErr("");
       setExportMsg("Script ready.");
       setExportProgress(10);
-      setVoiceWarn("");
+      setVoiceWarn(audioFallbackWarn);
       try {
         setExportMsg("Loading selected scene visuals…");
         setExportProgress(25);
@@ -146,7 +147,7 @@ export function useExportController(setErr: (message: string) => void) {
         // sidecar/even-split memo stays the fallback — timed synthesis can
         // only ever upgrade captions, never break the export.
         let synthesizedCues: Array<TimedCueTiming | null> | null = null;
-        if (voiceOn) {
+        if (voiceEffective) {
           const cueTexts = script.cues.map((cue) => cue.text);
           setExportMsg("Rendering voice… (local AI voice can pause the UI for a bit)");
           setExportProgress(50);
@@ -184,7 +185,8 @@ export function useExportController(setErr: (message: string) => void) {
             const target = synthesizedCues && voiceGridFromCues(synthesizedCues) ? Math.min(raw.length, ceiling) : Math.round((timing?.total ?? VIDEO_SECS) * KOKORO_SAMPLE_RATE);
             if (raw.length > target) {
               const secs = (raw.length / KOKORO_SAMPLE_RATE).toFixed(1);
-              setVoiceWarn(`Voice ran ${secs}s — trimmed to ${VIDEO_SECS}s video. Shorten the idea for a perfect fit.`);
+              const trimWarn = `Voice ran ${secs}s — trimmed to ${VIDEO_SECS}s video. Shorten the idea for a perfect fit.`;
+              setVoiceWarn((prev) => (prev ? `${prev} ${trimWarn}` : trimWarn));
               pcm = raw.slice(0, target);
             } else if (target === raw.length) {
               pcm = raw;
@@ -228,15 +230,18 @@ export function useExportController(setErr: (message: string) => void) {
           : timing?.windows ?? null;
         const baseDuration = voiceTotal ?? timing?.total ?? VIDEO_SECS;
         const synthesized = synthesizedCues;
-        const exportCaptions = synthesized
+        // Silent audio fallback (e.g. Firefox AAC refusal) must also
+        // re-derive captions: the memoized plan was built with voiceOn=true
+        // (speech phrases), while a voiceless export needs scene labels.
+        const exportCaptions = synthesized || audioFallbackWarn
           ? makeCaptionPlan({
               mode: captionMode,
-              voiceOn,
+              voiceOn: voiceEffective,
               labels: captionLabels,
               words: exportWords,
               scenes: script.cues.map((cue, index) => ({
                 ...cue,
-                ...(synthesized[index]?.span
+                ...(synthesized?.[index]?.span
                   ? { start: synthesized[index]!.span[0], end: synthesized[index]!.span[1] }
                   : timing?.windows?.[index] ?? { start: cue.start, end: cue.end }),
               })),
@@ -274,7 +279,7 @@ export function useExportController(setErr: (message: string) => void) {
           windows: exportWindows,
           baseDuration,
           creditOn,
-          voiceOn,
+          voiceOn: voiceEffective,
           cueAssets,
           approvedProofByCue,
           pcm,
