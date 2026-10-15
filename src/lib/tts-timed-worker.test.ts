@@ -46,4 +46,33 @@ describe("timed voice worker", () => {
     await send({ id: 8, cueTexts: ["hello"] });
     expect(posted).toEqual([{ id: 8, ok: false, error: "timed model missing" }]);
   });
+
+  it("answers via the global scope on the production (no-scope) path", async () => {
+    // Regression: the handler posted via the injected scope only, so the
+    // real-worker path (auto-start, no scope) threw and never answered.
+    const posted: Response[] = [];
+    let onmessage: ((event: MessageEvent<Request>) => void) | null = null;
+    const stub = {
+      postMessage: (message: Response) => { posted.push(message); },
+      set onmessage(handler: (event: MessageEvent<Request>) => void) { onmessage = handler; },
+    };
+    const globals = globalThis as Record<string, unknown>;
+    const prev = globals.self;
+    globals.self = stub;
+    try {
+      const cues = [{ span: [0, 1] as [number, number], words: [{ word: "hello", start: 0, end: 1 }] }];
+      startTimedWorker(() => async () => ({ audio: new Float32Array([0.25]), samplingRate: 24000, cues }));
+      onmessage!({ data: { id: 9, cueTexts: ["hello"] } } as MessageEvent<Request>);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(posted).toHaveLength(1);
+      const response = posted[0]!;
+      expect(response.id).toBe(9);
+      if (!response.ok) throw new Error("expected successful timed synthesis on production path");
+      expect(new Float32Array(response.audio)).toEqual(new Float32Array([0.25]));
+    } finally {
+      if (prev === undefined) delete globals.self;
+      else globals.self = prev;
+    }
+  });
 });

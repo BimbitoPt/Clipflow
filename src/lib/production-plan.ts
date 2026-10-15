@@ -85,6 +85,18 @@ export function estimatePlanCost(
 
 const MOTION_POOL = ["rays", "blobs", "grid", "waves", "pulse"];
 
+/**
+ * Director gate: an export requires exactly 5 approved shots. Returns -1
+ * when every shot is approved, otherwise the 0-based index of the first
+ * unapproved shot for the E_PLAN_APPROVAL message. A short, long, or
+ * non-array payload is a gate failure too (reported as shot 1) — a bare
+ * findIndex would return -1 on a short array and let it through.
+ */
+export function findUnapprovedShot(approvedShots: unknown): number {
+  if (!Array.isArray(approvedShots) || approvedShots.length !== 5) return 0;
+  return approvedShots.findIndex((a) => a !== true);
+}
+
 export function regenerateShot(plan: ProductionPlan, cueIndex: number, seed: number): ProductionPlan {
   const shots = plan.shots.map((shot, i) => {
     if (i !== cueIndex) return shot;

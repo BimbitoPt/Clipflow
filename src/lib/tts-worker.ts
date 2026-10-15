@@ -89,6 +89,17 @@ async function loadRealEngine(opts: { voice: string; desktop: boolean }): Promis
 export function startTtsWorker(loadEngine: TtsEngineLoader = loadRealEngine, scope?: TtsWorkerScope): void {
   let engine: TtsSynthEngine | null = null;
 
+  // Production channel (real worker global) when tests haven't injected a
+  // scope. Resolved up front so the handler posts to one channel on both
+  // paths — posting via the injected scope alone leaves the production
+  // handler with undefined and the worker never answers.
+  const globalScope = scope ? null : (self as unknown as {
+    postMessage(message: TtsSynthResponse, transfer?: Transferable[]): void;
+    onmessage: ((event: MessageEvent<TtsSynthRequest>) => void) | null;
+  });
+  const post = (message: TtsSynthResponse, transfer?: Transferable[]) =>
+    (scope ?? globalScope)!.postMessage(message, transfer);
+
   const handle = (message: TtsSynthRequest) => {
     void (async () => {
       try {
@@ -97,9 +108,9 @@ export function startTtsWorker(loadEngine: TtsEngineLoader = loadRealEngine, sco
         // Defensive copy: the engine may hand back a view over a reused
         // buffer, and postMessage transfer neuters the source.
         const buffer = audio.slice().buffer as ArrayBuffer;
-        scope!.postMessage({ id: message.id, ok: true, audio: buffer, samplingRate }, [buffer]);
+        post({ id: message.id, ok: true, audio: buffer, samplingRate }, [buffer]);
       } catch (error) {
-        scope!.postMessage({ id: message.id, ok: false, error: error instanceof Error ? error.message : String(error) });
+        post({ id: message.id, ok: false, error: error instanceof Error ? error.message : String(error) });
       }
     })();
   };
@@ -108,11 +119,7 @@ export function startTtsWorker(loadEngine: TtsEngineLoader = loadRealEngine, sco
     scope.setOnMessage(handle);
     return;
   }
-  const globalScope = self as unknown as {
-    postMessage(message: TtsSynthResponse, transfer?: Transferable[]): void;
-    onmessage: ((event: MessageEvent<TtsSynthRequest>) => void) | null;
-  };
-  globalScope.onmessage = (event: MessageEvent<TtsSynthRequest>) => handle(event.data);
+  globalScope!.onmessage = (event: MessageEvent<TtsSynthRequest>) => handle(event.data);
 }
 
 // Auto-start in a real worker global only: main-thread `self` is `window`.

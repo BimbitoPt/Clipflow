@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildScript } from "./script";
 import { loadPack } from "./packs";
 import { MSTUDIO_PROFILE } from "./profile";
-import { buildProductionPlan, estimatePlanCost, regenerateShot } from "./production-plan";
+import { buildProductionPlan, estimatePlanCost, findUnapprovedShot, regenerateShot } from "./production-plan";
 
 describe("production-plan", () => {
   it("derives 5 shot cards with durations matching the cue grid", () => {
@@ -39,6 +39,25 @@ describe("plan cost", () => {
   });
 });
 
+describe("director gate", () => {
+  it("passes only when all 5 shots are approved", () => {
+    expect(findUnapprovedShot([true, true, true, true, true])).toBe(-1);
+  });
+
+  it("reports the first unapproved shot index", () => {
+    expect(findUnapprovedShot([true, true, false, true, true])).toBe(2);
+    expect(findUnapprovedShot([false, true, true, true, true])).toBe(0);
+  });
+
+  it("blocks short, long, and non-array payloads", () => {
+    expect(findUnapprovedShot([])).not.toBe(-1);
+    expect(findUnapprovedShot([true, true, true, true])).not.toBe(-1);
+    expect(findUnapprovedShot([true, true, true, true, true, true])).not.toBe(-1);
+    expect(findUnapprovedShot(undefined)).not.toBe(-1);
+    expect(findUnapprovedShot(null)).not.toBe(-1);
+    expect(findUnapprovedShot("approved")).not.toBe(-1);
+  });
+});
 describe("shot regeneration", () => {
   it("changes the card deterministically per seed without touching durations", () => {
     const pack = loadPack("clipflow");

@@ -13,17 +13,28 @@ export type TimedSynthLoader = () => (cueTexts: string[]) => Promise<TimedSynthe
 
 export function startTimedWorker(loadSynth: TimedSynthLoader = createKokoroTimedLoaderInline, scope?: TimedWorkerScope): void {
   const synthesize = loadSynth();
+
+  // Production channel (real worker global) when tests haven't injected a
+  // scope — same fallback as startTtsWorker: the handler must never post
+  // via an absent injected scope.
+  const globalScope = scope ? null : (self as unknown as {
+    postMessage(message: Response, transfer?: Transferable[]): void;
+    onmessage: ((event: MessageEvent<Request>) => void) | null;
+  });
+  const post = (message: Response, transfer?: Transferable[]) =>
+    (scope ?? globalScope)!.postMessage(message, transfer);
+
   const handle = (request: Request) => {
     void (async () => {
       try {
         const result = await synthesize(request.cueTexts);
         const audio = result.audio.slice().buffer as ArrayBuffer;
-        scope!.postMessage(
+        post(
           { id: request.id, ok: true, audio, samplingRate: result.samplingRate, cues: result.cues },
           [audio],
         );
       } catch (error) {
-        scope!.postMessage({
+        post({
           id: request.id,
           ok: false,
           error: error instanceof Error ? error.message : String(error),
@@ -36,11 +47,7 @@ export function startTimedWorker(loadSynth: TimedSynthLoader = createKokoroTimed
     scope.setOnMessage(handle);
     return;
   }
-  const globalScope = self as unknown as {
-    postMessage(message: Response, transfer?: Transferable[]): void;
-    onmessage: ((event: MessageEvent<Request>) => void) | null;
-  };
-  globalScope.onmessage = (event: MessageEvent<Request>) => handle(event.data);
+  globalScope!.onmessage = (event: MessageEvent<Request>) => handle(event.data);
 }
 
 // Auto-start in a real worker global only: main-thread self is window.

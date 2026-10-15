@@ -18,6 +18,7 @@ import type { VideoScript } from "../lib/script";
 import type { Theme } from "../lib/packs";
 import { checkVoiceAssets, createKokoroLoader, KOKORO_SAMPLE_RATE, resampleLinear } from "../lib/tts-local";
 import { createKokoroTimedLoader } from "../lib/tts-timed";
+import { findUnapprovedShot } from "../lib/production-plan";
 
 export type ExportStatus = "idle" | "working" | "exported" | "error";
 
@@ -134,7 +135,9 @@ export function useExportController(setErr: (message: string) => void) {
         // heavyweight work. Checked before voice synthesis so an unapproved
         // plan fails fast instead of after minutes of TTS (or never, if
         // voice fails first and returns early from its own catch below).
-        const unapproved = approvedShots.findIndex((a) => !a);
+        // findUnapprovedShot also rejects short/long/non-array payloads —
+        // a bare findIndex returns -1 on a short array and would let it pass.
+        const unapproved = findUnapprovedShot(approvedShots);
         if (unapproved !== -1) {
           throw new Error(`E_PLAN_APPROVAL: shot ${unapproved + 1} not approved — approve all 5 shots before exporting.`);
         }

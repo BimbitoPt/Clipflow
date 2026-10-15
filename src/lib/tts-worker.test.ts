@@ -55,4 +55,34 @@ describe("tts worker session", () => {
     expect(new Float32Array((byId.get(10) as { ok: true; audio: ArrayBuffer }).audio)[0]).toBe(2);
     expect(new Float32Array((byId.get(11) as { ok: true; audio: ArrayBuffer }).audio)[0]).toBe(4);
   });
+
+  it("answers via the global scope on the production (no-scope) path", async () => {
+    // Regression: the handler posted via the injected scope only, so the
+    // real-worker path (auto-start, no scope) threw and never answered.
+    const posted: TtsSynthResponse[] = [];
+    let onmessage: ((event: MessageEvent<TtsSynthRequest>) => void) | null = null;
+    const stub = {
+      postMessage: (message: TtsSynthResponse) => { posted.push(message); },
+      set onmessage(handler: (event: MessageEvent<TtsSynthRequest>) => void) { onmessage = handler; },
+    };
+    const globals = globalThis as Record<string, unknown>;
+    const prev = globals.self;
+    globals.self = stub;
+    try {
+      startTtsWorker(async () => ({
+        synthesize: async () => ({ audio: new Float32Array([0.5]), samplingRate: 24000 }),
+      }));
+      onmessage!({ data: { id: 9, text: "hi", voice: "af_heart", desktop: false } } as MessageEvent<TtsSynthRequest>);
+      await new Promise((r) => setTimeout(r, 0));
+      await new Promise((r) => setTimeout(r, 0));
+      expect(posted).toHaveLength(1);
+      const response = posted[0]!;
+      expect(response.id).toBe(9);
+      if (!response.ok) throw new Error("expected ok response on production path");
+      expect(new Float32Array(response.audio)).toEqual(new Float32Array([0.5]));
+    } finally {
+      if (prev === undefined) delete globals.self;
+      else globals.self = prev;
+    }
+  });
 });
