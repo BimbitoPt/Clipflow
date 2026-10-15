@@ -3,7 +3,7 @@ export interface SpeechLike {
   cancel(): void;
 }
 
-export type TtsLoader = (text: string) => Promise<Float32Array>;
+export type TtsLoader = (text: string, signal?: AbortSignal) => Promise<Float32Array>;
 
 function defaultSynth(): SpeechLike | null {
   const g = globalThis as Record<string, unknown>;

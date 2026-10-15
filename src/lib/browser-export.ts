@@ -49,7 +49,7 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
   const { script, theme, visualEffect, captionAnchor, captions, words, windows, baseDuration, creditOn, voiceOn, cueAssets, approvedProofByCue, pcm, signal } = req;
   req.onMessage("Muxing clipflow-916.mp4…");
   const withAudio = Boolean(voiceOn && pcm);
-  const worker = new Worker(new URL("./export-worker.ts", import.meta.url), { type: "module" });
+  const worker = new Worker(new URL("./export-worker-bootstrap.ts", import.meta.url), { type: "module" });
   let buffer: ArrayBuffer;
   try {
     buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
@@ -94,7 +94,13 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
         fail(error);
       };
       const readyTimeout = setTimeout(() => {
-        settleFail(new Error("E_ENCODER_INIT: the export worker never responded — reload the tab and retry in Edge/Chrome, or use the desktop app."));
+        const capabilities = [
+          typeof VideoEncoder === "undefined" ? "VideoEncoder missing" : "VideoEncoder available",
+          typeof AudioEncoder === "undefined" ? "AudioEncoder missing" : "AudioEncoder available",
+          typeof VideoFrame === "undefined" ? "VideoFrame missing" : "VideoFrame available",
+          typeof AudioData === "undefined" ? "AudioData missing" : "AudioData available",
+        ].join(", ");
+        settleFail(new Error(`E_ENCODER_INIT: worker did not send ready within 15s (${capabilities}). This usually means the worker module or one of its imports failed to load; check the browser console/network panel for export-worker-bootstrap or export-worker errors.`));
       }, 15000);
       void ready.then(() => clearTimeout(readyTimeout));
       // Stall watchdog: a hung encoder used to look identical to a slow one.
@@ -133,7 +139,12 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
           settleFail(new DOMException("Export cancelled.", "AbortError"));
         }
       };
-      worker.onerror = (event) => settleFail(event instanceof ErrorEvent ? event.message : "Export worker failed.");
+      worker.onerror = (event) => {
+        const detail = event instanceof ErrorEvent
+          ? [event.message, event.filename ? `(${event.filename}:${event.lineno}:${event.colno})` : ""].filter(Boolean).join(" ")
+          : "Unknown worker startup error.";
+        settleFail(new Error(`E_ENCODER_WORKER: ${detail || "Worker module failed to load. Check the browser console and network panel."}`));
+      };
       worker.onmessageerror = () => settleFail(new Error("Export worker message failed."));
       signal.addEventListener("abort", () => {
         try {

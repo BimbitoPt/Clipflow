@@ -31,24 +31,16 @@ probes, week queue, opt-in end card (browser + desktop), Tauri desktop
 with native projects and FFmpeg export, Remotion batch studio with
 mirrored caption policy.
 
-## Phase 1 — Trust the file (stability + fidelity)
+## Phase 1 — AI Director (editable production plan)
 
-Goal: every export is provably what the preview promised. Nothing new for
-users to learn.
+Goal: one idea becomes an editable production plan before any generation is committed.
 
-- [ ] Manual export matrix, recorded: Chrome browser export (voice on/off,
-      credit on/off, upload scene) + desktop export of the same project.
-      Byte-compare durations, watch once fully. File the checklist in the
-      PR; repeat for every later phase that touches render/export.
-- [ ] Skip video seeks on desktop credit-card frames (known waste noted in
-      review: card frames reuse the CTA cue and seek its video for nothing).
-- [ ] Preview = export audit: screenshot-diff one preview frame against its
-      exported frame (same cue, same settings). Fix discrepancies found;
-      document tolerance.
-- [ ] `EmphasizedPhrase` test coverage in `SceneFrame.test.ts` (active word
-      highlighted, first occurrence only, graceful no-match).
+- [ ] Deterministic shot-card derivation + cost estimate (local-only, tested)
+- [ ] Production-plan UI: shot cards, per-shot regenerate + approve, cost summary
+- [ ] Approval gates export; plan + approvals persist (session + native project)
+- [ ] Export matrix filed: one Chrome + one desktop export of the same project
 
-Exit: matrix filed green, zero known render/export discrepancies, suite green.
+Exit: plan UI live, export gated on approval, suite + tsc + build green, matrix filed.
 
 ## Phase 2 — Look pro (caption quality)
 

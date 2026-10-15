@@ -216,4 +216,38 @@ describe("export-worker", () => {
     expect(await probeVideoConfig()).toEqual({ supported: false, reason: "missing" });
     expect(await probeAudioConfig()).toEqual({ supported: false, reason: "missing" });
   });
+
+  it("answers init via the global scope on the production (no-scope) path", () => {
+    // Regression: the handler posted via the injected scope only, so the
+    // real-worker path (auto-start, no scope) threw on `init` and the main
+    // thread died on the E_ENCODER_INIT timeout.
+    const posted: FromWorker[] = [];
+    let onmessage: ((event: MessageEvent<ToWorker>) => void) | null = null;
+    const stub = {
+      postMessage: (message: FromWorker) => void posted.push(message),
+      set onmessage(handler: (event: MessageEvent<ToWorker>) => void) { onmessage = handler; },
+    };
+    const globals = globalThis as Record<string, unknown>;
+    const prev = globals.self;
+    globals.self = stub;
+    try {
+      const video = fakeEncoder("video");
+      const deps: WorkerDeps = {
+        createMuxer: () => ({
+          addVideoChunk: () => {},
+          addAudioChunk: () => {},
+          finalize: () => {},
+          target: { buffer: new ArrayBuffer(8) },
+        }),
+        createVideoEncoder: () => video as unknown as EncoderLike<VideoEncoderConfig>,
+        createAudioEncoder: () => fakeEncoder("audio") as unknown as EncoderLike<AudioEncoderConfig>,
+      };
+      startWorker(deps);
+      onmessage!({ data: { type: "init", voice: false } } as MessageEvent<ToWorker>);
+      expect(posted).toEqual([{ type: "ready" }]);
+    } finally {
+      if (prev === undefined) delete globals.self;
+      else globals.self = prev;
+    }
+  });
 });

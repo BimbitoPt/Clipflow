@@ -1,58 +1,91 @@
 import type { TtsLoader } from "./tts";
 import { desktop } from "./desktop";
+import { DEFAULT_VOICE, KOKORO_MODEL_ID, KOKORO_SAMPLE_RATE } from "./kokoro-contract";
+import type { TtsSynthResponse } from "./tts-worker";
+
+// Re-exported so existing importers (tts-timed.ts, tts-local.test.ts) keep working.
+export { DEFAULT_VOICE, KOKORO_SAMPLE_RATE, MODEL_REVISION } from "./kokoro-contract";
 
 /**
- * Kokoro 82M (Apache-2.0) — the same free local model the batch studio
- * ships. Replaces SpeechT5, which needed a runtime huggingface.co fetch for
- * a speaker-embedding file pinned to a mutable `main` ref (rate-limited us)
- * and sounded robotic anyway. Kokoro ships voice bins inside the npm package
- * and never needs speaker embeddings — style comes from the voice id.
- *
- * Model weights stage into public/models via `npm run model:install`
- * (pinned revision); synthesis runs fully offline from /models.
+ * Kokoro 82M (Apache-2.0) synthesis runs in tts-worker.ts, off the main
+ * thread — 45 s of CPU inference takes minutes and must never freeze the
+ * editor tab. Model weights stage into public/models via
+ * `npm run model:install` (pinned revision, see kokoro-contract.ts);
+ * synthesis runs fully offline from /models.
  */
-const MODEL_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
-/**
- * Pinned weights revision — must match REVISION in
- * scripts/install-kokoro-model.mjs (enforced by tts-local.test.ts). The
- * loader resolves weights from the staged /models copy only
- * (`allowRemoteModels = false`), so this is the manifest the local files
- * were downloaded from; it also pins any future remote resolution.
- */
-export const MODEL_REVISION = "1939ad2a8e416c0acfeecc08a694d14ef25f2231";
-/** Kokoro's native output rate. Both export paths resample from here. */
-export const KOKORO_SAMPLE_RATE = 24000;
-/** Clipflow brand voice — matches remotion-studio's Clipflow default. */
-export const DEFAULT_VOICE = "af_heart" as const;
 
-// kokoro-js loads voice bins from huggingface's mutable `main` ref when its
-// CacheStorage entry is missing — that runtime fetch is what got rate-limited
-// before. We pre-seed the exact cache key kokoro-js checks from our own
-// /models/voices copy so synthesis never leaves the origin.
-const VOICE_CACHE = "kokoro-voices";
-const voiceCdnUrl = (voice: string) =>
-  `https://huggingface.co/${MODEL_ID}/resolve/main/voices/${voice}.bin`;
+interface PendingSynth {
+  resolve: (result: { audio: Float32Array; samplingRate: number }) => void;
+  reject: (error: Error) => void;
+  signal?: AbortSignal;
+  abort?: () => void;
+}
 
-type KokoroInstance = Awaited<ReturnType<typeof import("kokoro-js").KokoroTTS.from_pretrained>>;
+let synthWorker: Worker | null = null;
+let nextSynthId = 1;
+const pendingSynths = new Map<number, PendingSynth>();
 
-async function seedVoiceCache(voice: string): Promise<void> {
-  if (typeof caches === "undefined") return;
-  try {
-    const cache = await caches.open(VOICE_CACHE);
-    const key = voiceCdnUrl(voice);
-    if (await cache.match(key)) return;
-    const local = await fetch(`/models/voices/${voice}.bin`);
-    if (!local.ok) return; // Let kokoro-js fall back to its own fetch.
-    await cache.put(key, new Response(await local.arrayBuffer(), { headers: { "Content-Type": "application/octet-stream" } }));
-  } catch {
-    // Cache seeding is best-effort; synthesis falls back to upstream.
+function terminateSynthWorker(reason: Error): void {
+  synthWorker?.terminate();
+  synthWorker = null;
+  const entries = [...pendingSynths.entries()];
+  pendingSynths.clear();
+  for (const [, pending] of entries) {
+    if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
+    pending.reject(reason);
   }
 }
 
-let cached: KokoroInstance | null = null;
-// Promise memoization: concurrent loader() calls share one init. Reset to
-// null on failure so a later call retries instead of sticking to rejection.
-let pending: Promise<KokoroInstance> | null = null;
+/** Lazily-created synthesis worker. The model loads on first synthesis. */
+function getSynthWorker(): Worker {
+  if (!synthWorker) {
+    const created = new Worker(new URL("./tts-worker.ts", import.meta.url), { type: "module" });
+    created.onmessage = (event: MessageEvent<TtsSynthResponse>) => {
+      const response = event.data;
+      const pending = pendingSynths.get(response.id);
+      if (!pending) return;
+      pendingSynths.delete(response.id);
+      if (pending.signal && pending.abort) pending.signal.removeEventListener("abort", pending.abort);
+      if (response.ok) {
+        pending.resolve({ audio: new Float32Array(response.audio), samplingRate: response.samplingRate });
+      } else {
+        pending.reject(new Error(`E_TTS_MODEL: ${response.error} — if the model is missing run \`npm run model:install\`.`));
+      }
+    };
+    created.onerror = (event) => {
+      event.preventDefault();
+      terminateSynthWorker(new Error("E_TTS_MODEL: synthesis worker crashed — export again to retry."));
+    };
+    created.onmessageerror = () => terminateSynthWorker(new Error("E_TTS_MODEL: synthesis worker returned an unreadable message."));
+    synthWorker = created;
+  }
+  return synthWorker;
+}
+
+function synthesizeInWorker(text: string, signal?: AbortSignal): Promise<{ audio: Float32Array; samplingRate: number }> {
+  if (signal?.aborted) return Promise.reject(new DOMException("Export cancelled.", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const id = nextSynthId++;
+    const abort = () => {
+      if (!pendingSynths.has(id)) return;
+      pendingSynths.delete(id);
+      signal?.removeEventListener("abort", abort);
+      reject(new DOMException("Export cancelled.", "AbortError"));
+      // Termination interrupts ONNX inference and guarantees the next export
+      // gets a clean worker instead of waiting on a cancelled model call.
+      terminateSynthWorker(new DOMException("Export cancelled.", "AbortError"));
+    };
+    pendingSynths.set(id, { resolve, reject, signal, abort });
+    signal?.addEventListener("abort", abort, { once: true });
+    try {
+      getSynthWorker().postMessage({ id, text, voice: DEFAULT_VOICE, desktop });
+    } catch (err) {
+      pendingSynths.delete(id);
+      signal?.removeEventListener("abort", abort);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+}
 
 /** Local-readiness probe for the voice stack. Never throws. */
 export interface VoiceAssetStatus {
@@ -69,10 +102,10 @@ interface RequiredVoiceAsset {
 }
 
 const REQUIRED_VOICE_ASSETS: RequiredVoiceAsset[] = [
-  { label: "model config", url: `/models/${MODEL_ID}/config.json` },
-  { label: "model tokenizer", url: `/models/${MODEL_ID}/tokenizer.json` },
-  { label: "model tokenizer config", url: `/models/${MODEL_ID}/tokenizer_config.json` },
-  { label: "model weights", url: `/models/${MODEL_ID}/onnx/model_quantized.onnx` },
+  { label: "model config", url: `/models/${KOKORO_MODEL_ID}/config.json` },
+  { label: "model tokenizer", url: `/models/${KOKORO_MODEL_ID}/tokenizer.json` },
+  { label: "model tokenizer config", url: `/models/${KOKORO_MODEL_ID}/tokenizer_config.json` },
+  { label: "model weights", url: `/models/${KOKORO_MODEL_ID}/onnx/model_quantized.onnx` },
   { label: "ONNX runtime WASM", url: "/ort/ort-wasm-simd-threaded.jsep.wasm" },
   { label: "ONNX runtime module", url: "/ort/ort-wasm-simd-threaded.jsep.mjs" },
   { label: "voice", url: `/models/voices/${DEFAULT_VOICE}.bin`, warm: true },
@@ -82,8 +115,9 @@ const REQUIRED_VOICE_ASSETS: RequiredVoiceAsset[] = [
  * Check the actual standard synthesis dependencies before importing the
  * heavyweight model. HEAD checks existence without downloading the ~92 MB
  * ONNX weights; the voice uses GET so its bytes warm the HTTP cache consumed
- * by seedVoiceCache. The timestamped model is deliberately optional because
- * export can fall back to the standard Kokoro checkpoint.
+ * by seedVoiceCache in the synthesis worker. The timestamped model is
+ * deliberately optional because export can fall back to the standard Kokoro
+ * checkpoint.
  */
 export async function checkVoiceAssets(): Promise<VoiceAssetStatus> {
   const results = await Promise.all(REQUIRED_VOICE_ASSETS.map(async (asset) => {
@@ -119,56 +153,24 @@ export function resampleLinear(input: Float32Array, fromRate: number, toRate: nu
   return out;
 }
 
-async function getOrCreatePipeline(): Promise<KokoroInstance> {
-  if (cached) return cached;
-  if (pending) return pending;
-  pending = (async () => {
-    try {
-      // LAZY import: module import must never touch network or the main bundle.
-      const [{ KokoroTTS }, { env }] = await Promise.all([
-        import("kokoro-js"),
-        import("@huggingface/transformers"),
-      ]);
-      // Local-only: weights live in /models (web: public/models, desktop:
-      // staged by prepare-desktop). A missing model must fail with a named
-      // error, never silently download at export time.
-      env.allowLocalModels = true;
-      env.allowRemoteModels = false;
-      env.localModelPath = "/models/";
-      // wasm config is always initialized by transformers at module load.
-      const wasm = env.backends.onnx.wasm!;
-      if (desktop) wasm.numThreads = 1;
-      await seedVoiceCache(DEFAULT_VOICE);
-      const created = await KokoroTTS.from_pretrained(MODEL_ID, { dtype: "q8" });
-      cached = created;
-      return created;
-    } catch (err) {
-      pending = null;
-      throw err;
-    }
-  })();
-  return pending;
-}
-
 export function createKokoroLoader(): TtsLoader {
-  return async (text: string): Promise<Float32Array> => {
+  return async (text: string, signal?: AbortSignal): Promise<Float32Array> => {
     try {
-      const synth = await getOrCreatePipeline();
-      const out = await synth.generate(text, { voice: DEFAULT_VOICE });
-      const audio = out.audio;
-      if (out.sampling_rate !== KOKORO_SAMPLE_RATE) {
-        return resampleLinear(audio, out.sampling_rate, KOKORO_SAMPLE_RATE);
+      const { audio, samplingRate } = await synthesizeInWorker(text, signal);
+      if (samplingRate !== KOKORO_SAMPLE_RATE) {
+        return resampleLinear(audio, samplingRate, KOKORO_SAMPLE_RATE);
       }
-      // Defensive copy: callers must not be able to mutate the cached
-      // model's backing buffer through the returned view.
+      // Defensive copy: callers must not be able to mutate the transferred
+      // buffer through the returned view.
       return audio.slice();
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       throw new Error(
-        "E_TTS_MODEL: " + (err as Error).message +
-          " — if the model is missing run `npm run model:install`.",
+        message.startsWith("E_TTS_MODEL:")
+          ? message
+          : "E_TTS_MODEL: " + message + " — if the model is missing run `npm run model:install`.",
         { cause: err },
       );
     }
   };
 }
-

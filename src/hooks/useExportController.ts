@@ -18,6 +18,7 @@ import type { VideoScript } from "../lib/script";
 import type { Theme } from "../lib/packs";
 import { checkVoiceAssets, createKokoroLoader, KOKORO_SAMPLE_RATE, resampleLinear } from "../lib/tts-local";
 import { createKokoroTimedLoader } from "../lib/tts-timed";
+import { findUnapprovedShot } from "../lib/production-plan";
 
 export type ExportStatus = "idle" | "working" | "exported" | "error";
 
@@ -43,6 +44,8 @@ export interface ExportContext {
   sceneChoices: SceneChoice[];
   aiSuggestions: ReturnType<typeof assignAiBackgrounds>;
   loadSceneAsset: (choice: ResolvedSceneChoice) => Promise<StockAsset | null>;
+  /** Per-shot director approvals; export requires all 5 true. */
+  approvedShots: boolean[];
 }
 
 /**
@@ -80,7 +83,7 @@ export function useExportController(setErr: (message: string) => void) {
   }, []);
 
   const runExport = useCallback(async (ctx: ExportContext): Promise<void> => {
-    const { script, theme, captionAnchor, visualEffect, captions, words, captionLabels, captionMode, voiceOn, creditOn, timing, sceneChoices, aiSuggestions, loadSceneAsset } = ctx;
+    const { script, theme, captionAnchor, visualEffect, captions, words, captionLabels, captionMode, voiceOn, creditOn, timing, sceneChoices, aiSuggestions, loadSceneAsset, approvedShots } = ctx;
     if (!script) return;
     if (busyRef.current) return;
     busyRef.current = true;
@@ -129,6 +132,16 @@ export function useExportController(setErr: (message: string) => void) {
         if (desktop && cueAssets.some(asset => !asset)) throw new Error("A selected scene's media could not be loaded. Reimport it before exporting.");
         const approvedProofByCue = exportChoices.map((choice, index) => choice.kind === "upload" && choice.approvedProof === true && cueAssets[index]?.src === `upload:${choice.id}`);
         setExportProgress(35);
+        // Director gate FIRST: every shot card must be approved before any
+        // heavyweight work. Checked before voice synthesis so an unapproved
+        // plan fails fast instead of after minutes of TTS (or never, if
+        // voice fails first and returns early from its own catch below).
+        // findUnapprovedShot also rejects short/long/non-array payloads —
+        // a bare findIndex returns -1 on a short array and would let it pass.
+        const unapproved = findUnapprovedShot(approvedShots);
+        if (unapproved !== -1) {
+          throw new Error(`E_PLAN_APPROVAL: shot ${unapproved + 1} not approved — approve all 5 shots before exporting.`);
+        }
         let pcm: Float32Array | null = null;
         // Real word timings when the timed model synthesized the voice; the
         // sidecar/even-split memo stays the fallback — timed synthesis can
@@ -154,13 +167,16 @@ export function useExportController(setErr: (message: string) => void) {
             }
             let raw: Float32Array;
             try {
-              const timed = await createKokoroTimedLoader()(cueTexts);
+              const timed = await createKokoroTimedLoader()(cueTexts, exportAbortRef.current.signal);
               raw = timed.audio;
               synthesizedCues = timed.cues;
-            } catch {
-              // Timestamped model unavailable or alignment failed → plain
-              // synthesis; captions keep the memoized (sidecar/even-split) timing.
-              raw = await createKokoroLoader()(cueTexts.join(". "));
+            } catch (error) {
+              // Cancellation is not a timing failure: never start fallback
+              // synthesis after the user has cancelled the export.
+              if (exportAbortRef.current?.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) throw error;
+              // Timestamped model unavailable or alignment failed → standard
+              // worker synthesis; captions keep sidecar/even-split timing.
+              raw = await createKokoroLoader()(cueTexts.join(". "), exportAbortRef.current.signal);
             }
             const ceiling = Math.round(VIDEO_SECS * KOKORO_SAMPLE_RATE);
             // Voice-fitted grid: when timed synthesis produced a span per

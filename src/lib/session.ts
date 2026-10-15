@@ -32,6 +32,12 @@ export interface SessionSnapshot {
   platform: PlatformId;
   credit: boolean;
   pack: PackId;
+  // AI Director plan takes: per-shot regenerate seeds + per-shot approvals.
+  // Optional so pre-plan snapshots still read; the plan itself is re-derived
+  // via buildProductionPlan on load, so stored bytes can never disagree
+  // with the script.
+  planSeeds?: Record<number, number>;
+  approvedShots?: boolean[];
 }
 
 const CAPTION_MODES = ["auto", "scene", "speech", "off"] as const;
@@ -49,6 +55,66 @@ export function validSceneChoice(choice: unknown): choice is SceneChoice {
     kind === "native" ||
     kind === "generated"
   );
+}
+
+/**
+ * Runtime guard for persisted AI Director plan seeds. Accepts only a plain
+ * object whose keys are all shot indexes ("0".."4") with finite numeric
+ * values — anything else degrades to `{}`. Never rejects the session: like
+ * `platform`/`pack` below, a bad plan field falls back, it doesn't null
+ * the whole snapshot.
+ */
+export function validPlanSeeds(value: unknown): Record<number, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const entries = Object.entries(value as Record<string, unknown>);
+  const ok = entries.every(
+    ([key, seed]) =>
+      (key === "0" || key === "1" || key === "2" || key === "3" || key === "4") &&
+      typeof seed === "number" &&
+      Number.isFinite(seed),
+  );
+  if (!ok) return {};
+  return Object.fromEntries(entries) as Record<number, number>;
+}
+
+/** Fresh default approvals (exactly 5 `false` — one per cue). */
+export function defaultApprovedShots(): boolean[] {
+  return [false, false, false, false, false];
+}
+
+/**
+ * Runtime guard for persisted AI Director shot approvals. Accepts only an
+ * array of exactly 5 booleans — anything else degrades to all-`false`.
+ * Never rejects the session (see `validPlanSeeds`).
+ */
+export function validApprovedShots(value: unknown): boolean[] {
+  return Array.isArray(value) && value.length === 5 && value.every((v) => typeof v === "boolean")
+    ? [...value]
+    : defaultApprovedShots();
+}
+
+/**
+ * Stable signature of the inputs that invalidate AI Director plan takes
+ * (`idea`, profile, script overrides, pack). The hook records it at restore
+ * time; the plan-reset effect skips while the live inputs still match it,
+ * so restored seeds/approvals survive the post-restore refire instead of
+ * being wiped by it. Pure and exported for tests.
+ */
+export function planInputsSig(input: {
+  idea: string;
+  profile: unknown;
+  scriptOverrides: unknown;
+  pack: unknown;
+}): string {
+  const sorted = (value: unknown): unknown =>
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(
+          Object.keys(value as Record<string, unknown>)
+            .sort()
+            .map((key) => [key, sorted((value as Record<string, unknown>)[key])]),
+        )
+      : value;
+  return JSON.stringify(sorted(input));
 }
 
 /**
@@ -72,6 +138,8 @@ export function readSession(store: KeyValueStore): SessionSnapshot | null {
       platform?: unknown;
       credit?: unknown;
       pack?: unknown;
+      planSeeds?: unknown;
+      approvedShots?: unknown;
     };
     if (!parsed || parsed.version !== 1 || typeof parsed.idea !== "string") return null;
     if (!Array.isArray(parsed.sceneChoices) || parsed.sceneChoices.length !== 5 || !parsed.sceneChoices.every(validSceneChoice)) return null;
@@ -94,6 +162,8 @@ export function readSession(store: KeyValueStore): SessionSnapshot | null {
         typeof parsed.pack === "string" && (PACK_IDS as readonly string[]).includes(parsed.pack)
           ? (parsed.pack as PackId)
           : "mstudio",
+      planSeeds: validPlanSeeds(parsed.planSeeds),
+      approvedShots: validApprovedShots(parsed.approvedShots),
     };
   } catch {
     return null;
@@ -117,6 +187,8 @@ export function writeSession(store: KeyValueStore, snapshot: SessionSnapshot): v
         platform: snapshot.platform,
         credit: snapshot.credit,
         pack: snapshot.pack,
+        planSeeds: snapshot.planSeeds ?? {},
+        approvedShots: snapshot.approvedShots ?? defaultApprovedShots(),
       }),
     );
   } catch {

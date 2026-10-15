@@ -102,16 +102,20 @@ State is split by responsibility; `App()` only composes:
 
 | Module | Owns |
 |---|---|
-| `src/hooks/useClipflowProject.ts` | The document: `idea`, profile (`niche/audience/offer/tone/proof`, seeded from `loadInitialProfile`), `packId`, `scriptOverrides`, `sceneChoices[5]` (default `auto-ai`), `selectedScene`, `voiceOn`, `captionMode`, `captionOverrides`, `platform`, `creditOn`, `visualEffect`, `queueText`. Project lifecycle: `projectPath/Error/Busy/savedSnapshot/projectBase`, restore/save/open/new/import, browser session snapshot, native close guard, Ctrl+S/O/N. |
+| `src/hooks/useClipflowProject.ts` | The document: `idea`, profile (`niche/audience/offer/tone/proof`, seeded from `loadInitialProfile`), `packId`, `scriptOverrides`, `sceneChoices[5]` (default `auto-ai`), AI Director takes `planSeeds` + `approvedShots[5]` (reset on any script-input change; a restore records its input signature in `restoredPlanSigRef` so the post-restore refire settles instead of wiping restored takes), `selectedScene`, `voiceOn`, `captionMode`, `captionOverrides`, `platform`, `creditOn`, `visualEffect`, `queueText`. Project lifecycle: `projectPath/Error/Busy/savedSnapshot/projectBase`, restore/save/open/new/import, browser session snapshot, native close guard, Ctrl+S/O/N. |
 | `src/hooks/useSceneAssets.ts` | `sceneAssets` + `assetLoading`, upload/generated OPFS caches and their disposal, scene thumbnails, upload GC, script-driven keyframe generation, Pollinations key. |
 | `src/hooks/useExportController.ts` | Export status/progress/message/download URL/voice warning/native output, cancellation (`busyRef` + `AbortController`), and the run itself: capability probes → TTS → per-export caption/window derivation → renderer dispatch. |
 | `src/components/PreviewRenderer.tsx` | The live frame: canvas, `planFrames`/`drawFrame` draw effect, first-preview milestone. |
-| `src/lib/session.ts` + `src/lib/storage.ts` | Browser persistence behind one injected store (`browserStorage`) — session snapshot and word-timing sidecar. |
+| `src/lib/session.ts` + `src/lib/storage.ts` | Browser persistence behind one injected store (`browserStorage`) — session snapshot (incl. AI Director `planSeeds`/`approvedShots`, validated with fallbacks that never null the session) and word-timing sidecar. `planInputsSig` is the restore/reset coordination signature (pure, tested). |
 | `src/lib/browser-export.ts` | Worker orchestration for the browser MP4 path (backpressure, stall watchdog, credit card). |
 | `src/lib/desktop.ts` | DesktopProjectService: native open/save/initial/import/fingerprint + media helpers; native rendering is `src/lib/desktop-render.ts`. |
 
 Derived data (`profile`, `generatedScript`, `script`, `timing`, `words`,
 `captions`, `aiSuggestions`) stays in `App()` as `useMemo`, never stored.
+The production plan (`buildProductionPlan` + seeded takes + `estimatePlanCost`)
+derives the same way — only the small `planSeeds`/`approvedShots` inputs
+persist (browser session, `.clipflow` project), so stored bytes can never
+disagree with the script.
 Hooks receive derived inputs at action time through explicit context objects
 (`getSaveContext()`, `ExportContext`) rebuilt on every render, so no action
 runs against a stale closure.
@@ -120,9 +124,16 @@ Invariants (enforced in `useClipflowProject.restoreProject`/`desktopAction` and 
 
 - Exactly 5 cues and 5 scene choices, or throw.
 - `timing.windows.length === cues.length`, else the fixed 45s grid.
-- `DesktopProjectV1` (`src/lib/desktop.ts:13-19`): `{ version: 1, idea,
+- `DesktopProjectV1` (`src/lib/desktop.ts:15-29`): `{ version: 1, idea,
   profile, scriptOverrides, sceneChoices, captionMode, captionOverrides,
-  voiceOn, visualEffect, timing, savedAt, baseScript?, renderPlan? }`.
+  voiceOn, visualEffect, timing, savedAt, baseScript?, renderPlan?,
+  planSeeds?, approvedShots? }` — plan fields are optional (pre-plan
+  files still open) and validated with the session guards (bad keys or
+  array → defaults, never a throw); restore normalizes them into the
+  saved snapshot so old files settle clean, not dirty.
+- Plan takes reset on any script-input change (`idea`, profile,
+  `scriptOverrides`, `packId`); restores record `planInputsSig` and the
+  reset skips while live inputs still match it.
   `projectFingerprint` is sorted-key JSON excluding volatile fields —
   it drives the dirty check and script-reuse cache.
 
@@ -189,7 +200,8 @@ behavior through `shared/`, never by editing both renderers in parallel.
 ## 8. Change conventions
 
 1. Pipeline changes flow downstream: script → timing → frames → pixels
-   → export. Update the stage contract (§2) and its tests together.
+   → export. The production plan derives from the script the same way
+   (only takes/approvals persist, never the plan). Update the stage contract (§2) and its tests together.
 2. New cross-renderer behavior goes in `shared/` first, then wired into
    both renderers — never renderer-first.
 3. Data-shape changes (`VideoScript`, `DesktopProjectV1`, Zod schemas)

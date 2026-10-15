@@ -7,12 +7,15 @@ import { browserStorage as storage } from "./lib/storage";
 import { readWordTiming } from "./lib/session";
 import { assignAiBackgrounds } from "./lib/ai-backgrounds";
 import { applyScriptOverrides, hasScriptOverrides } from "./lib/script-draft";
+import { buildProductionPlan, estimatePlanCost, regenerateShot } from "./lib/production-plan";
+import { DEFAULT_VOICE } from "./lib/tts-local";
 import { previewSpeak } from "./lib/tts";
 import { desktop, nativeMediaUrl, projectFingerprint, showInFolder } from "./lib/desktop";
 import ProfileSettings from "./components/ProfileSettings";
 import PreviewRenderer from "./components/PreviewRenderer";
 import ScriptBeats from "./components/ScriptBeats";
 import SceneTray from "./components/SceneTray";
+import { ProductionPlanView } from "./components/ProductionPlan";
 import ExportPanel from "./components/ExportPanel";
 import DesktopToolbar from "./components/DesktopToolbar";
 import { SAMPLE_IDEA } from "./lib/activation";
@@ -46,6 +49,7 @@ export function App() {
   const {
     idea, setIdea, packId, setPackId, profile, saved, onSaveProfile,
     scriptOverrides, setScriptOverrides, sceneChoices, setSceneChoices,
+    planSeeds, setPlanSeeds, approvedShots, setApprovedShots,
     selectedScene, setSelectedScene, voiceOn, setVoiceOn, captionMode, setCaptionMode,
     captionOverrides, setCaptionOverrides, platform, setPlatform, creditOn, setCreditOn,
     visualEffect, setVisualEffect, queueText, setQueueText,
@@ -80,6 +84,23 @@ export function App() {
     try { return { script: applyScriptOverrides(generatedScript, scriptOverrides), err: "" }; }
     catch (e) { return { script: null, err: e instanceof Error ? e.message : String(e) }; }
   }, [generatedScript, scriptOverrides]);
+  const plan = useMemo(
+    () => (script && pack ? buildProductionPlan(script, pack, DEFAULT_VOICE) : null),
+    [script, pack],
+  );
+  // Seeded takes: each regenerated shot overlays its seed deterministically.
+  // Cost and the view both derive from the SEEDED plan, never the base.
+  const withSeeds = useMemo(() => {
+    if (!plan) return null;
+    return Object.entries(planSeeds).reduce(
+      (acc, [cue, seed]) => regenerateShot(acc, Number(cue), seed),
+      plan,
+    );
+  }, [plan, planSeeds]);
+  const cost = useMemo(
+    () => (withSeeds ? estimatePlanCost(withSeeds, { voiceOn, width: 720, height: 1280, fps: 30 }) : null),
+    [withSeeds, voiceOn],
+  );
   const scriptErr = generatedErr || editErr;
 
   useEffect(() => {
@@ -105,7 +126,7 @@ export function App() {
 
   // Export inputs, resolved at click time so the controller never sees a
   // stale closure over script/captions/choices.
-  const exportCtx: ExportContext = { script, theme, captionAnchor: preset.captionAnchor, visualEffect, captions, words, captionLabels, captionMode, voiceOn, creditOn, timing, sceneChoices, aiSuggestions, loadSceneAsset };
+  const exportCtx: ExportContext = { script, theme, captionAnchor: preset.captionAnchor, visualEffect, captions, words, captionLabels, captionMode, voiceOn, creditOn, timing, sceneChoices, aiSuggestions, loadSceneAsset, approvedShots };
   // Save inputs for the project hook (read only when save/new runs).
   saveCtxRef.current = { script, generatedScript, theme, captions, timing, sceneAssets };
 
@@ -208,6 +229,14 @@ export function App() {
               onUpload={(file) => void onUpload(file)} />
           </div>}
         </div>
+
+        {withSeeds && cost && <ProductionPlanView plan={withSeeds} cost={cost} planSeeds={planSeeds} approvedShots={approvedShots} disabled={isWorking}
+          onRegenerate={(cueIndex) => {
+            setPlanSeeds((s) => ({ ...s, [cueIndex]: (s[cueIndex] ?? 0) + 1 }));
+            // A new take is unapproved by definition.
+            setApprovedShots((a) => a.map((v, i) => (i === cueIndex ? false : v)));
+          }}
+          onToggleApprove={(cueIndex) => setApprovedShots((a) => a.map((v, i) => (i === cueIndex ? !v : v)))} />}
 
         {script && <ExportPanel script={script} tiktok={tiktok} xpost={xpost} voiceOn={voiceOn} onVoiceChange={setVoiceOn} onPreviewVoice={() => previewSpeak(script.hook)}
           onExport={() => void runExport(exportCtx)} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} downloadUrl={exportUrl} captionMode={captionMode} onCaptionModeChange={setCaptionMode} visualEffect={visualEffect} onVisualEffectChange={setVisualEffect} platform={platform} onPlatformChange={setPlatform} creditOn={creditOn} onCreditChange={setCreditOn}

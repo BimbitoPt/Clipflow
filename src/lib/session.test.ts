@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { KeyValueStore } from "./storage";
 import type { Profile } from "./profile";
 import {
+  defaultApprovedShots,
+  planInputsSig,
   readSession,
   readTimingSidecar,
   readWordTiming,
+  validApprovedShots,
+  validPlanSeeds,
   validSceneChoice,
   validTimingSidecar,
   writeSession,
@@ -43,6 +47,8 @@ function snapshot(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
     platform: "tiktok",
     credit: false,
     pack: "mstudio",
+    planSeeds: {},
+    approvedShots: defaultApprovedShots(),
     ...overrides,
   };
 }
@@ -102,6 +108,102 @@ describe("readSession", () => {
     const result = readSession(store)!;
     expect(result.platform).toBe("tiktok");
     expect(result.pack).toBe("mstudio");
+  });
+
+  it("round-trips plan seeds and approvals", () => {
+    const store = memoryStore();
+    writeSession(store, {
+      ...snapshot(),
+      idea: "car detailing",
+      planSeeds: { 0: 1 },
+      approvedShots: [true, false, false, false, false],
+    });
+    const back = readSession(store);
+    expect(back?.planSeeds).toEqual({ 0: 1 });
+    expect(back?.approvedShots).toEqual([true, false, false, false, false]);
+  });
+
+  it("reads pre-plan snapshots with plan defaults", () => {
+    const store = memoryStore();
+    const { planSeeds: _seeds, approvedShots: _shots, ...legacy } = snapshot();
+    store.setItem(SESSION_KEY, JSON.stringify({ version: 1, ...legacy }));
+    const back = readSession(store)!;
+    expect(back.planSeeds).toEqual({});
+    expect(back.approvedShots).toEqual([false, false, false, false, false]);
+  });
+
+  it("falls back to plan defaults without nulling the session", () => {
+    for (const extra of [
+      { planSeeds: { 0: 1, 5: 2 } },
+      { planSeeds: { 0: "take-2" } },
+      { planSeeds: [1, 2] },
+      { planSeeds: null },
+      { approvedShots: [true, false] },
+      { approvedShots: [true, false, false, false, "yes"] },
+      { approvedShots: "all" },
+    ]) {
+      const store = memoryStore();
+      store.setItem(SESSION_KEY, JSON.stringify({ version: 1, ...snapshot(), ...extra }));
+      const back = readSession(store);
+      expect(back, JSON.stringify(extra)).not.toBeNull();
+      expect(back!.planSeeds).toEqual("planSeeds" in extra ? {} : snapshot().planSeeds);
+      expect(back!.approvedShots).toEqual(
+        "approvedShots" in extra ? [false, false, false, false, false] : snapshot().approvedShots,
+      );
+    }
+  });
+});
+
+describe("plan guards", () => {
+  it("validPlanSeeds keeps sparse shot indexes, rejects the rest", () => {
+    expect(validPlanSeeds({ 0: 1, 4: 3 })).toEqual({ 0: 1, 4: 3 });
+    expect(validPlanSeeds({})).toEqual({});
+    for (const bad of [{ 5: 1 }, { "-1": 1 }, { 0: NaN }, { 0: "1" }, [1], null, 42, "x"]) {
+      expect(validPlanSeeds(bad)).toEqual({});
+    }
+  });
+
+  it("validApprovedShots accepts only five booleans", () => {
+    expect(validApprovedShots([true, false, false, false, true])).toEqual([true, false, false, false, true]);
+    for (const bad of [[true], [false, false, false, false, false, false], [0, 0, 0, 0, 0], null, {}]) {
+      expect(validApprovedShots(bad)).toEqual([false, false, false, false, false]);
+    }
+  });
+
+  it("planInputsSig is stable for equal inputs, distinct otherwise", () => {
+    const base = { idea: "car detailing", profile: PROFILE, scriptOverrides: {}, pack: "clipflow" };
+    expect(planInputsSig(base)).toBe(planInputsSig({ ...base, profile: { ...PROFILE } }));
+    expect(planInputsSig(base)).not.toBe(planInputsSig({ ...base, idea: "other" }));
+    expect(planInputsSig(base)).not.toBe(planInputsSig({ ...base, pack: "mstudio" }));
+    expect(planInputsSig(base)).not.toBe(planInputsSig({ ...base, scriptOverrides: { 0: "new hook" } }));
+  });
+
+  it("replays the reset-vs-restore timeline: restored approvals survive", () => {
+    // Mirrors the reset effect in useClipflowProject (declared before the
+    // restore effects; restores record their signature, the post-restore
+    // refire skips while inputs still match, later edits reset).
+    const initial = { idea: "fixed-price websites that ship in two weeks", profile: PROFILE, scriptOverrides: {}, pack: "mstudio" };
+    const restored = { idea: "car detailing", profile: PROFILE, scriptOverrides: {}, pack: "clipflow" };
+    let restoredSig: string | null = null;
+    let plan: { seeds: Record<number, number>; approvals: boolean[] } = { seeds: {}, approvals: defaultApprovedShots() };
+    const resetEffect = (inputs: typeof initial) => {
+      const sig = planInputsSig(inputs);
+      if (restoredSig !== null) {
+        if (restoredSig === sig) return "skipped";
+        restoredSig = null;
+      }
+      plan = { seeds: {}, approvals: defaultApprovedShots() };
+      return "reset";
+    };
+
+    expect(resetEffect(initial)).toBe("reset"); // mount: no-op over defaults
+    // Restore lands: takes + signature recorded after the reset settled.
+    plan = { seeds: { 0: 1 }, approvals: [true, false, false, false, false] };
+    restoredSig = planInputsSig(restored);
+    expect(resetEffect(restored)).toBe("skipped"); // post-restore refire settles
+    expect(plan).toEqual({ seeds: { 0: 1 }, approvals: [true, false, false, false, false] });
+    expect(resetEffect({ ...restored, idea: "new idea" })).toBe("reset"); // genuine edit invalidates
+    expect(plan).toEqual({ seeds: {}, approvals: [false, false, false, false, false] });
   });
 });
 
