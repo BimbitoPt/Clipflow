@@ -88,6 +88,21 @@ function fail(scope: WorkerScope, message: string): void {
 export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): void {
   let session: Session | null = null;
 
+  // Production channel (real worker global) when tests haven't injected a
+  // scope. Every post below goes through this — posting via the injected
+  // scope alone leaves the production handler with undefined, so `init`
+  // throws and the main thread dies on the E_ENCODER_INIT timeout.
+  const globalScope = scope ? null : (self as unknown as {
+    postMessage(message: FromWorker, transfer?: Transferable[]): void;
+    onmessage: ((event: MessageEvent<ToWorker>) => void) | null;
+  });
+  const channel: WorkerScope = scope ?? {
+    postMessage: (message, transfer) => globalScope!.postMessage(message, transfer),
+    setOnMessage: (handler) => {
+      globalScope!.onmessage = (event) => handler(event.data);
+    },
+  };
+
   const reset = () => {
     if (session) {
       try {
@@ -108,7 +123,7 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
     try {
       if (message.type === "abort") {
         reset();
-        scope!.postMessage({ type: "aborted" });
+        channel.postMessage({ type: "aborted" });
         return;
       }
       if (message.type === "init") {
@@ -142,7 +157,7 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
           (next.video as unknown as { ondequeue?: (() => void) | null }).ondequeue = () => {
             try {
               if (session === next && !next.finished && next.video.state !== "closed" && next.video.encodeQueueSize <= RESUME_QUEUE) {
-                scope!.postMessage({ type: "accepted", queue: next.video.encodeQueueSize });
+                channel.postMessage({ type: "accepted", queue: next.video.encodeQueueSize });
               }
             } catch {
               // Drain hints are best-effort; the stall watchdog owns failure.
@@ -161,11 +176,11 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
           next.audio.configure({ ...AUDIO_CONFIG });
         }
         session = next;
-        scope!.postMessage({ type: "ready" });
+        channel.postMessage({ type: "ready" });
         return;
       }
       if (!session || session.finished) {
-        fail(scope!, "Export session is not initialized.");
+        fail(channel, "Export session is not initialized.");
         return;
       }
       if (message.type === "frame") {
@@ -178,7 +193,7 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
             // Frame release is best-effort.
           }
         }
-        scope!.postMessage({ type: "accepted", queue: session.video.encodeQueueSize });
+        channel.postMessage({ type: "accepted", queue: session.video.encodeQueueSize });
         return;
       }
       if (message.type === "audio") {
@@ -188,7 +203,7 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
           } catch {
             // Release is best-effort.
           }
-          fail(scope!, "Audio data sent to a voiceless session.");
+          fail(channel, "Audio data sent to a voiceless session.");
           return;
         }
         try {
@@ -205,27 +220,27 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
       // finish
       void (async () => {
         try {
-          scope!.postMessage({ type: "stage", stage: "flushing-video" });
+          channel.postMessage({ type: "stage", stage: "flushing-video" });
           await session!.video.flush();
           if (session!.videoErr) throw session!.videoErr;
           if (session!.voice && session!.audio) {
-            scope!.postMessage({ type: "stage", stage: "flushing-audio" });
+            channel.postMessage({ type: "stage", stage: "flushing-audio" });
             await session!.audio.flush();
             if (session!.audioErr) throw session!.audioErr;
           }
-          scope!.postMessage({ type: "stage", stage: "finalizing" });
+          channel.postMessage({ type: "stage", stage: "finalizing" });
           session!.muxer.finalize();
           session!.finished = true;
           const buffer = session!.muxer.target.buffer;
-          scope!.postMessage({ type: "done", buffer }, [buffer]);
+          channel.postMessage({ type: "done", buffer }, [buffer]);
         } catch (error) {
-          fail(scope!, error instanceof Error ? error.message : String(error));
+          fail(channel, error instanceof Error ? error.message : String(error));
         } finally {
           reset();
         }
       })();
     } catch (error) {
-      fail(scope!, error instanceof Error ? error.message : String(error));
+      fail(channel, error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -233,11 +248,7 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
     scope.setOnMessage(handle);
     return;
   }
-  const globalScope = self as unknown as {
-    postMessage(message: FromWorker, transfer?: Transferable[]): void;
-    onmessage: ((event: MessageEvent<ToWorker>) => void) | null;
-  };
-  globalScope.onmessage = (event: MessageEvent<ToWorker>) => handle(event.data);
+  channel.setOnMessage(handle);
 }
 
 // Auto-start in a real worker global only: main-thread `self` is `window`.
