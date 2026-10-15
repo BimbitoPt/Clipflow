@@ -148,8 +148,11 @@ export function useExportController(setErr: (message: string) => void) {
         let synthesizedCues: Array<TimedCueTiming | null> | null = null;
         if (voiceOn) {
           const cueTexts = script.cues.map((cue) => cue.text);
-          setExportMsg("Rendering voice…");
+          setExportMsg("Rendering voice… (local AI voice can pause the UI for a bit)");
           setExportProgress(50);
+          // Yield so the progress paint lands before the heavyweight local
+          // model blocks the main thread (same freeze in browser + desktop).
+          await new Promise((paint) => setTimeout(paint, 50));
           try {
             // Fail fast before the heavyweight model imports: a missing
             // install or an offline first run surfaces here with an

@@ -1,6 +1,7 @@
 // Keep this entrypoint dependency-free so module-load failures in the real
 // encoder worker can be reported to the UI instead of degrading into the
 // generic E_ENCODER_INIT timeout.
+export {};
 try {
   await import("./export-worker");
 } catch (error) {
