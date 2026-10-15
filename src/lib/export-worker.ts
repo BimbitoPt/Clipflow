@@ -1,8 +1,10 @@
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import {
   AUDIO_CONFIG,
+  OPUS_AUDIO_CONFIG,
   RESUME_QUEUE,
   VIDEO_CONFIG,
+  type AudioCodec,
   type FromWorker,
   type ToWorker,
 } from "./export-worker-protocol";
@@ -40,7 +42,7 @@ export interface EncoderLike<Config> {
 export type VideoChunkOut = (chunk: EncodedVideoChunk, metadata?: EncodedVideoChunkMetadata) => void;
 export type AudioChunkOut = (chunk: EncodedAudioChunk, metadata?: EncodedAudioChunkMetadata) => void;
 export interface WorkerDeps {
-  createMuxer(voice: boolean): MuxerLike;
+  createMuxer(voice: boolean, audioCodec?: AudioCodec): MuxerLike;
   createVideoEncoder(output: VideoChunkOut, onError: (e: unknown) => void): EncoderLike<VideoEncoderConfig>;
   createAudioEncoder(output: AudioChunkOut, onError: (e: unknown) => void): EncoderLike<AudioEncoderConfig>;
 }
@@ -50,12 +52,14 @@ export interface WorkerScope {
 }
 
 const realDeps: WorkerDeps = {
-  createMuxer: (voice: boolean) =>
+  createMuxer: (voice: boolean, audioCodec: AudioCodec = "aac") =>
     voice
       ? new Muxer({
           target: new ArrayBufferTarget(),
           video: { codec: "avc", width: VIDEO_CONFIG.width, height: VIDEO_CONFIG.height },
-          audio: { codec: "aac", sampleRate: AUDIO_CONFIG.sampleRate, numberOfChannels: AUDIO_CONFIG.numberOfChannels },
+          audio: audioCodec === "opus"
+            ? { codec: "opus", sampleRate: OPUS_AUDIO_CONFIG.sampleRate, numberOfChannels: OPUS_AUDIO_CONFIG.numberOfChannels }
+            : { codec: "aac", sampleRate: AUDIO_CONFIG.sampleRate, numberOfChannels: AUDIO_CONFIG.numberOfChannels },
           fastStart: "in-memory",
         })
       : new Muxer({
@@ -128,7 +132,8 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
       }
       if (message.type === "init") {
         reset();
-        const muxer = deps.createMuxer(message.voice);
+        const audioCodec: AudioCodec = message.audioCodec ?? "aac";
+        const muxer = deps.createMuxer(message.voice, audioCodec);
         const next: Session = {
           muxer,
           video: null as unknown as EncoderLike<VideoEncoderConfig>,
@@ -173,7 +178,7 @@ export function startWorker(deps: WorkerDeps = realDeps, scope?: WorkerScope): v
               next.audioErr = e;
             },
           );
-          next.audio.configure({ ...AUDIO_CONFIG });
+          next.audio.configure(audioCodec === "opus" ? { ...OPUS_AUDIO_CONFIG } : { ...AUDIO_CONFIG });
         }
         session = next;
         channel.postMessage({ type: "ready" });

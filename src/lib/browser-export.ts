@@ -2,7 +2,7 @@ import type { CaptionPhrase } from "../../shared/caption-plan";
 import type { VisualEffect } from "../../shared/visual-effects";
 import { cueIndexOf, seekVideo } from "./app-utils";
 import type { StockAsset } from "./broll";
-import { AUDIO_CONFIG, MAX_QUEUE, RESUME_QUEUE, type FromWorker } from "./export-worker-protocol";
+import { AUDIO_CONFIG, MAX_QUEUE, OPUS_AUDIO_CONFIG, RESUME_QUEUE, type AudioCodec, type FromWorker } from "./export-worker-protocol";
 import type { PlannedFrame, WordCue } from "./planner";
 import { planFrames } from "./planner";
 import { CREDIT_SECS, drawFrame, type DrawCtx, type RenderExtra } from "./render";
@@ -27,6 +27,8 @@ export interface BrowserExportRequest {
   baseDuration: number;
   creditOn: boolean;
   voiceOn: boolean;
+  /** AAC on Chrome/Edge/Safari, Opus on Firefox. Defaults to AAC. */
+  audioCodec?: AudioCodec;
   cueAssets: Array<StockAsset | null>;
   approvedProofByCue: boolean[];
   /** 24 kHz mono voice, already trimmed/fitted/normalized; `null` = silent. */
@@ -46,7 +48,7 @@ export interface BrowserExportRequest {
  * caller's signal aborts, or with the worker's own error message.
  */
 export async function runBrowserExport(req: BrowserExportRequest): Promise<ArrayBuffer> {
-  const { script, theme, visualEffect, captionAnchor, captions, words, windows, baseDuration, creditOn, voiceOn, cueAssets, approvedProofByCue, pcm, signal } = req;
+  const { script, theme, visualEffect, captionAnchor, captions, words, windows, baseDuration, creditOn, voiceOn, audioCodec = "aac", cueAssets, approvedProofByCue, pcm, signal } = req;
   req.onMessage("Muxing clipflow-916.mp4…");
   const withAudio = Boolean(voiceOn && pcm);
   const worker = new Worker(new URL("./export-worker-bootstrap.ts", import.meta.url), { type: "module" });
@@ -156,7 +158,7 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
       }, { once: true });
       void (async () => {
         try {
-          worker.postMessage({ type: "init", voice: withAudio });
+          worker.postMessage({ type: "init", voice: withAudio, audioCodec });
           // Wait for the worker's encoders to configure before feeding
           // frames; without this a slow module load silently eats frames.
           await ready;
@@ -242,20 +244,21 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
             }
           }
           if (withAudio && pcm) {
-            // Chrome only encodes AAC at 44.1/48 kHz — Kokoro speaks 24 kHz,
-            // so upsample here. The desktop FFmpeg path gets a 16 kHz
+            // Kokoro speaks 24 kHz — upsample to the encoder rate (AAC 44.1
+            // kHz, Opus 48 kHz). The desktop FFmpeg path gets a 16 kHz
             // downsample instead (Rust sink is pinned).
-            const voice = resampleLinear(pcm, KOKORO_SAMPLE_RATE, AUDIO_CONFIG.sampleRate);
+            const targetRate = audioCodec === "opus" ? OPUS_AUDIO_CONFIG.sampleRate : AUDIO_CONFIG.sampleRate;
+            const voice = resampleLinear(pcm, KOKORO_SAMPLE_RATE, targetRate);
             const CHUNK = 1_000_000;
             for (let off = 0; off < voice.length; off += CHUNK) {
               signal.throwIfAborted();
               const slice = voice.slice(off, off + CHUNK);
               const ad = new AudioData({
                 format: "f32",
-                sampleRate: AUDIO_CONFIG.sampleRate,
+                sampleRate: targetRate,
                 numberOfFrames: slice.length,
                 numberOfChannels: 1,
-                timestamp: Math.round((off * 1e6) / AUDIO_CONFIG.sampleRate),
+                timestamp: Math.round((off * 1e6) / targetRate),
                 data: slice,
               });
               try {
@@ -282,4 +285,115 @@ export async function runBrowserExport(req: BrowserExportRequest): Promise<Array
   req.onPercent(100);
   req.onMessage("");
   return buffer;
+}
+
+export interface MediaRecorderResult {
+  buffer: ArrayBuffer;
+  mimeType: string;
+}
+
+/**
+ * Last-resort export: realtime canvas.captureStream + MediaRecorder.
+ * Used when WebCodecs VideoEncoder is missing (old Safari) — voice rides a
+ * MediaStreamDestination, so no AudioEncoder is needed either.
+ * Realtime by nature: a 45s video takes ~45s to record.
+ */
+export async function runMediaRecorderExport(req: BrowserExportRequest, mimeType: string): Promise<MediaRecorderResult> {
+  const { script, theme, visualEffect, captionAnchor, captions, words, windows, baseDuration, creditOn, voiceOn, cueAssets, approvedProofByCue, pcm, signal } = req;
+  const totalDuration = baseDuration + (creditOn ? CREDIT_SECS : 0);
+  const canvas = document.createElement("canvas");
+  canvas.width = OUT_W;
+  canvas.height = OUT_H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("E_CANVAS: 2d context unavailable");
+  const stream = canvas.captureStream(FPS);
+  let audioCtx: AudioContext | null = null;
+  let source: AudioBufferSourceNode | null = null;
+  try {
+    if (voiceOn && pcm) {
+      const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AC) throw new Error("E_NO_AUDIOCTX: this browser has no AudioContext");
+      audioCtx = new AC({ sampleRate: KOKORO_SAMPLE_RATE });
+      const dest = audioCtx.createMediaStreamDestination();
+      const audioBuffer = audioCtx.createBuffer(1, pcm.length, KOKORO_SAMPLE_RATE);
+      audioBuffer.copyToChannel(pcm as Float32Array<ArrayBuffer>, 0);
+      source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(dest);
+      for (const track of dest.stream.getAudioTracks()) stream.addTrack(track);
+    }
+    const recorder = mimeType ? new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 5_000_000 }) : new MediaRecorder(stream);
+    const chunks: Blob[] = [];
+    const done = new Promise<Blob>((resolve, reject) => {
+      recorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data.size > 0) chunks.push(event.data);
+      };
+      recorder.onerror = () => reject(new Error("E_RECORDER: MediaRecorder failed"));
+      recorder.onstop = () => resolve(new Blob(chunks, { type: recorder.mimeType || mimeType || "video/webm" }));
+    });
+    signal.addEventListener("abort", () => {
+      try { if (recorder.state !== "inactive") recorder.stop(); } catch { /* terminate below */ }
+    }, { once: true });
+    const frames: PlannedFrame[] = planFrames(script, FPS, windows, approvedProofByCue, cueAssets);
+    const assetByCue = new Map<number, StockAsset | null>();
+    script.cues.forEach((_cue, i) => assetByCue.set(i, cueAssets[i] ?? null));
+    const frameAt = (t: number): PlannedFrame => {
+      const clamped = Math.min(t, baseDuration - 1 / FPS);
+      const idx = Math.max(0, Math.min(frames.length - 1, Math.floor((clamped / baseDuration) * frames.length)));
+      return frames[idx]!;
+    };
+    req.onMessage("Recording in realtime (fallback encoder)…");
+    recorder.start(1000);
+    const startedAt = performance.now();
+    try { await audioCtx?.resume(); } catch { /* autoplay policy: recorder still captures */ }
+    try { source?.start(0); } catch { /* no audio */ }
+    let n = 0;
+    for (;;) {
+      signal.throwIfAborted();
+      const elapsed = (performance.now() - startedAt) / 1000;
+      if (elapsed >= totalDuration) break;
+      const t = elapsed;
+      const f = t < baseDuration ? frameAt(t) : { t, cue: script.cues[script.cues.length - 1]! };
+      const idx = cueIndexOf(script, f.cue);
+      const asset = assetByCue.get(idx) ?? null;
+      if (asset?.kind === "video") {
+        const video = asset.el as HTMLVideoElement;
+        try {
+          if (video.paused) await video.play().catch(() => undefined);
+          const seek = Number.isFinite(video.duration) && video.duration > 0 ? t % video.duration : t;
+          if (Math.abs(video.currentTime - seek) > 0.4) await seekVideo(video, seek);
+        } catch { /* keep last frame */ }
+      }
+      const extra: RenderExtra = {};
+      if (t >= baseDuration) {
+        drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, { endCard: true }, totalDuration);
+      } else {
+        extra.visualEffect = visualEffect;
+        extra.captions = captions;
+        extra.captionAnchor = captionAnchor;
+        if (words) extra.words = words;
+        if (asset) extra.asset = asset;
+        drawFrame(ctx as DrawCtx, f, theme, OUT_W, OUT_H, extra, totalDuration);
+      }
+      n += 1;
+      if (n % 30 === 0) {
+        req.onPercent(65 + Math.round((30 * Math.min(t, totalDuration)) / totalDuration));
+        req.onMessage(`Recording ${Math.round(t)}s/${Math.round(totalDuration)}s (fallback)…`);
+      }
+      await new Promise((paint) => setTimeout(paint, Math.round(1000 / FPS)));
+    }
+    try { source?.stop(); } catch { /* already ended */ }
+    await new Promise((tail) => setTimeout(tail, 300));
+    if (recorder.state !== "inactive") recorder.stop();
+    const blob = await done;
+    req.onPercent(100);
+    req.onMessage("");
+    return { buffer: await blob.arrayBuffer(), mimeType: blob.type || mimeType };
+  } finally {
+    try { source?.disconnect(); } catch { /* best-effort */ }
+    try { await audioCtx?.close(); } catch { /* best-effort */ }
+    for (const track of stream.getTracks()) {
+      try { track.stop(); } catch { /* best-effort */ }
+    }
+  }
 }
