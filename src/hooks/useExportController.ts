@@ -214,7 +214,10 @@ export function useExportController(setErr: (message: string) => void) {
           : timing?.windows ?? null;
         const baseDuration = voiceTotal ?? timing?.total ?? VIDEO_SECS;
         const synthesized = synthesizedCues;
-        const exportCaptions = synthesized
+        // Silent audio fallback (e.g. Firefox AAC refusal) must also
+        // re-derive captions: the memoized plan was built with voiceOn=true
+        // (speech phrases), while a voiceless export needs scene labels.
+        const exportCaptions = synthesized || audioFallbackWarn
           ? makeCaptionPlan({
               mode: captionMode,
               voiceOn: voiceEffective,
@@ -222,7 +225,7 @@ export function useExportController(setErr: (message: string) => void) {
               words: exportWords,
               scenes: script.cues.map((cue, index) => ({
                 ...cue,
-                ...(synthesized[index]?.span
+                ...(synthesized?.[index]?.span
                   ? { start: synthesized[index]!.span[0], end: synthesized[index]!.span[1] }
                   : timing?.windows?.[index] ?? { start: cue.start, end: cue.end }),
               })),
