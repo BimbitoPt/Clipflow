@@ -1,9 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AUDIO_CONFIG,
+  OPUS_AUDIO_CONFIG,
   probeAudioConfig,
+  probeMediaRecorder,
   probeVideoConfig,
+  probeVoiceEncoder,
   VIDEO_CONFIG,
+  type AudioCodec,
   type FromWorker,
   type ToWorker,
 } from "./export-worker-protocol";
@@ -209,11 +213,93 @@ describe("export-worker", () => {
     expect([VIDEO_CONFIG.width, VIDEO_CONFIG.height]).toEqual([720, 1280]);
     expect(AUDIO_CONFIG.codec).toBe("mp4a.40.2");
     expect(AUDIO_CONFIG.sampleRate).toBe(44100);
+    expect(OPUS_AUDIO_CONFIG.codec).toBe("opus");
+    expect(OPUS_AUDIO_CONFIG.sampleRate).toBe(48000);
   });
 
   it("probes report missing encoders without throwing", async () => {
     // Node has no WebCodecs globals: both probes must fail gracefully.
     expect(await probeVideoConfig()).toEqual({ supported: false, reason: "missing" });
     expect(await probeAudioConfig()).toEqual({ supported: false, reason: "missing" });
+    expect(await probeVoiceEncoder()).toEqual({ supported: false, codec: null, reason: "missing" });
+    expect(probeMediaRecorder()).toEqual({ supported: false, mimeType: null });
+  });
+
+  it("prefers AAC but falls back to Opus", async () => {
+    const g = globalThis as unknown as Record<string, unknown>;
+    const prevEncoder = g["AudioEncoder"];
+    const prevData = g["AudioData"];
+    try {
+      // AAC supported → aac.
+      g["AudioData"] = class {};
+      g["AudioEncoder"] = { isConfigSupported: async () => ({ supported: true }) };
+      expect((await probeVoiceEncoder()).codec).toBe("aac");
+      // AAC refused, Opus supported → opus.
+      g["AudioEncoder"] = {
+        isConfigSupported: async (config: { codec?: string }) =>
+          config.codec === "opus" ? { supported: true } : { supported: false },
+      };
+      const opus = await probeVoiceEncoder();
+      expect(opus).toEqual({ supported: true, codec: "opus", reason: null });
+      // Neither → unsupported.
+      g["AudioEncoder"] = { isConfigSupported: async () => ({ supported: false }) };
+      const none = await probeVoiceEncoder();
+      expect(none.supported).toBe(false);
+      expect(none.codec).toBeNull();
+    } finally {
+      if (prevEncoder === undefined) delete g["AudioEncoder"];
+      else g["AudioEncoder"] = prevEncoder;
+      if (prevData === undefined) delete g["AudioData"];
+      else g["AudioData"] = prevData;
+    }
+  });
+
+  it("forwards the opus codec into muxer + encoder config", () => {
+    const posted: FromWorker[] = [];
+    const seen: Array<{ voice: boolean; codec?: AudioCodec }> = [];
+    const configured: unknown[] = [];
+    const muxer: MuxerLike = {
+      addVideoChunk: () => undefined,
+      addAudioChunk: () => undefined,
+      finalize: () => undefined,
+      target: { buffer: new ArrayBuffer(8) },
+    };
+    const video = fakeEncoder("video");
+    const audio = fakeEncoder("audio");
+    const deps: WorkerDeps = {
+      createMuxer: (voice: boolean, audioCodec?: AudioCodec) => {
+        seen.push({ voice, codec: audioCodec });
+        return muxer;
+      },
+      createVideoEncoder: (output) => {
+        video._captureOutput(output as (chunk: unknown, meta?: unknown) => void);
+        return video as unknown as EncoderLike<VideoEncoderConfig>;
+      },
+      createAudioEncoder: (output) => {
+        audio._captureOutput(output as (chunk: unknown, meta?: unknown) => void);
+        const inner = audio as unknown as EncoderLike<AudioEncoderConfig> & {
+          _captureOutput(output: (chunk: unknown, meta?: unknown) => void): void;
+        };
+        const origConfigure = inner.configure.bind(inner);
+        inner.configure = ((config: AudioEncoderConfig) => {
+          configured.push(config);
+          origConfigure(config);
+        }) as typeof inner.configure;
+        return inner;
+      },
+    };
+    let handler: ((message: ToWorker) => void) | null = null;
+    const scope: WorkerScope = {
+      postMessage: (message: FromWorker) => void posted.push(message),
+      setOnMessage: (next) => {
+        handler = next;
+      },
+    };
+    startWorker(deps, scope);
+    handler!({ type: "init", voice: true, audioCodec: "opus" });
+    expect(posted).toEqual([{ type: "ready" }]);
+    expect(seen).toEqual([{ voice: true, codec: "opus" }]);
+    expect(configured).toEqual([{ ...OPUS_AUDIO_CONFIG }]);
+    void vi;
   });
 });

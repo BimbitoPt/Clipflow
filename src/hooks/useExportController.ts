@@ -3,12 +3,13 @@ import { makeCaptionPlan, type CaptionMode, type CaptionPhrase } from "../../sha
 import type { VisualEffect } from "../../shared/visual-effects";
 import { cueIndexOf } from "../lib/app-utils";
 import { recordExport } from "../lib/activation";
-import { OUT_NAME, runBrowserExport } from "../lib/browser-export";
+import { OUT_NAME, runBrowserExport, runMediaRecorderExport } from "../lib/browser-export";
 import { STOCK_POOL, type StockAsset } from "../lib/broll";
 import { assignAiBackgrounds } from "../lib/ai-backgrounds";
 import { desktop } from "../lib/desktop";
 import { renderDesktop } from "../lib/desktop-render";
-import { probeAudioConfig, probeVideoConfig } from "../lib/export-worker-protocol";
+import { probeMediaRecorder, probeVideoConfig, probeVoiceEncoder, type AudioCodec, type VoiceEncoderProbe } from "../lib/export-worker-protocol";
+import { pcmToWavBlob } from "../lib/audio-wav";
 import { planFrames, planWordsTimed, voiceGridFromCues, VIDEO_SECS, type PlannedFrame, type TimedCueTiming, type WordCue } from "../lib/planner";
 import { CREDIT_SECS } from "../lib/render";
 import { resolveSceneChoices, type ResolvedSceneChoice, type SceneChoice } from "../lib/scene-assets";
@@ -59,10 +60,12 @@ export function useExportController(setErr: (message: string) => void) {
   const [exportUrl, setExportUrl] = useState<string | null>(null);
   const [voiceWarn, setVoiceWarn] = useState("");
   const [nativeOutput, setNativeOutput] = useState<string | null>(null);
+  const [voiceDownloadUrl, setVoiceDownloadUrl] = useState<string | null>(null);
   const busyRef = useRef(false);
   const exportAbortRef = useRef<AbortController | null>(null);
 
   useEffect(() => () => { if (exportUrl) URL.revokeObjectURL(exportUrl); }, [exportUrl]);
+  useEffect(() => () => { if (voiceDownloadUrl) URL.revokeObjectURL(voiceDownloadUrl); }, [voiceDownloadUrl]);
 
   /** Back to a clean slate (used when a project is restored or created). */
   const reset = useCallback(() => {
@@ -72,6 +75,7 @@ export function useExportController(setErr: (message: string) => void) {
     setExportUrl(null);
     setVoiceWarn("");
     setNativeOutput(null);
+    setVoiceDownloadUrl(null);
   }, []);
 
   /** Cancel the in-flight export; the controller surfaces an AbortError. */
@@ -85,31 +89,44 @@ export function useExportController(setErr: (message: string) => void) {
     if (busyRef.current) return;
     busyRef.current = true;
     try {
-      // Capability probe first: fail fast with a named cause instead of
-      // dying mid-export. The desktop app (FFmpeg) is the universal fallback.
-      // Audio is soft-failed: Firefox has no AAC encoder, so a refused voice
-      // config exports silently (with a warning) instead of erroring out.
+      // Capability ladder: WebCodecs AAC (Chrome/Edge/Safari) → WebCodecs
+      // Opus (Firefox) → MediaRecorder realtime (no WebCodecs) → silent
+      // MP4 with a WAV sidecar. TTS synthesis itself is universal; only the
+      // container/codec varies. Desktop (FFmpeg) bypasses all probes.
       let voiceEffective = voiceOn;
+      let audioCodec: AudioCodec = "aac";
+      let useRecorder = false;
+      let recorderMime = "";
       let audioFallbackWarn = "";
       if (!desktop) {
         const videoProbe = await probeVideoConfig();
+        const voiceProbe: VoiceEncoderProbe = voiceOn ? await probeVoiceEncoder() : { supported: false, codec: null, reason: null };
+        const recorderProbe = probeMediaRecorder();
         if (!videoProbe.supported) {
-          setStatus("error");
-          setErr(videoProbe.reason === "missing"
-            ? "This browser can't hardware-encode — open in Chrome/Edge, or use the desktop app."
-            : "This browser refused the 720x1280 H.264 export config — update Chrome/Edge, or use the desktop app.");
-          return;
-        }
-        if (voiceEffective && typeof AudioData === "undefined") {
-          voiceEffective = false;
-          audioFallbackWarn = "This browser can't encode voice audio — exported silently. For voice, use Chrome/Edge or the desktop app.";
-        } else if (voiceEffective) {
-          const audioProbe = await probeAudioConfig();
-          if (!audioProbe.supported) {
+          if (recorderProbe.supported) {
+            useRecorder = true;
+            recorderMime = recorderProbe.mimeType ?? "";
+            audioFallbackWarn = "WebCodecs unavailable — recorded in realtime via MediaRecorder. For the fastest H.264 export, use Chrome/Edge or the desktop app.";
+          } else {
+            setStatus("error");
+            setErr(videoProbe.reason === "missing"
+              ? "This browser can't encode video and has no MediaRecorder — open in Chrome/Edge/Firefox/Safari, or use the desktop app."
+              : "This browser refused the 720x1280 H.264 export config and has no MediaRecorder — update Chrome/Edge, or use the desktop app.");
+            return;
+          }
+        } else if (voiceOn && voiceProbe.supported && voiceProbe.codec) {
+          audioCodec = voiceProbe.codec;
+          if (audioCodec === "opus") {
+            audioFallbackWarn = "Firefox has no AAC encoder — voice encoded as Opus-in-MP4 plus a WAV sidecar. Older iOS players may stay silent; the WAV always plays.";
+          }
+        } else if (voiceOn) {
+          if (recorderProbe.supported) {
+            useRecorder = true;
+            recorderMime = recorderProbe.mimeType ?? "";
+            audioFallbackWarn = "Voice encoder unavailable — recorded in realtime via MediaRecorder plus a WAV sidecar. For AAC-in-MP4, use Chrome/Edge or the desktop app.";
+          } else {
             voiceEffective = false;
-            audioFallbackWarn = audioProbe.reason === "missing"
-              ? "This browser can't encode voice audio — exported silently. For voice, use Chrome/Edge or the desktop app."
-              : "This browser refused the voice export config (Firefox has no AAC encoder) — exported silently. For voice, use Chrome/Edge or the desktop app.";
+            audioFallbackWarn = "This browser can't encode voice audio — exported silently with a WAV sidecar. For voice-in-MP4, use Chrome/Edge or the desktop app.";
           }
         }
       }
@@ -117,6 +134,7 @@ export function useExportController(setErr: (message: string) => void) {
       exportAbortRef.current = new AbortController();
       setNativeOutput(null);
       setExportUrl(null);
+      setVoiceDownloadUrl(null);
       setErr("");
       setExportMsg("Script ready.");
       setExportProgress(10);
@@ -134,7 +152,9 @@ export function useExportController(setErr: (message: string) => void) {
         // sidecar/even-split memo stays the fallback — timed synthesis can
         // only ever upgrade captions, never break the export.
         let synthesizedCues: Array<TimedCueTiming | null> | null = null;
-        if (voiceEffective) {
+        // Synthesize whenever voice was requested: WebCodecs/Recorder mux it,
+        // and even the silent last-resort still offers the WAV sidecar.
+        if (voiceOn) {
           const cueTexts = script.cues.map((cue) => cue.text);
           setExportMsg("Rendering voice… (local AI voice can pause the UI for a bit)");
           setExportProgress(50);
@@ -200,14 +220,14 @@ export function useExportController(setErr: (message: string) => void) {
             setExportProgress(65);
           }
         }
-        // Captions for THIS export: real synthesized word times when the
-        // timed model ran, otherwise the memoized plan (sidecar/even-split).
-        const exportWords = synthesizedCues ? planWordsTimed(script, synthesizedCues) : words;
-        // Visuals follow the same timeline: synthesized cue spans drive the
-        // render grid and caption phrase windows (clamped at the 45s ceiling
-        // when the voice was trimmed). The fixed grid / sidecar stays the
-        // fallback whenever timed synthesis didn't run or has a gap.
-        const voiceWindows = synthesizedCues && pcm ? voiceGridFromCues(synthesizedCues) : null;
+        // Captions for THIS export: real synthesized word times when the voice
+        // is muxed; a silent fallback keeps the memoized timing so words match
+        // the fixed grid.
+        const exportWords = synthesizedCues && voiceEffective ? planWordsTimed(script, synthesizedCues) : words;
+        // Visuals follow the voice timeline only when the voice is actually
+        // muxed; a silent fallback keeps the fixed grid and offers the WAV
+        // separately so the MP4 stays a standard length.
+        const voiceWindows = synthesizedCues && pcm && voiceEffective ? voiceGridFromCues(synthesizedCues) : null;
         const voiceTotal = voiceWindows && pcm ? Math.min(pcm.length / KOKORO_SAMPLE_RATE, VIDEO_SECS) : null;
         const exportWindows = voiceTotal !== null
           ? voiceWindows!.map((span) => ({ start: Math.min(span.start, voiceTotal), end: Math.min(span.end, voiceTotal) }))
@@ -253,6 +273,35 @@ export function useExportController(setErr: (message: string) => void) {
           else { setStatus("idle"); setExportMsg(""); }
           return;
         }
+        if (useRecorder) {
+          const baseReq = {
+            script, theme, visualEffect, captionAnchor, captions: exportCaptions,
+            words: exportWords, windows: exportWindows, baseDuration, creditOn,
+            voiceOn: voiceEffective, cueAssets, approvedProofByCue, pcm,
+            signal: exportAbortRef.current.signal, onMessage: setExportMsg, onPercent: setExportProgress,
+          };
+          const { buffer, mimeType } = await runMediaRecorderExport(baseReq, recorderMime);
+          const isMp4 = mimeType.includes("mp4");
+          const outName = isMp4 ? OUT_NAME : "clipflow-916.webm";
+          const blob = new Blob([buffer], { type: mimeType || (isMp4 ? "video/mp4" : "video/webm") });
+          const url = URL.createObjectURL(blob);
+          setExportUrl(url);
+          if (pcm && voiceEffective) {
+            const wavUrl = URL.createObjectURL(pcmToWavBlob(pcm, KOKORO_SAMPLE_RATE));
+            setVoiceDownloadUrl(wavUrl);
+          }
+          try {
+            recordExport(browserStorage, Date.now());
+          } catch {
+            // Activation stamp is instrumentation; the download already fired.
+          }
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = outName;
+          a.click();
+          setStatus("exported");
+          return;
+        }
         const buffer = await runBrowserExport({
           script,
           theme,
@@ -264,6 +313,7 @@ export function useExportController(setErr: (message: string) => void) {
           baseDuration,
           creditOn,
           voiceOn: voiceEffective,
+          audioCodec,
           cueAssets,
           approvedProofByCue,
           pcm,
@@ -274,6 +324,10 @@ export function useExportController(setErr: (message: string) => void) {
         const blob = new Blob([buffer], { type: "video/mp4" });
         const url = URL.createObjectURL(blob);
         setExportUrl(url);
+        if (pcm && voiceOn && (audioCodec !== "aac" || !voiceEffective)) {
+          const wavUrl = URL.createObjectURL(pcmToWavBlob(pcm, KOKORO_SAMPLE_RATE));
+          setVoiceDownloadUrl(wavUrl);
+        }
         try {
           recordExport(browserStorage, Date.now());
         } catch {
@@ -296,5 +350,5 @@ export function useExportController(setErr: (message: string) => void) {
     }
   }, [setErr]);
 
-  return { status, exportMsg, exportProgress, exportUrl, voiceWarn, nativeOutput, busyRef, exportAbortRef, reset, cancel, runExport };
+  return { status, exportMsg, exportProgress, exportUrl, voiceWarn, nativeOutput, voiceDownloadUrl, busyRef, exportAbortRef, reset, cancel, runExport };
 }

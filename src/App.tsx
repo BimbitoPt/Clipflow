@@ -33,7 +33,7 @@ export function App() {
   const [err, setErr] = useState("");
   // Export lifecycle: status, progress, messages, download/native output,
   // cancellation and the whole export run live behind the controller.
-  const { status, exportMsg, exportProgress, exportUrl, voiceWarn, nativeOutput, busyRef, exportAbortRef, reset: resetExport, cancel: cancelExport, runExport } = useExportController(setErr);
+  const { status, exportMsg, exportProgress, exportUrl, voiceWarn, nativeOutput, voiceDownloadUrl, busyRef, exportAbortRef, reset: resetExport, cancel: cancelExport, runExport } = useExportController(setErr);
   const statusRef = useRef(status);
   statusRef.current = status;
   // Save-time inputs (script/captions/assets) are filled in below, after the
@@ -210,7 +210,7 @@ export function App() {
         </div>
 
         {script && <ExportPanel script={script} tiktok={tiktok} xpost={xpost} voiceOn={voiceOn} onVoiceChange={setVoiceOn} onPreviewVoice={() => previewSpeak(script.hook)}
-          onExport={() => void runExport(exportCtx)} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} downloadUrl={exportUrl} captionMode={captionMode} onCaptionModeChange={setCaptionMode} visualEffect={visualEffect} onVisualEffectChange={setVisualEffect} platform={platform} onPlatformChange={setPlatform} creditOn={creditOn} onCreditChange={setCreditOn}
+          onExport={() => void runExport(exportCtx)} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} downloadUrl={exportUrl} voiceDownloadUrl={voiceDownloadUrl} captionMode={captionMode} onCaptionModeChange={setCaptionMode} visualEffect={visualEffect} onVisualEffectChange={setVisualEffect} platform={platform} onPlatformChange={setPlatform} creditOn={creditOn} onCreditChange={setCreditOn}
           nativeOutput={nativeOutput} nativePreview={nativeOutput ? nativeMediaUrl(nativeOutput) : null} onReveal={() => nativeOutput && void showInFolder(nativeOutput).catch(error => setErr(String(error)))} onCancel={desktop ? cancelExport : undefined} />}
 
         <footer className="cf-footer"><span>CLIPFLOW / BUILT TO KEEP IDEAS MOVING</span><a href="mailto:hello@mstudioweb.pt?subject=Clipflow%20Managed">NEED A MANAGED VIDEO PIPELINE? ↗</a></footer>
