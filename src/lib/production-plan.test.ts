@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildScript } from "./script";
 import { loadPack } from "./packs";
 import { MSTUDIO_PROFILE } from "./profile";
-import { buildProductionPlan, estimatePlanCost, findUnapprovedShot, applyShotEdits, editShot, normalizeShotValue, regenerateShot, setShotEdit, validateShotField, validPlanEdits } from "./production-plan";
+import { buildProductionPlan, estimatePlanCost, findUnapprovedShot, applyShotEdits, changedShotCues, editShot, normalizeShotValue, regenerateShot, restoreShot, setShotEdit, validateShotField, validPlanEdits } from "./production-plan";
 
 describe("production-plan", () => {
   it("derives 5 shot cards with durations matching the cue grid", () => {
@@ -202,5 +202,74 @@ describe("editShot approval reset", () => {
     expect(next.edits).toEqual({});
     expect(next.approvedShots[3]).toBe(false);
     expect(next.approvedShots.slice(0, 3)).toEqual([true, true, true]);
+  });
+});
+
+describe("restoreShot", () => {
+  const plan = () => {
+    const pack = loadPack("clipflow");
+    const script = buildScript("car detailing", MSTUDIO_PROFILE, pack);
+    return buildProductionPlan(script, pack, "af_heart");
+  };
+
+  it("clears one shot's overrides back to the generated card and unapproves it", () => {
+    const p = plan();
+    const edits = { 1: { imagePrompt: "custom", cameraDirection: "whip pan", durationSecs: 9 }, 3: { cameraDirection: "keep" } };
+    const next = restoreShot(edits, [true, true, true, true, true], 1, p.shots[1]!);
+    // Only shot 1 is reset; shot 3's override survives.
+    expect(next.edits).toEqual({ 3: { cameraDirection: "keep" } });
+    expect(next.approvedShots).toEqual([true, false, true, true, true]);
+    // The restored plan matches the generated card exactly (prompt/camera/duration).
+    const restored = applyShotEdits(p, next.edits);
+    expect(restored.shots[1]).toEqual(p.shots[1]);
+    expect(restored.totalSecs).toBe(p.totalSecs);
+  });
+
+  it("restores a duration-only override without leaving a phantom total", () => {
+    const p = plan();
+    const edits = { 4: { durationSecs: 12 } };
+    const next = restoreShot(edits, [true, true, true, true, true], 4, p.shots[4]!);
+    expect(next.edits).toEqual({});
+    expect(applyShotEdits(p, next.edits).totalSecs).toBe(p.totalSecs);
+  });
+
+  it("returns the same references when the shot has no overrides", () => {
+    const p = plan();
+    const edits = { 2: { imagePrompt: "x" } };
+    const approved = [true, true, false, true, true];
+    const next = restoreShot(edits, approved, 0, p.shots[0]!);
+    expect(next.edits).toBe(edits);
+    expect(next.approvedShots).toBe(approved);
+  });
+
+  it("clears an override even when the generated value carries whitespace", () => {
+    // A generated prompt can end in a space (the builder slices mid-sentence).
+    const padded = "pack style, #000 to #111 gradient backdrop, a sentence that ends ";
+    const p = plan();
+    const edits = { 0: { imagePrompt: "custom" } };
+    const next = restoreShot(edits, [true, true, true, true, true], 0, { ...p.shots[0]!, imagePrompt: padded });
+    expect(next.edits).toEqual({});
+  });
+});
+
+describe("changedShotCues", () => {
+  const plan = () => {
+    const pack = loadPack("clipflow");
+    const script = buildScript("car detailing", MSTUDIO_PROFILE, pack);
+    return buildProductionPlan(script, pack, "af_heart");
+  };
+
+  it("reports nothing for the same plan and only the regenerated cue for a take", () => {
+    const p = plan();
+    expect(changedShotCues(p, p)).toEqual([]);
+    expect(changedShotCues(p, regenerateShot(p, 2, 1))).toEqual([2]);
+  });
+
+  it("reports a cue whose prompt moved and one whose duration moved", () => {
+    const p = plan();
+    const promptMoved = { ...p, shots: p.shots.map((s, i) => (i === 1 ? { ...s, imagePrompt: "totally new" } : s)) };
+    expect(changedShotCues(p, promptMoved)).toEqual([1]);
+    const durationMoved = { ...p, shots: p.shots.map((s, i) => (i === 4 ? { ...s, durationSecs: s.durationSecs + 1 } : s)) };
+    expect(changedShotCues(p, durationMoved)).toEqual([4]);
   });
 });

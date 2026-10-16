@@ -7,7 +7,7 @@ import { browserStorage as storage } from "./lib/storage";
 import { readWordTiming } from "./lib/session";
 import { assignAiBackgrounds } from "./lib/ai-backgrounds";
 import { applyScriptOverrides, hasScriptOverrides } from "./lib/script-draft";
-import { applyShotEdits, buildProductionPlan, editShot, estimatePlanCost, regenerateShot, type ShotEditField } from "./lib/production-plan";
+import { applyShotEdits, buildProductionPlan, editShot, estimatePlanCost, regenerateShot, restoreShot, type ShotEditField } from "./lib/production-plan";
 import { DEFAULT_VOICE } from "./lib/tts-local";
 import { previewSpeak } from "./lib/tts";
 import { desktop, nativeMediaUrl, projectFingerprint, showInFolder } from "./lib/desktop";
@@ -237,7 +237,7 @@ export function App() {
           </div>}
         </div>
 
-        {withEdits && cost && <ProductionPlanView plan={withEdits} cost={cost} planSeeds={planSeeds} approvedShots={approvedShots} disabled={isWorking}
+        {withSeeds && withEdits && cost && <ProductionPlanView plan={withEdits} generated={withSeeds} cost={cost} planSeeds={planSeeds} planEdits={planEdits} approvedShots={approvedShots} disabled={isWorking}
           onRegenerate={(cueIndex) => {
             setPlanSeeds((s) => ({ ...s, [cueIndex]: (s[cueIndex] ?? 0) + 1 }));
             // A new take supersedes a hand-edited prompt (regenerate rewrites
@@ -260,6 +260,14 @@ export function App() {
             if (derived === undefined) return;
             // editShot owns the no-op check + approval reset (pure, tested).
             const next = editShot(planEdits, approvedShots, cueIndex, field, value, derived);
+            if (next.edits !== planEdits) setPlanEdits(next.edits);
+            if (next.approvedShots !== approvedShots) setApprovedShots(next.approvedShots);
+          }}
+          onRestoreShot={(cueIndex) => {
+            const shot = withSeeds?.shots[cueIndex];
+            if (!shot) return;
+            // restoreShot owns the revert (via setShotEdit) + approval reset.
+            const next = restoreShot(planEdits, approvedShots, cueIndex, shot);
             if (next.edits !== planEdits) setPlanEdits(next.edits);
             if (next.approvedShots !== approvedShots) setApprovedShots(next.approvedShots);
           }} />}
