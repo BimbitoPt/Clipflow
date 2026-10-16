@@ -6,6 +6,7 @@ import type { CaptionMode } from '../../shared/caption-plan';
 import type { VisualEffect } from '../../shared/visual-effects';
 import type { PlatformId } from '../../shared/platform-presets';
 import type { PackId } from './packs';
+import type { PlanEdits } from './production-plan';
 import type { VideoScript } from './script';
 
 export const desktop = isTauri();
@@ -24,6 +25,7 @@ export interface DesktopProjectV1 {
   // guards as the browser session (bad keys/array → defaults).
   planSeeds?: Record<number, number>;
   approvedShots?: boolean[];
+  planEdits?: PlanEdits;
   baseScript?: VideoScript | null;
   renderPlan?: Record<string, unknown> | null;
 }

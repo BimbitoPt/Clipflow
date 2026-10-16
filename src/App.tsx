@@ -7,7 +7,7 @@ import { browserStorage as storage } from "./lib/storage";
 import { readWordTiming } from "./lib/session";
 import { assignAiBackgrounds } from "./lib/ai-backgrounds";
 import { applyScriptOverrides, hasScriptOverrides } from "./lib/script-draft";
-import { buildProductionPlan, estimatePlanCost, regenerateShot } from "./lib/production-plan";
+import { applyShotEdits, buildProductionPlan, editShot, estimatePlanCost, regenerateShot, type ShotEditField } from "./lib/production-plan";
 import { DEFAULT_VOICE } from "./lib/tts-local";
 import { previewSpeak } from "./lib/tts";
 import { desktop, nativeMediaUrl, projectFingerprint, showInFolder } from "./lib/desktop";
@@ -49,7 +49,7 @@ export function App() {
   const {
     idea, setIdea, packId, setPackId, profile, saved, onSaveProfile,
     scriptOverrides, setScriptOverrides, sceneChoices, setSceneChoices,
-    planSeeds, setPlanSeeds, approvedShots, setApprovedShots,
+    planSeeds, setPlanSeeds, approvedShots, setApprovedShots, planEdits, setPlanEdits,
     selectedScene, setSelectedScene, voiceOn, setVoiceOn, captionMode, setCaptionMode,
     captionOverrides, setCaptionOverrides, platform, setPlatform, creditOn, setCreditOn,
     visualEffect, setVisualEffect, queueText, setQueueText,
@@ -97,9 +97,16 @@ export function App() {
       plan,
     );
   }, [plan, planSeeds]);
+  // Hand-edited shot fields overlay the seeded takes. Editing a prompt/camera
+  // rewrites the card; an edited duration re-sums the plan total. Same plan
+  // object when there are no edits, so the memo identity stays stable.
+  const withEdits = useMemo(
+    () => (withSeeds ? applyShotEdits(withSeeds, planEdits) : null),
+    [withSeeds, planEdits],
+  );
   const cost = useMemo(
-    () => (withSeeds ? estimatePlanCost(withSeeds, { voiceOn, width: 720, height: 1280, fps: 30 }) : null),
-    [withSeeds, voiceOn],
+    () => (withEdits ? estimatePlanCost(withEdits, { voiceOn, width: 720, height: 1280, fps: 30 }) : null),
+    [withEdits, voiceOn],
   );
   const scriptErr = generatedErr || editErr;
 
@@ -230,13 +237,32 @@ export function App() {
           </div>}
         </div>
 
-        {withSeeds && cost && <ProductionPlanView plan={withSeeds} cost={cost} planSeeds={planSeeds} approvedShots={approvedShots} disabled={isWorking}
+        {withEdits && cost && <ProductionPlanView plan={withEdits} cost={cost} planSeeds={planSeeds} approvedShots={approvedShots} disabled={isWorking}
           onRegenerate={(cueIndex) => {
             setPlanSeeds((s) => ({ ...s, [cueIndex]: (s[cueIndex] ?? 0) + 1 }));
+            // A new take supersedes a hand-edited prompt (regenerate rewrites
+            // it), but camera and duration edits still stand.
+            setPlanEdits((edits) => {
+              const shot = edits[cueIndex];
+              if (!shot || shot.imagePrompt === undefined) return edits;
+              const { imagePrompt: _prompt, ...rest } = shot;
+              const next = { ...edits };
+              if (rest.cameraDirection !== undefined || rest.durationSecs !== undefined) next[cueIndex] = rest;
+              else delete next[cueIndex];
+              return next;
+            });
             // A new take is unapproved by definition.
             setApprovedShots((a) => a.map((v, i) => (i === cueIndex ? false : v)));
           }}
-          onToggleApprove={(cueIndex) => setApprovedShots((a) => a.map((v, i) => (i === cueIndex ? !v : v)))} />}
+          onToggleApprove={(cueIndex) => setApprovedShots((a) => a.map((v, i) => (i === cueIndex ? !v : v)))}
+          onEditShot={(cueIndex, field, value) => {
+            const derived = withSeeds?.shots[cueIndex]?.[field];
+            if (derived === undefined) return;
+            // editShot owns the no-op check + approval reset (pure, tested).
+            const next = editShot(planEdits, approvedShots, cueIndex, field, value, derived);
+            if (next.edits !== planEdits) setPlanEdits(next.edits);
+            if (next.approvedShots !== approvedShots) setApprovedShots(next.approvedShots);
+          }} />}
 
         {script && <ExportPanel script={script} tiktok={tiktok} xpost={xpost} voiceOn={voiceOn} onVoiceChange={setVoiceOn} onPreviewVoice={() => previewSpeak(script.hook)}
           onExport={() => void runExport(exportCtx)} onCopy={(value) => void copyText(value)} status={status} progress={exportProgress} message={exportMsg} voiceWarn={voiceWarn} downloadUrl={exportUrl} voiceDownloadUrl={voiceDownloadUrl} captionMode={captionMode} onCaptionModeChange={setCaptionMode} visualEffect={visualEffect} onVisualEffectChange={setVisualEffect} platform={platform} onPlatformChange={setPlatform} creditOn={creditOn} onCreditChange={setCreditOn}

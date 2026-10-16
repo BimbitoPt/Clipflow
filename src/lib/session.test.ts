@@ -49,6 +49,7 @@ function snapshot(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
     pack: "mstudio",
     planSeeds: {},
     approvedShots: defaultApprovedShots(),
+    planEdits: {},
     ...overrides,
   };
 }
@@ -117,19 +118,22 @@ describe("readSession", () => {
       idea: "car detailing",
       planSeeds: { 0: 1 },
       approvedShots: [true, false, false, false, false],
+      planEdits: { 0: { imagePrompt: "custom", durationSecs: 6.5 } },
     });
     const back = readSession(store);
     expect(back?.planSeeds).toEqual({ 0: 1 });
     expect(back?.approvedShots).toEqual([true, false, false, false, false]);
+    expect(back?.planEdits).toEqual({ 0: { imagePrompt: "custom", durationSecs: 6.5 } });
   });
 
   it("reads pre-plan snapshots with plan defaults", () => {
     const store = memoryStore();
-    const { planSeeds: _seeds, approvedShots: _shots, ...legacy } = snapshot();
+    const { planSeeds: _seeds, approvedShots: _shots, planEdits: _edits, ...legacy } = snapshot();
     store.setItem(SESSION_KEY, JSON.stringify({ version: 1, ...legacy }));
     const back = readSession(store)!;
     expect(back.planSeeds).toEqual({});
     expect(back.approvedShots).toEqual([false, false, false, false, false]);
+    expect(back.planEdits).toEqual({});
   });
 
   it("falls back to plan defaults without nulling the session", () => {
@@ -141,6 +145,10 @@ describe("readSession", () => {
       { approvedShots: [true, false] },
       { approvedShots: [true, false, false, false, "yes"] },
       { approvedShots: "all" },
+      { planEdits: { 0: { imagePrompt: "" } } },
+      { planEdits: { 5: { cameraDirection: "x" } } },
+      { planEdits: [1, 2] },
+      { planEdits: "none" },
     ]) {
       const store = memoryStore();
       store.setItem(SESSION_KEY, JSON.stringify({ version: 1, ...snapshot(), ...extra }));
@@ -150,6 +158,7 @@ describe("readSession", () => {
       expect(back!.approvedShots).toEqual(
         "approvedShots" in extra ? [false, false, false, false, false] : snapshot().approvedShots,
       );
+      expect(back!.planEdits).toEqual("planEdits" in extra ? {} : snapshot().planEdits);
     }
   });
 });
@@ -185,25 +194,25 @@ describe("plan guards", () => {
     const initial = { idea: "fixed-price websites that ship in two weeks", profile: PROFILE, scriptOverrides: {}, pack: "mstudio" };
     const restored = { idea: "car detailing", profile: PROFILE, scriptOverrides: {}, pack: "clipflow" };
     let restoredSig: string | null = null;
-    let plan: { seeds: Record<number, number>; approvals: boolean[] } = { seeds: {}, approvals: defaultApprovedShots() };
+    let plan: { seeds: Record<number, number>; approvals: boolean[]; edits: Record<number, unknown> } = { seeds: {}, approvals: defaultApprovedShots(), edits: {} };
     const resetEffect = (inputs: typeof initial) => {
       const sig = planInputsSig(inputs);
       if (restoredSig !== null) {
         if (restoredSig === sig) return "skipped";
         restoredSig = null;
       }
-      plan = { seeds: {}, approvals: defaultApprovedShots() };
+      plan = { seeds: {}, approvals: defaultApprovedShots(), edits: {} };
       return "reset";
     };
 
     expect(resetEffect(initial)).toBe("reset"); // mount: no-op over defaults
-    // Restore lands: takes + signature recorded after the reset settled.
-    plan = { seeds: { 0: 1 }, approvals: [true, false, false, false, false] };
+    // Restore lands: takes, approvals and hand-edits + signature recorded after the reset settled.
+    plan = { seeds: { 0: 1 }, approvals: [true, false, false, false, false], edits: { 2: { imagePrompt: "custom" } } };
     restoredSig = planInputsSig(restored);
     expect(resetEffect(restored)).toBe("skipped"); // post-restore refire settles
-    expect(plan).toEqual({ seeds: { 0: 1 }, approvals: [true, false, false, false, false] });
+    expect(plan).toEqual({ seeds: { 0: 1 }, approvals: [true, false, false, false, false], edits: { 2: { imagePrompt: "custom" } } });
     expect(resetEffect({ ...restored, idea: "new idea" })).toBe("reset"); // genuine edit invalidates
-    expect(plan).toEqual({ seeds: {}, approvals: [false, false, false, false, false] });
+    expect(plan).toEqual({ seeds: {}, approvals: [false, false, false, false, false], edits: {} });
   });
 });
 

@@ -5,6 +5,7 @@ import { PACK_IDS, type PackId } from "./packs";
 import type { Profile } from "./profile";
 import type { ScriptOverrides } from "./script-draft";
 import type { SceneChoice } from "./scene-assets";
+import { validPlanEdits, type PlanEdits } from "./production-plan";
 import { isTimedCueTimingArray, isTimingWindow } from "./word-timing-validation";
 import type { TimedCueTiming } from "./planner";
 import { safeStorageGet, type KeyValueStore } from "./storage";
@@ -32,12 +33,14 @@ export interface SessionSnapshot {
   platform: PlatformId;
   credit: boolean;
   pack: PackId;
-  // AI Director plan takes: per-shot regenerate seeds + per-shot approvals.
-  // Optional so pre-plan snapshots still read; the plan itself is re-derived
-  // via buildProductionPlan on load, so stored bytes can never disagree
-  // with the script.
+  // AI Director plan takes: per-shot regenerate seeds, per-shot approvals,
+  // and per-shot hand-edits (prompt / camera / duration). Optional so
+  // pre-plan snapshots still read; the plan itself is re-derived via
+  // buildProductionPlan on load and edits overlay it, so stored bytes can
+  // never disagree with the script.
   planSeeds?: Record<number, number>;
   approvedShots?: boolean[];
+  planEdits?: PlanEdits;
 }
 
 const CAPTION_MODES = ["auto", "scene", "speech", "off"] as const;
@@ -140,6 +143,7 @@ export function readSession(store: KeyValueStore): SessionSnapshot | null {
       pack?: unknown;
       planSeeds?: unknown;
       approvedShots?: unknown;
+      planEdits?: unknown;
     };
     if (!parsed || parsed.version !== 1 || typeof parsed.idea !== "string") return null;
     if (!Array.isArray(parsed.sceneChoices) || parsed.sceneChoices.length !== 5 || !parsed.sceneChoices.every(validSceneChoice)) return null;
@@ -164,6 +168,7 @@ export function readSession(store: KeyValueStore): SessionSnapshot | null {
           : "mstudio",
       planSeeds: validPlanSeeds(parsed.planSeeds),
       approvedShots: validApprovedShots(parsed.approvedShots),
+      planEdits: validPlanEdits(parsed.planEdits),
     };
   } catch {
     return null;
@@ -189,6 +194,7 @@ export function writeSession(store: KeyValueStore, snapshot: SessionSnapshot): v
         pack: snapshot.pack,
         planSeeds: snapshot.planSeeds ?? {},
         approvedShots: snapshot.approvedShots ?? defaultApprovedShots(),
+        planEdits: snapshot.planEdits ?? {},
       }),
     );
   } catch {
