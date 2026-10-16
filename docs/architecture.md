@@ -137,7 +137,10 @@ Invariants (enforced in `useClipflowProject.restoreProject`/`desktopAction` and 
   `scriptOverrides`, `packId`); restores record `planInputsSig` and the
   reset skips while live inputs still match it. Hand-editing a shot
   (`editShot`) unapproves it and drops an override that returns to its
-  derived value.
+  derived value; `restoreShot` clears every override on one shot (built
+  on `setShotEdit`, so the revert rule keeps one home) and unapproves it.
+  Both return the same references when nothing changed, so React state
+  and the dirty flag stay stable.
   `projectFingerprint` is sorted-key JSON excluding volatile fields —
   it drives the dirty check and script-reuse cache.
 
@@ -205,7 +208,7 @@ behavior through `shared/`, never by editing both renderers in parallel.
 
 1. Pipeline changes flow downstream: script → timing → frames → pixels
    → export. The production plan derives from the script the same way
-   (only takes/approvals persist, never the plan). Update the stage contract (§2) and its tests together.
+   (only takes, approvals and hand-edits persist, never the plan). Update the stage contract (§2) and its tests together.
 2. New cross-renderer behavior goes in `shared/` first, then wired into
    both renderers — never renderer-first.
 3. Data-shape changes (`VideoScript`, `DesktopProjectV1`, Zod schemas)

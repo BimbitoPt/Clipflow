@@ -94,7 +94,11 @@ reinvent.
 - **Shot card fields** (production plan): each shot reuses `.cf-beat`;
   the editable prompt/camera/duration fields reuse the scene-caption
   label pattern (`.cf-caption-label`) with `.cf-error` for inline
-  validation. No new classes — editing a field unapproves the shot.
+  validation. An overridden field carries a `.cf-shot-edited` accent chip
+  ("edited") beside its label, and a shot with any override offers
+  RESTORE GENERATED (secondary button) — the only added class. The chip
+  is a scoped exception to the §1 one-accent rule: it marks state, not
+  decoration. Editing a field, or restoring, unapproves the shot.
 - **Export progress**: `5px` track `#243123`, accent fill span, mono status
   line beneath.
 - **Post copy**: stacked `<details>` rows (TikTok / X / LinkedIn), mono

@@ -17,6 +17,9 @@ export interface ShotCard {
 /** The shot-card fields a director can hand-edit (all others stay derived). */
 export type ShotEditField = "imagePrompt" | "cameraDirection" | "durationSecs";
 
+/** Every editable field, in card order. Shared by the card and `restoreShot`. */
+export const SHOT_EDIT_FIELDS: readonly ShotEditField[] = ["imagePrompt", "cameraDirection", "durationSecs"];
+
 /**
  * One shot's overrides. Sparse on purpose: only fields the user actually
  * changed are stored, so an untouched field keeps tracking the script.
@@ -189,7 +192,11 @@ export function setShotEdit(
   const current = edits[cueIndex];
   const existing = current?.[field];
   const hadOverride = existing !== undefined;
-  const isDerived = normalized === derived;
+  // Compare on the canonical form: a generated value may carry untrimmed text
+  // (a prompt sliced mid-sentence can end in a space), and a revert to it must
+  // still register as "no override" or RESTORE GENERATED would leave a
+  // permanent phantom override behind.
+  const isDerived = normalized === normalizeShotValue(field, derived);
   if (!hadOverride && isDerived) return edits;
   if (hadOverride && normalized === existing) return edits;
   const shot: ShotEdit = { ...(current ?? {}) };
@@ -252,6 +259,47 @@ export function editShot(
   const nextEdits = setShotEdit(edits, cueIndex, field, value, derived);
   if (nextEdits === edits) return { edits, approvedShots };
   return { edits: nextEdits, approvedShots: approvedShots.map((v, i) => (i === cueIndex ? false : v)) };
+}
+
+/**
+ * Clear every override on one shot, reverting its card to the generated
+ * take. Built on `setShotEdit` (each field reset to its derived value) so
+ * the "revert removes the override" rule keeps one home, and it unapproves
+ * the shot: the approved artifact changed. Returns the SAME references when
+ * the shot had no overrides, so React state and the dirty flag stay stable.
+ * `shot` is the un-edited card from the seeded plan.
+ */
+export function restoreShot(
+  edits: PlanEdits,
+  approvedShots: boolean[],
+  cueIndex: number,
+  shot: ShotCard,
+): { edits: PlanEdits; approvedShots: boolean[] } {
+  if (!edits[cueIndex]) return { edits, approvedShots };
+  let next = edits;
+  for (const field of SHOT_EDIT_FIELDS) {
+    if (edits[cueIndex]?.[field] === undefined) continue;
+    next = setShotEdit(next, cueIndex, field, shot[field], shot[field]);
+  }
+  if (next === edits) return { edits, approvedShots };
+  return { edits: next, approvedShots: approvedShots.map((v, i) => (i === cueIndex ? false : v)) };
+}
+
+/**
+ * Cue indexes whose generated card differs between two plans. The shot card
+ * uses this as its staleness key: an open, un-committed draft must be dropped
+ * when the value it was typed against is replaced (a regenerated take, a new
+ * idea, a restored project), or the field would briefly show text that is no
+ * longer part of document state. Compares the three editable fields by value,
+ * so a plan rebuilt with identical content reports nothing.
+ */
+export function changedShotCues(previous: ProductionPlan, next: ProductionPlan): number[] {
+  const changed: number[] = [];
+  next.shots.forEach((shot, index) => {
+    const before = previous.shots[index];
+    if (!before || before.imagePrompt !== shot.imagePrompt || before.cameraDirection !== shot.cameraDirection || before.durationSecs !== shot.durationSecs) changed.push(shot.cueIndex);
+  });
+  return changed;
 }
 
 /**

@@ -64,9 +64,15 @@ User promises (DIY):
    estimate, derived from the script and pack. Prompt, camera direction
    and duration are editable document state, validated on edit and load
    (non-empty text within budget; duration 1–60s); editing a field, or
-   regenerating a take, unapproves that shot. Regenerate rewrites a
-   shot's prompt but keeps its camera/duration edits. Export requires all
-   5 shots approved (`E_PLAN_APPROVAL`). Edits, takes and approvals reset
+   regenerating a take, unapproves that shot. An edited field is marked
+   `edited`, and the shot offers RESTORE GENERATED to clear its overrides.
+   Regenerate rewrites a shot's prompt but keeps its camera/duration
+   edits. Durations are plan spec only: an edited duration moves the
+   plan's total duration and cost estimate, while the render still follows
+   the script grid (the header shows both). An open field draft is
+   discarded when its shot's generated card changes (regenerate, new idea,
+   project restore). Export requires all 5 shots
+   approved (`E_PLAN_APPROVAL`). Edits, takes and approvals reset
    whenever the script inputs change, and persist across reloads and
    `.clipflow` projects.
 7. **Export** — one button: browser MP4 download or desktop native
@@ -90,7 +96,7 @@ first. Never reorder the loop without updating this file.
 | Script panel | Story structure | 5 beats, selected state, per-beat caption label when in scene-caption mode. |
 | Preview panel | Truth | Phone frame canvas, scene strip (HOOK/BEAT×3/CTA), ratio note. Sticky on desktop. |
 | Scene tray | Visual assignment | Current-look card, library tabs, upload dropzone, proof-approval checkbox. |
-| Production plan | Shot review | 5 shot cards with cost estimate; per-shot prompt/camera/duration are editable and validated; regenerate + approve toggles; editing a shot unapproves it; export gated on all 5 approvals. |
+| Production plan | Shot review | 5 shot cards with cost estimate; per-shot prompt/camera/duration are editable and validated, and an edited field is marked `edited`; RESTORE GENERATED clears a shot's overrides; regenerate + approve toggles; editing or restoring a shot unapproves it; durations are plan spec only (the header shows the render's grid seconds); export gated on all 5 approvals. |
 | Export panel | Output | Voice toggle, caption/effect controls, export CTA, progress, post-copy details. |
 | Desktop toolbar | Native projects | New/Open/Save/Import, path + dirty dot, busy states, Ctrl+S/O/N shortcuts, close-guard on unsaved work. |
 | Footer | Exit | Wordmark + managed upsell link. One link, quiet. |
@@ -175,7 +181,10 @@ approvals persisted across reloads and `.clipflow` projects,
 approval-gated export.
 Shipped from AI Director Phase 1.5: editable shot cards — prompt, camera
 direction and duration are validated document state; editing a shot
-unapproves it and re-sums the plan's total duration and cost.
+unapproves it and re-sums the plan's total duration and cost. Each
+overridden field is marked `edited`; RESTORE GENERATED clears a shot's
+overrides; the plan labels its total as spec, showing the render's
+script-grid seconds beside it.
 Remaining vectors: preview fidelity (export = preview pixels), caption
 style presets (≥3, per teardown), DIY→batch-studio handoff,
 1080p export upgrade path, cloud voices as a paid convenience. Managed
