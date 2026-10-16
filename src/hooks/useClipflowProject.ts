@@ -8,6 +8,7 @@ import { markMilestone } from "../lib/activation";
 import { desktop, confirmDiscard, importNativeMedia, initialDesktopProject, openDesktopProject, projectFingerprint, saveDesktopProject, type DesktopProjectV1 } from "../lib/desktop";
 import { PACK_IDS, type PackId, type Theme } from "../lib/packs";
 import { planFrames, VIDEO_SECS } from "../lib/planner";
+import { validPlanEdits, type PlanEdits } from "../lib/production-plan";
 import { loadInitialProfile, saveProfile } from "../lib/profile";
 import type { SceneChoice } from "../lib/scene-assets";
 import type { ScriptOverrides } from "../lib/script-draft";
@@ -76,11 +77,12 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
   const [idea, setIdea] = useState("fixed-price websites that ship in two weeks");
   const [scriptOverrides, setScriptOverrides] = useState<ScriptOverrides>({});
   const [sceneChoices, setSceneChoices] = useState<SceneChoice[]>(() => Array.from({ length: 5 }, () => ({ kind: "auto-ai" })));
-  // AI Director plan takes: per-shot regenerate seeds + per-shot approvals.
-  // Both reset whenever the script inputs change (effect below) — a stale
-  // approval must never survive a new script.
+  // AI Director plan takes: per-shot regenerate seeds, per-shot approvals,
+  // and per-shot hand-edits. All reset whenever the script inputs change
+  // (effect below) — a stale approval must never survive a new script.
   const [planSeeds, setPlanSeeds] = useState<Record<number, number>>({});
   const [approvedShots, setApprovedShots] = useState<boolean[]>(() => defaultApprovedShots());
+  const [planEdits, setPlanEdits] = useState<PlanEdits>({});
   // Signature of the script inputs at the last restore (browser session or
   // native project). The reset effect skips while the live inputs still
   // match it, so restored takes survive the post-restore refire — see the
@@ -108,7 +110,7 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
   const [sidecarTiming, setSidecarTiming] = useState<string | null>(() => readTimingSidecar(storage));
 
   const profile = useMemo(() => ({ niche, audience, offer, tone, proof }), [niche, audience, offer, tone, proof]);
-  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: sidecarTiming, planSeeds, approvedShots };
+  const projectDraft = { version: 1 as const, idea, profile, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, timing: sidecarTiming, planSeeds, approvedShots, planEdits };
   const projectSnapshot = projectFingerprint(projectDraft);
   const projectDirty = projectSnapshot !== savedSnapshot;
 
@@ -131,8 +133,10 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
     // throws as before.
     const incomingPlanSeeds = validPlanSeeds(project.planSeeds);
     const incomingApprovals = validApprovedShots(project.approvedShots);
+    const incomingPlanEdits = validPlanEdits(project.planEdits);
     setPlanSeeds(incomingPlanSeeds);
     setApprovedShots(incomingApprovals);
+    setPlanEdits(incomingPlanEdits);
     // The native restore lands input state the reset effect watches: record
     // its signature (effective pack — an unknown pack keeps the live one)
     // so the post-restore refire settles instead of wiping restored takes.
@@ -155,7 +159,7 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
     const { savedAt: _savedAt, ...draft } = project;
     // Normalized with the plan defaults above: opening a pre-plan file must
     // settle clean, not flag dirty against the live draft's plan fields.
-    setSavedSnapshot(projectFingerprint({ ...draft, planSeeds: incomingPlanSeeds, approvedShots: incomingApprovals, timing: incomingTiming })); setProjectPath(path); setSelectedScene(0); onRestored(); setErr("");
+    setSavedSnapshot(projectFingerprint({ ...draft, planSeeds: incomingPlanSeeds, approvedShots: incomingApprovals, planEdits: incomingPlanEdits, timing: incomingTiming })); setProjectPath(path); setSelectedScene(0); onRestored(); setErr("");
   }
 
   // --- Desktop actions ------------------------------------------------------
@@ -215,6 +219,7 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
     }
     setPlanSeeds({});
     setApprovedShots(defaultApprovedShots());
+    setPlanEdits({});
   }, [idea, profile, scriptOverrides, packId]);
 
   // Native close: ask before dropping unsaved changes or an in-flight export.
@@ -259,6 +264,7 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
     setPackId(session.pack);
     setPlanSeeds(session.planSeeds ?? {});
     setApprovedShots(session.approvedShots ?? defaultApprovedShots());
+    setPlanEdits(session.planEdits ?? {});
     // The session lands input state the reset effect (above) watches:
     // record its signature so the post-restore refire settles instead of
     // wiping the restored takes. Session carries no profile — the live
@@ -274,8 +280,8 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
 
   useEffect(() => {
     if (desktop) return;
-    writeSession(storage, { idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, planSeeds, approvedShots } satisfies SessionSnapshot);
-  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn, packId, planSeeds, approvedShots]);
+    writeSession(storage, { idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, credit: creditOn, pack: packId, planSeeds, approvedShots, planEdits } satisfies SessionSnapshot);
+  }, [idea, scriptOverrides, sceneChoices, captionMode, captionOverrides, voiceOn, visualEffect, platform, creditOn, packId, planSeeds, approvedShots, planEdits]);
 
   useEffect(() => {
     try {
@@ -307,6 +313,7 @@ export function useClipflowProject(options: ClipflowProjectOptions) {
     sceneChoices, setSceneChoices,
     planSeeds, setPlanSeeds,
     approvedShots, setApprovedShots,
+    planEdits, setPlanEdits,
     selectedScene, setSelectedScene,
     voiceOn, setVoiceOn,
     captionMode, setCaptionMode,

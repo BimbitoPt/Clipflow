@@ -91,6 +91,10 @@ reinvent.
 - **Upload**: dashed `#597151` dropzone, accent text.
 - **Proof approval** (`.cf-proof-approval`): bordered checkbox card —
   used for upload consent, always explicit opt-in copy.
+- **Shot card fields** (production plan): each shot reuses `.cf-beat`;
+  the editable prompt/camera/duration fields reuse the scene-caption
+  label pattern (`.cf-caption-label`) with `.cf-error` for inline
+  validation. No new classes — editing a field unapproves the shot.
 - **Export progress**: `5px` track `#243123`, accent fill span, mono status
   line beneath.
 - **Post copy**: stacked `<details>` rows (TikTok / X / LinkedIn), mono
