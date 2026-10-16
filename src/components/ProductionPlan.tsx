@@ -39,8 +39,9 @@ export function ProductionPlanView({ plan, cost, planSeeds, approvedShots, onReg
 
   const change = (cueIndex: number, field: ShotEditField, raw: string) => {
     const key = `${cueIndex}:${field}`;
-    const value = field === "durationSecs" ? Number(raw) : raw;
-    const error = validateShotField(field, value);
+    // Validate the raw text so an empty duration reports "Enter a duration"
+    // (Number("") would read as 0 and report the min-bound message instead).
+    const error = validateShotField(field, raw);
     setDrafts((current) => ({ ...current, [key]: raw }));
     setErrors((current) => {
       const next = { ...current };
@@ -48,7 +49,7 @@ export function ProductionPlanView({ plan, cost, planSeeds, approvedShots, onReg
       else delete next[key];
       return next;
     });
-    if (!error) onEditShot(cueIndex, field, value);
+    if (!error) onEditShot(cueIndex, field, field === "durationSecs" ? Number(raw) : raw);
   };
 
   // Blur drops the draft: a committed value already equals the plan, and an
